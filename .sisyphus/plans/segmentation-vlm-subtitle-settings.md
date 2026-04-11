@@ -208,11 +208,11 @@ Any subtitle failure must still allow clip export to succeed.
 - Modify: `backend/app/main.py`
 - Add: `backend/tests/test_settings_schema.py`
 
-- [ ] Replace current minimal `SettingsRequest` with full typed schema
-- [ ] Add range validation for all numeric fields
-- [ ] Add provider/model compatibility checks
-- [ ] Keep `/api/settings/validate` working for Qwen and GLM
-- [ ] Make backend schema the sole default-value source for runtime settings
+- [x] Replace current minimal `SettingsRequest` with full typed schema
+- [x] Add range validation for all numeric fields
+- [x] Add provider/model compatibility checks
+- [x] Keep `/api/settings/validate` working for Qwen and GLM
+- [x] Make backend schema the sole default-value source for runtime settings
 
 **Acceptance criteria**
 - Invalid values return structured validation failures
