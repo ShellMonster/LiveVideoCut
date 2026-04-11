@@ -191,12 +191,12 @@ Any subtitle failure must still allow clip export to succeed.
 - Modify: `frontend/src/stores/settingsStore.ts`
 - Modify: `frontend/src/components/SettingsModal.tsx`
 
-- [ ] Add new settings shape for segmentation, VLM strategy, and subtitle modes
-- [ ] Add defaults matching the ranges in this plan
-- [ ] Add grouped UI sections: Segmentation / VLM / Subtitle
-- [ ] Preserve existing API key/base/model inputs
-- [ ] Add provider select: `qwen | glm`
-- [ ] Add subtitle mode and subtitle position/template controls
+- [x] Add new settings shape for segmentation, VLM strategy, and subtitle modes
+- [x] Add defaults matching the ranges in this plan
+- [x] Add grouped UI sections: Segmentation / VLM / Subtitle
+- [x] Preserve existing API key/base/model inputs
+- [x] Add provider select: `qwen | glm`
+- [x] Add subtitle mode and subtitle position/template controls
 
 **Acceptance criteria**
 - User can open settings and see all new controls
