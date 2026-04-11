@@ -1,3 +1,5 @@
+# pyright: reportImplicitRelativeImport=false, reportAttributeAccessIssue=false
+
 import json
 import logging
 import os
@@ -6,6 +8,7 @@ from typing import Any, cast
 
 from celery import Celery, chain
 
+from app.api.settings import SettingsRequest
 from app.services.adaptive_similarity import AdaptiveSimilarityAnalyzer
 from app.services.cleanup import TempFileCleaner
 from app.services.error_handler import PipelineErrorHandler
@@ -32,14 +35,29 @@ celery_app = Celery(
 )
 
 
+def _load_task_settings(task_dir: str | Path) -> SettingsRequest:
+    task_path = Path(task_dir)
+    settings_path = task_path / "settings.json"
+
+    if settings_path.exists():
+        return SettingsRequest.model_validate_json(settings_path.read_text())
+
+    payload: dict[str, object] = {
+        "api_key": os.getenv("VLM_API_KEY", ""),
+    }
+    legacy_api_base = os.getenv("VLM_BASE_URL")
+    legacy_model = os.getenv("VLM_MODEL")
+    if legacy_api_base:
+        payload["api_base"] = legacy_api_base
+    if legacy_model:
+        payload["model"] = legacy_model
+    return SettingsRequest.model_validate(payload)
+
+
 @celery_app.task(bind=True, max_retries=3, autoretry_for=(Exception,))
 def start_pipeline(self, task_id: str, file_path: str) -> str:
     task_dir = str(Path(file_path).parent)
-    api_key = os.getenv("VLM_API_KEY", "")
-    base_url = os.getenv(
-        "VLM_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    )
-    model = os.getenv("VLM_MODEL", "qwen-vl-plus")
+    settings = _load_task_settings(task_dir)
     visual_prescreen_task = cast(Any, visual_prescreen)
     vlm_confirm_task = cast(Any, vlm_confirm)
     enrich_segments_task = cast(Any, enrich_segments)
@@ -47,7 +65,13 @@ def start_pipeline(self, task_id: str, file_path: str) -> str:
 
     workflow = chain(
         visual_prescreen_task.si(task_id, file_path, task_dir),
-        vlm_confirm_task.si(task_id, task_dir, api_key, base_url, model),
+        vlm_confirm_task.si(
+            task_id,
+            task_dir,
+            settings.api_key,
+            settings.api_base,
+            settings.model,
+        ),
         enrich_segments_task.si(task_id, task_dir),
         process_clips_task.si(task_id, task_dir),
     )

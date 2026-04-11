@@ -1,9 +1,14 @@
+# pyright: reportImplicitRelativeImport=false, reportFunctionMemberAccess=false
+
 import json
+import os
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, UploadFile
+from fastapi import APIRouter, Form, HTTPException, UploadFile
+from pydantic import ValidationError as PydanticValidationError
 
+from app.api.settings import SettingsRequest
 from app.services.validator import ValidationError, VideoValidator
 from app.tasks.pipeline import start_pipeline
 
@@ -13,13 +18,64 @@ router = APIRouter()
 validator = VideoValidator()
 
 
+def _resolve_upload_settings(settings_json: str | None) -> SettingsRequest:
+    payload: dict[str, object] = {}
+
+    if settings_json:
+        try:
+            parsed = json.loads(settings_json)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=[
+                    {
+                        "type": "json_invalid",
+                        "loc": ["body", "settings_json"],
+                        "msg": f"Invalid JSON: {exc.msg}",
+                        "input": settings_json,
+                    }
+                ],
+            ) from exc
+
+        if not isinstance(parsed, dict):
+            raise HTTPException(
+                status_code=422,
+                detail=[
+                    {
+                        "type": "model_type",
+                        "loc": ["body", "settings_json"],
+                        "msg": "settings_json must decode to an object",
+                        "input": parsed,
+                    }
+                ],
+            )
+        payload = parsed
+
+    payload.setdefault("api_key", os.getenv("VLM_API_KEY", ""))
+
+    if not settings_json:
+        legacy_api_base = os.getenv("VLM_BASE_URL")
+        legacy_model = os.getenv("VLM_MODEL")
+        if legacy_api_base:
+            payload.setdefault("api_base", legacy_api_base)
+        if legacy_model:
+            payload.setdefault("model", legacy_model)
+
+    try:
+        return SettingsRequest.model_validate(payload)
+    except PydanticValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+
+
 @router.post("/api/upload")
-async def upload_file(file: UploadFile):
+async def upload_file(file: UploadFile, settings_json: str | None = Form(None)):
     # 1. Validate extension
     validator.validate_format(file.filename or "")
 
     # 2. Validate size (content-length header)
     validator.validate_size(file.size or 0)
+
+    resolved_settings = _resolve_upload_settings(settings_json)
 
     # 3. Generate task_id and create directory
     task_id = str(uuid.uuid4())
@@ -46,6 +102,13 @@ async def upload_file(file: UploadFile):
     metadata = validator.get_metadata(file_path)
     meta_path = task_dir / "meta.json"
     meta_path.write_text(json.dumps(metadata, indent=2))
+
+    settings_path = task_dir / "settings.json"
+    settings_path.write_text(
+        json.dumps(
+            resolved_settings.model_dump(mode="json"), ensure_ascii=False, indent=2
+        )
+    )
 
     # 7. Dispatch Celery task
     start_pipeline.delay(task_id, file_path)

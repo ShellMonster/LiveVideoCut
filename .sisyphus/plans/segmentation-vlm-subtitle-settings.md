@@ -223,10 +223,10 @@ Any subtitle failure must still allow clip export to succeed.
 - Modify: `backend/app/api/upload.py`
 - Modify: `backend/app/tasks/pipeline.py`
 
-- [ ] Upload endpoint accepts settings payload alongside file
-- [ ] Upload endpoint uses multipart form with a `settings_json` field plus file payload
-- [ ] Resolved settings are written into task directory `settings.json`
-- [ ] Pipeline stages read task-local `settings.json`, not mutable frontend/global state, except as final fallback when snapshot is absent
+- [x] Upload endpoint accepts settings payload alongside file
+- [x] Upload endpoint uses multipart form with a `settings_json` field plus file payload
+- [x] Resolved settings are written into task directory `settings.json`
+- [x] Pipeline stages read task-local `settings.json`, not mutable frontend/global state, except as final fallback when snapshot is absent
 
 **Acceptance criteria**
 - Each task directory contains `settings.json`
