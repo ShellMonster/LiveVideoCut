@@ -240,9 +240,9 @@ Any subtitle failure must still allow clip export to succeed.
 - Modify: `backend/app/services/adaptive_similarity.py`
 - Modify: `backend/app/tasks/pipeline.py`
 
-- [ ] Thread `scene_threshold`, `frame_sample_fps`, `recall_cooldown_seconds`, and `candidate_looseness` through the pipeline
-- [ ] Replace hardcoded `60s` cooldown with task settings
-- [ ] Replace fixed sample rate with settings-controlled sample rate
+- [x] Thread `scene_threshold`, `frame_sample_fps`, `recall_cooldown_seconds`, and `candidate_looseness` through the pipeline
+- [x] Replace hardcoded `60s` cooldown with task settings
+- [x] Replace fixed sample rate with settings-controlled sample rate
 
 **Acceptance criteria**
 - Same video with different settings produces different candidate counts in a traceable way

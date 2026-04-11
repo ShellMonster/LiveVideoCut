@@ -1,5 +1,7 @@
 """Tests for AdaptiveSimilarityAnalyzer — pure logic, no external deps."""
 
+# pyright: reportImplicitRelativeImport=false
+
 import numpy as np
 import pytest
 
@@ -152,3 +154,49 @@ class TestAnalyze:
         timestamps = [float(i) for i in range(20)]
         candidates = analyzer.analyze(embeddings, timestamps)
         assert len(candidates) == 0
+
+    def test_candidate_looseness_changes_recall_sensitivity(
+        self, analyzer, monkeypatch
+    ):
+        monkeypatch.setattr(
+            analyzer,
+            "compute_cosine_similarity",
+            lambda _embeddings: np.array([0.79, 0.80, 0.81, 0.77]),
+        )
+        monkeypatch.setattr(
+            analyzer,
+            "apply_sliding_window",
+            lambda similarities, window_size=5: similarities,
+        )
+        monkeypatch.setattr(
+            analyzer,
+            "compute_adaptive_threshold",
+            lambda _similarities: 0.80,
+        )
+
+        embeddings = np.ones((5, 3), dtype=np.float32)
+        timestamps = [0.0, 1.0, 2.0, 3.0, 4.0]
+
+        strict = analyzer.analyze(
+            embeddings,
+            timestamps,
+            window_size=1,
+            cooldown_seconds=0,
+            candidate_looseness="strict",
+        )
+        standard = analyzer.analyze(
+            embeddings,
+            timestamps,
+            window_size=1,
+            cooldown_seconds=0,
+            candidate_looseness="standard",
+        )
+        loose = analyzer.analyze(
+            embeddings,
+            timestamps,
+            window_size=1,
+            cooldown_seconds=0,
+            candidate_looseness="loose",
+        )
+
+        assert len(strict) < len(standard) < len(loose)

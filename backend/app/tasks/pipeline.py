@@ -92,6 +92,7 @@ def visual_prescreen(
     self, task_id: str, video_path: str, task_dir: str
 ) -> dict[str, Any]:
     task_path = Path(task_dir)
+    settings = _load_task_settings(task_path)
     sm = TaskStateMachine(task_dir=task_path)
     err = PipelineErrorHandler(task_dir=task_path)
     cleaner = TempFileCleaner()
@@ -100,26 +101,38 @@ def visual_prescreen(
         state = sm.transition("UPLOADED", "EXTRACTING_FRAMES", step="extracting_frames")
 
         detector = SceneDetector()
-        scenes = detector.detect(video_path, output_dir=str(task_path / "scenes"))
+        scenes = detector.detect(
+            video_path,
+            output_dir=str(task_path / "scenes"),
+            threshold=settings.scene_threshold,
+        )
         state = sm.transition(
             "EXTRACTING_FRAMES", "SCENE_DETECTING", step="scene_detecting"
         )
 
         extractor = FrameExtractor()
         frames = extractor.extract(
-            video_path, scenes, output_dir=str(task_path / "frames")
+            video_path,
+            scenes,
+            output_dir=str(task_path / "frames"),
+            sample_fps=settings.frame_sample_fps,
         )
         state = sm.transition(
             "SCENE_DETECTING", "VISUAL_SCREENING", step="visual_screening"
         )
 
         encoder = FashionSigLIPEncoder()
-        frame_paths = [f["path"] for f in frames]
+        frame_paths = [str(f["path"]) for f in frames]
         embeddings = encoder.encode_batch(frame_paths)
 
-        timestamps = [f["timestamp"] for f in frames]
+        timestamps = [float(f["timestamp"]) for f in frames]
         analyzer = AdaptiveSimilarityAnalyzer()
-        candidates = analyzer.analyze(embeddings, timestamps)
+        candidates = analyzer.analyze(
+            embeddings,
+            timestamps,
+            cooldown_seconds=float(settings.recall_cooldown_seconds),
+            candidate_looseness=settings.candidate_looseness.value,
+        )
 
         candidates_file = task_path / "candidates.json"
         candidates_file.write_text(json.dumps(candidates, ensure_ascii=False, indent=2))

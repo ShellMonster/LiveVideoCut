@@ -1,5 +1,7 @@
 """Tests for FrameExtractor using test_30s.mp4."""
 
+# pyright: reportImplicitRelativeImport=false
+
 import json
 from pathlib import Path
 
@@ -57,3 +59,20 @@ class TestExtract:
         frames = extractor.extract(str(TEST_VIDEO), scenes, str(tmp_path))
         assert len(frames) >= 4  # 5 seconds at 1fps → ~5 frames
         assert all(f["scene_idx"] == 0 for f in frames)
+
+    def test_uses_configured_sample_fps_in_ffmpeg_filter(
+        self, extractor, sample_scenes, tmp_path, monkeypatch
+    ):
+        captured_filters = []
+
+        def fake_run(cmd, capture_output, timeout, check):
+            captured_filters.append(cmd[cmd.index("-vf") + 1])
+            output_pattern = Path(cmd[-1])
+            output_pattern.parent.mkdir(parents=True, exist_ok=True)
+            (output_pattern.parent / "frame_00001.jpg").write_bytes(b"jpg")
+
+        monkeypatch.setattr("app.services.frame_extractor.subprocess.run", fake_run)
+
+        extractor.extract(str(TEST_VIDEO), sample_scenes, str(tmp_path), sample_fps=3)
+
+        assert captured_filters == ["fps=3", "fps=3"]

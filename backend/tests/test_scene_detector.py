@@ -1,5 +1,7 @@
 """Tests for SceneDetector using test_30s.mp4."""
 
+# pyright: reportImplicitRelativeImport=false
+
 import json
 from pathlib import Path
 
@@ -50,3 +52,43 @@ class TestDetect:
         for scene in scenes:
             duration = scene["end_time"] - scene["start_time"]
             assert duration >= SceneDetector.MIN_SCENE_DURATION
+
+    def test_explicit_threshold_is_not_replaced_by_default(self, detector, monkeypatch):
+        captured = {}
+
+        class _FakeTimecode:
+            def __init__(self, seconds: float):
+                self._seconds = seconds
+
+            def get_seconds(self) -> float:
+                return self._seconds
+
+        class _FakeVideo:
+            def __init__(self):
+                self.duration = _FakeTimecode(12.0)
+
+        class _FakeSceneManager:
+            def add_detector(self, detector):
+                captured["detector"] = detector
+
+            def detect_scenes(self, video):
+                captured["video"] = video
+
+            def get_scene_list(self):
+                return []
+
+        monkeypatch.setattr(
+            "app.services.scene_detector.open_video", lambda _: _FakeVideo()
+        )
+        monkeypatch.setattr(
+            "app.services.scene_detector.SceneManager", _FakeSceneManager
+        )
+        monkeypatch.setattr(
+            "app.services.scene_detector.ContentDetector",
+            lambda threshold: {"threshold": threshold},
+        )
+
+        scenes = detector.detect(str(TEST_VIDEO), threshold=0.0)
+
+        assert captured["detector"] == {"threshold": 0.0}
+        assert scenes == [{"start_time": 0.0, "end_time": 12.0}]

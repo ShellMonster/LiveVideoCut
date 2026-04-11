@@ -9,8 +9,12 @@ class FrameExtractor:
     """Extracts frames at 1fps ONLY within candidate scene regions."""
 
     def extract(
-        self, video_path: str, scenes: list[dict], output_dir: str
-    ) -> list[dict]:
+        self,
+        video_path: str,
+        scenes: list[dict[str, float]],
+        output_dir: str,
+        sample_fps: int = 1,
+    ) -> list[dict[str, str | float | int]]:
         """
         Extract frames at 1fps within each scene region.
 
@@ -25,7 +29,7 @@ class FrameExtractor:
         out = Path(output_dir)
         out.mkdir(parents=True, exist_ok=True)
 
-        all_frames: list[dict] = []
+        all_frames: list[dict[str, str | float | int]] = []
 
         for scene_idx, scene in enumerate(scenes):
             start = scene["start_time"]
@@ -45,7 +49,7 @@ class FrameExtractor:
                 "-i",
                 video_path,
                 "-vf",
-                "fps=1",
+                f"fps={sample_fps}",
                 "-q:v",
                 "2",
                 str(scene_out / "frame_%05d.jpg"),
@@ -54,9 +58,9 @@ class FrameExtractor:
             subprocess.run(cmd, capture_output=True, timeout=300, check=True)
 
             for jpg in sorted(scene_out.glob("frame_*.jpg")):
-                # Parse timestamp from frame number (1fps → frame N = start + N-1 seconds)
+                # Parse timestamp from frame number (fps=N → frame K = start + (K-1)/N seconds)
                 frame_num = int(jpg.stem.split("_")[1])
-                timestamp = start + (frame_num - 1)
+                timestamp = start + ((frame_num - 1) / sample_fps)
                 all_frames.append(
                     {
                         "path": str(jpg),

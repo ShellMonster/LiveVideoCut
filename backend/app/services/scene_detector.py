@@ -9,15 +9,15 @@ from scenedetect import ContentDetector, SceneManager, open_video
 class SceneDetector:
     """Uses PySceneDetect ContentDetector to find scene changes in video."""
 
-    DEFAULT_THRESHOLD = 27.0
-    MIN_SCENE_DURATION = 2.0  # seconds
+    DEFAULT_THRESHOLD: float = 27.0
+    MIN_SCENE_DURATION: float = 2.0  # seconds
 
     def detect(
         self,
         video_path: str,
         output_dir: str | None = None,
         threshold: float | None = None,
-    ) -> list[dict]:
+    ) -> list[dict[str, float]]:
         """
         Detect scene changes in a video file.
 
@@ -36,7 +36,7 @@ class SceneDetector:
         if not path.exists():
             raise FileNotFoundError(f"Video file not found: {video_path}")
 
-        thresh = threshold or self.DEFAULT_THRESHOLD
+        thresh = threshold if threshold is not None else self.DEFAULT_THRESHOLD
         video = open_video(str(path))
         scene_manager = SceneManager()
         scene_manager.add_detector(ContentDetector(threshold=thresh))
@@ -44,7 +44,7 @@ class SceneDetector:
         scene_list = scene_manager.get_scene_list()
 
         # Convert to our format
-        scenes = []
+        scenes: list[dict[str, float]] = []
         for scene in scene_list:
             start_time = scene[0].get_seconds()
             end_time = scene[1].get_seconds()
@@ -52,8 +52,10 @@ class SceneDetector:
 
         # Edge case: no scene changes → single scene spanning entire video
         if not scenes:
-            duration = video.duration.get_seconds()
-            scenes = [{"start_time": 0.0, "end_time": duration}]
+            duration_timecode = getattr(video, "duration", None)
+            if duration_timecode is None:
+                raise ValueError(f"Could not determine video duration for {video_path}")
+            scenes = [{"start_time": 0.0, "end_time": duration_timecode.get_seconds()}]
 
         # Merge very short scenes (< 2s) with adjacent
         scenes = self._merge_short_scenes(scenes)
@@ -68,7 +70,9 @@ class SceneDetector:
 
         return scenes
 
-    def _merge_short_scenes(self, scenes: list[dict]) -> list[dict]:
+    def _merge_short_scenes(
+        self, scenes: list[dict[str, float]]
+    ) -> list[dict[str, float]]:
         """Merge scenes shorter than MIN_SCENE_DURATION with adjacent scene."""
         if len(scenes) <= 1:
             return scenes

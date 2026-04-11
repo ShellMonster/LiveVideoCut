@@ -10,12 +10,34 @@ class AdaptiveSimilarityAnalyzer:
     → cooldown filtering → candidate list.
     """
 
-    DEFAULT_WINDOW_SIZE = 5
-    DEFAULT_COOLDOWN = 60.0
-    THRESHOLD_LOW = 0.78
-    THRESHOLD_HIGH = 0.82
-    PERCENTILE = 90
-    THRESHOLD_SCALE = 0.9
+    DEFAULT_WINDOW_SIZE: int = 5
+    DEFAULT_COOLDOWN: float = 60.0
+    THRESHOLD_LOW: float = 0.78
+    THRESHOLD_HIGH: float = 0.82
+    PERCENTILE: int = 90
+    THRESHOLD_SCALE: float = 0.9
+    LOOSENESS_PROFILES = {
+        "strict": {
+            "threshold_delta": -0.01,
+            "window_delta": 1,
+            "cooldown_multiplier": 1.5,
+        },
+        "standard": {
+            "threshold_delta": 0.0,
+            "window_delta": 0,
+            "cooldown_multiplier": 1.0,
+        },
+        "loose": {
+            "threshold_delta": 0.01,
+            "window_delta": -1,
+            "cooldown_multiplier": 0.75,
+        },
+    }
+
+    def resolve_recall_profile(self, candidate_looseness: str) -> dict[str, float]:
+        return self.LOOSENESS_PROFILES.get(
+            candidate_looseness, self.LOOSENESS_PROFILES["standard"]
+        )
 
     def compute_cosine_similarity(self, embeddings: np.ndarray) -> np.ndarray:
         """Pairwise cosine similarity between consecutive frames.
@@ -56,8 +78,10 @@ class AdaptiveSimilarityAnalyzer:
         return smoothed
 
     def apply_cooldown(
-        self, candidates: list[dict], cooldown_seconds: float = 60.0
-    ) -> list[dict]:
+        self,
+        candidates: list[dict[str, float | int]],
+        cooldown_seconds: float = 60.0,
+    ) -> list[dict[str, float | int]]:
         """After confirming a switch, ignore new candidates within cooldown period."""
         if not candidates:
             return []
@@ -75,7 +99,8 @@ class AdaptiveSimilarityAnalyzer:
         frame_timestamps: list[float],
         window_size: int | None = None,
         cooldown_seconds: float | None = None,
-    ) -> list[dict]:
+        candidate_looseness: str = "standard",
+    ) -> list[dict[str, float | int]]:
         """Full pipeline: similarity → window → threshold → cooldown → candidates.
 
         Args:
@@ -94,15 +119,22 @@ class AdaptiveSimilarityAnalyzer:
         cooldown = (
             cooldown_seconds if cooldown_seconds is not None else self.DEFAULT_COOLDOWN
         )
+        recall_profile = self.resolve_recall_profile(candidate_looseness)
+        adjusted_window = max(1, win + int(recall_profile["window_delta"]))
+        adjusted_cooldown = max(
+            0.0, cooldown * float(recall_profile["cooldown_multiplier"])
+        )
 
         similarities = self.compute_cosine_similarity(embeddings)
-        smoothed = self.apply_sliding_window(similarities, window_size=win)
-        threshold = self.compute_adaptive_threshold(similarities)
+        smoothed = self.apply_sliding_window(similarities, window_size=adjusted_window)
+        threshold = self.compute_adaptive_threshold(similarities) + float(
+            recall_profile["threshold_delta"]
+        )
 
         # Find frames below threshold (low similarity = potential scene switch)
         candidates = []
         # Smoothed array is shorter by (window_size - 1), offset maps back to original indices
-        offset = win - 1
+        offset = adjusted_window - 1
         for i, sim in enumerate(smoothed):
             if sim < threshold:
                 orig_idx = i + offset
@@ -115,4 +147,4 @@ class AdaptiveSimilarityAnalyzer:
                         }
                     )
 
-        return self.apply_cooldown(candidates, cooldown_seconds=cooldown)
+        return self.apply_cooldown(candidates, cooldown_seconds=adjusted_cooldown)
