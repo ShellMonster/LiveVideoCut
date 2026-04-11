@@ -1,0 +1,45 @@
+# Model files
+*.onnx
+*.bin
+*.safetensors
+*.pt
+*.pth
+
+# Uploads
+uploads/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+venv/
+.venv/
+
+# Node
+node_modules/
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Test artifacts
+*.mp4
+!backend/tests/fixtures/test_30s.mp4
+frame_*.jpg
