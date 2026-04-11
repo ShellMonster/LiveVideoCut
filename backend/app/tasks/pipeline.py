@@ -69,6 +69,7 @@ def start_pipeline(self, task_id: str, file_path: str) -> str:
             task_id,
             task_dir,
             settings.api_key,
+            settings.vlm_provider.value,
             settings.api_base,
             settings.model,
             settings.review_mode.value,
@@ -163,6 +164,7 @@ def vlm_confirm(
     task_id: str,
     task_dir: str,
     api_key: str,
+    provider: str = "qwen",
     base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1",
     model: str = "qwen-vl-plus",
     review_mode: str = "segment_multiframe",
@@ -181,7 +183,21 @@ def vlm_confirm(
         candidates = json.loads(candidates_file.read_text())
         frames_dir = str(task_path / "frames")
 
-        client = VLMClient(api_key=api_key, base_url=base_url, model=model)
+        logger.info(
+            "Starting VLM confirm for task %s with provider=%s model=%s base_url=%s review_mode=%s",
+            task_id,
+            provider,
+            model,
+            base_url,
+            review_mode,
+        )
+
+        client = VLMClient(
+            api_key=api_key,
+            provider=provider,
+            base_url=base_url,
+            model=model,
+        )
         confirmor = VLMConfirmor(vlm_client=client)
         confirmed = confirmor.confirm_candidates(
             candidates, frames_dir, task_id=task_id, review_mode=review_mode

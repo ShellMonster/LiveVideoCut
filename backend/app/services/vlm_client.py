@@ -1,4 +1,5 @@
-"""VLM (Vision Language Model) client for Qwen-VL-Plus via OpenAI SDK."""
+# pyright: reportImplicitRelativeImport=false
+"""Provider-aware VLM client for OpenAI-compatible multimodal APIs."""
 
 import base64
 import logging
@@ -7,27 +8,47 @@ from typing import Any, cast
 
 from openai import OpenAI
 
+from app.api.settings import DEFAULT_API_BASES, DEFAULT_MODELS, VLMProvider
+
 logger = logging.getLogger(__name__)
 
-DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-DEFAULT_MODEL = "qwen-vl-plus"
+DEFAULT_PROVIDER = VLMProvider.qwen.value
+DEFAULT_BASE_URL = DEFAULT_API_BASES[DEFAULT_PROVIDER]
+DEFAULT_MODEL = DEFAULT_MODELS[DEFAULT_PROVIDER]
 MAX_RETRIES = 3
 TIMEOUT_SECONDS = 120
 
 
+def _resolve_provider(provider: str | None) -> str:
+    resolved_provider = (provider or DEFAULT_PROVIDER).strip().lower()
+    allowed_providers = {member.value for member in VLMProvider}
+    if resolved_provider not in allowed_providers:
+        raise ValueError(
+            f"Unsupported VLM provider '{resolved_provider}'. "
+            f"Supported providers: {', '.join(sorted(allowed_providers))}"
+        )
+    return resolved_provider
+
+
 class VLMClient:
-    """Qwen-VL-Plus API client using OpenAI SDK compatible interface."""
+    """OpenAI-compatible multimodal client with provider-aware defaults."""
 
     def __init__(
         self,
         api_key: str,
-        base_url: str = DEFAULT_BASE_URL,
-        model: str = DEFAULT_MODEL,
+        provider: str = DEFAULT_PROVIDER,
+        base_url: str | None = None,
+        model: str | None = None,
     ):
+        resolved_provider = _resolve_provider(provider)
+        resolved_base_url = base_url or DEFAULT_API_BASES[resolved_provider]
+        resolved_model = model or DEFAULT_MODELS[resolved_provider]
+
         self.api_key: str = api_key
-        self.base_url: str = base_url
-        self.model: str = model
-        self.client: OpenAI = OpenAI(api_key=api_key, base_url=base_url)
+        self.provider: str = resolved_provider
+        self.base_url: str = resolved_base_url
+        self.model: str = resolved_model
+        self.client: OpenAI = OpenAI(api_key=api_key, base_url=resolved_base_url)
 
     def encode_image_base64(self, image_path: str) -> str:
         """Read image file and return base64-encoded string."""
@@ -74,7 +95,10 @@ class VLMClient:
                 if attempt < MAX_RETRIES - 1:
                     wait = 2**attempt  # 1s, 2s, 4s
                     logger.warning(
-                        "VLM API call failed (attempt %d/%d), retrying in %ds: %s",
+                        "VLM API call failed for provider=%s model=%s "
+                        "(attempt %d/%d), retrying in %ds: %s",
+                        self.provider,
+                        self.model,
                         attempt + 1,
                         MAX_RETRIES,
                         wait,
@@ -83,7 +107,9 @@ class VLMClient:
                     time.sleep(wait)
                 else:
                     logger.error(
-                        "VLM API call failed after %d attempts: %s",
+                        "VLM API call failed for provider=%s model=%s after %d attempts: %s",
+                        self.provider,
+                        self.model,
                         MAX_RETRIES,
                         str(e),
                     )

@@ -270,11 +270,11 @@ Any subtitle failure must still allow clip export to succeed.
 - Modify: `backend/app/tasks/pipeline.py`
 - Add: `backend/tests/test_vlm_provider_switch.py`
 
-- [ ] Normalize provider settings into one OpenAI-compatible client factory
-- [ ] Support provider-specific default base URLs and models
-- [ ] Keep a shared image_url-based message path
-- [ ] Log which provider/model each task used
-- [ ] Restrict first implementation to OpenAI-compatible providers only
+- [x] Normalize provider settings into one OpenAI-compatible client factory
+- [x] Support provider-specific default base URLs and models
+- [x] Keep a shared image_url-based message path
+- [x] Log which provider/model each task used
+- [x] Restrict first implementation to OpenAI-compatible providers only
 
 **Acceptance criteria**
 - User can choose Qwen or GLM in settings
