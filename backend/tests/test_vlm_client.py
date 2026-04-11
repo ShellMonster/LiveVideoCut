@@ -1,3 +1,4 @@
+# pyright: reportImplicitRelativeImport=false
 """Tests for VLMClient — mocked OpenAI SDK, no real API calls."""
 
 import base64
@@ -130,3 +131,45 @@ class TestTimeout:
 
         call_args = mock_openai.chat.completions.create.call_args
         assert call_args.kwargs["timeout"] == 120
+
+
+class TestCompareFramesMulti:
+    def test_sends_all_images_as_base64(self, client, mock_openai, sample_image):
+        mock_message = MagicMock()
+        mock_message.content = "ok"
+        mock_choice = MagicMock()
+        mock_choice.message = mock_message
+        mock_openai.chat.completions.create.return_value = MagicMock(
+            choices=[mock_choice]
+        )
+
+        client.compare_frames_multi(
+            [sample_image, sample_image, sample_image], "prompt"
+        )
+
+        call_args = mock_openai.chat.completions.create.call_args
+        content = call_args.kwargs["messages"][0]["content"]
+        image_items = [c for c in content if c["type"] == "image_url"]
+
+        assert len(image_items) == 3
+        assert all(
+            item["image_url"]["url"].startswith("data:image/jpeg;base64,")
+            for item in image_items
+        )
+
+    def test_returns_response_text_for_multi_image_request(
+        self, client, mock_openai, sample_image
+    ):
+        mock_message = MagicMock()
+        mock_message.content = '{"is_different": true}'
+        mock_choice = MagicMock()
+        mock_choice.message = mock_message
+        mock_openai.chat.completions.create.return_value = MagicMock(
+            choices=[mock_choice]
+        )
+
+        result = client.compare_frames_multi(
+            [sample_image, sample_image, sample_image], "test prompt"
+        )
+
+        assert result == '{"is_different": true}'

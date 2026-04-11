@@ -254,10 +254,10 @@ Any subtitle failure must still allow clip export to succeed.
 - Modify: `backend/app/services/vlm_client.py`
 - Add: `backend/tests/test_segment_multiframe_review.py`
 
-- [ ] Add `review_mode` support
-- [ ] Implement `segment_multiframe` by sampling start/middle/end frames for a candidate segment
-- [ ] Keep `adjacent_frames` as compatibility mode
-- [ ] Add `review_strictness` knobs to prompt construction or decision thresholds
+- [x] Add `review_mode` support
+- [x] Implement `segment_multiframe` by sampling start/middle/end frames for a candidate segment
+- [x] Keep `adjacent_frames` as compatibility mode
+- [x] Add `review_strictness` knobs to prompt construction or decision thresholds
 
 **Acceptance criteria**
 - Backend can run with either adjacent or multiframe review mode

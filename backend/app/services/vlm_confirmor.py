@@ -1,8 +1,10 @@
+# pyright: reportImplicitRelativeImport=false, reportExplicitAny=false
 """VLM confirmation orchestrator — confirms candidate segments via Qwen-VL-Plus."""
 
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
 from app.services.vlm_client import VLMClient
 from app.services.vlm_parser import VLMResponseParser
@@ -17,7 +19,7 @@ class VLMConfirmor:
     Only keeps segments where is_different=true.
     """
 
-    PROMPT_TEMPLATE = """你是一位专业的服装商品分析师。请仔细对比这两张直播截图，从以下5个维度判断是否展示了不同的服装商品：
+    PROMPT_TEMPLATE: str = """你是一位专业的服装商品分析师。请仔细对比这两张直播截图，从以下5个维度判断是否展示了不同的服装商品：
 
 1. 服装类型：上衣/裙子/裤子/外套/配饰/无服装展示
 2. 主色调：主要颜色（红/黑/白/蓝/绿/粉/黄/灰/棕/多色）
@@ -46,35 +48,44 @@ class VLMConfirmor:
 - 只有确实换了不同商品时才设为true"""
 
     def __init__(self, vlm_client: VLMClient):
-        self.client = vlm_client
-        self.parser = VLMResponseParser()
+        self.client: VLMClient = vlm_client
+        self.parser: VLMResponseParser = VLMResponseParser()
 
     def confirm_candidates(
-        self, candidates: list[dict], frames_dir: str, task_id: str = ""
-    ) -> list[dict]:
+        self,
+        candidates: list[dict[str, Any]],
+        frames_dir: str,
+        task_id: str = "",
+        review_mode: str = "adjacent_frames",
+    ) -> list[dict[str, Any]]:
         """For each candidate segment, compare first and last frame via VLM.
 
         Only keeps segments where is_different=true.
         Returns confirmed segments with product info.
         """
         confirmed = []
+        frame_records = self._load_frame_records(frames_dir)
 
         for candidate in candidates:
             try:
-                frame1, frame2 = self._get_key_frames(candidate, frames_dir)
+                raw_response = self._review_candidate(
+                    candidate=candidate,
+                    frames_dir=frames_dir,
+                    frame_records=frame_records,
+                    review_mode=review_mode,
+                )
             except (FileNotFoundError, KeyError):
                 logger.warning("Missing frames for candidate, skipping")
                 continue
-
-            try:
-                raw_response = self.client.compare_frames(
-                    frame1, frame2, self.PROMPT_TEMPLATE
-                )
             except RuntimeError as e:
                 logger.error("VLM call failed for candidate: %s", e)
                 continue
 
-            parsed = self.parser.parse(raw_response)
+            try:
+                parsed = self.parser.parse(raw_response)
+            except Exception as e:
+                logger.error("Failed to parse VLM response for candidate: %s", e)
+                continue
 
             if not parsed.get("is_different", False):
                 continue
@@ -105,38 +116,104 @@ class VLMConfirmor:
 
         return confirmed
 
-    def _get_key_frames(self, candidate: dict, frames_dir: str) -> tuple[str, str]:
+    def _review_candidate(
+        self,
+        candidate: dict[str, Any],
+        frames_dir: str,
+        frame_records: list[dict[str, Any]],
+        review_mode: str,
+    ) -> str:
+        if review_mode == "segment_multiframe":
+            frame_paths = self._get_segment_multiframe_paths(candidate, frame_records)
+            if frame_paths is not None:
+                return self.client.compare_frames_multi(
+                    frame_paths, self.PROMPT_TEMPLATE
+                )
+
+            logger.info(
+                "Candidate missing usable segment boundaries for multiframe review, falling back to adjacent frames"
+            )
+
+        frame1, frame2 = self._get_key_frames(candidate, frames_dir, frame_records)
+        return self.client.compare_frames(frame1, frame2, self.PROMPT_TEMPLATE)
+
+    def _get_key_frames(
+        self,
+        candidate: dict[str, Any],
+        frames_dir: str,
+        frame_records: list[dict[str, Any]] | None = None,
+    ) -> tuple[str, str]:
         """Get first and last frame paths for a candidate segment."""
-        frames_path = Path(frames_dir)
+        all_frames = frame_records or self._load_frame_records(frames_dir)
         frame_idx = candidate.get("frame_idx", 0)
-
-        # Look for frames in scene subdirectories
-        scene_dirs = sorted(frames_path.glob("scene*"))
-        if not scene_dirs:
-            # Flat frame directory
-            all_frames = sorted(frames_path.glob("frame_*.jpg"))
-            if len(all_frames) < 2:
-                raise FileNotFoundError(f"Not enough frames in {frames_dir}")
-            first_idx = max(0, frame_idx - 1)
-            last_idx = min(len(all_frames) - 1, frame_idx)
-            return str(all_frames[first_idx]), str(all_frames[last_idx])
-
-        # Scene-based: find frames in scene directories
-        all_frames = []
-        for scene_dir in scene_dirs:
-            all_frames.extend(sorted(scene_dir.glob("frame_*.jpg")))
-
         if not all_frames:
             raise FileNotFoundError(f"No frames found in {frames_dir}")
 
         first_idx = max(0, frame_idx - 1)
         last_idx = min(len(all_frames) - 1, frame_idx)
-        return str(all_frames[first_idx]), str(all_frames[last_idx])
+        return str(all_frames[first_idx]["path"]), str(all_frames[last_idx]["path"])
 
-    def _save_results(self, confirmed: list[dict], task_id: str) -> None:
+    def _get_segment_multiframe_paths(
+        self, candidate: dict[str, Any], frame_records: list[dict[str, Any]]
+    ) -> list[str] | None:
+        start_time = candidate.get("start_time")
+        end_time = candidate.get("end_time")
+        if start_time is None or end_time is None or end_time <= start_time:
+            return None
+
+        segment_frames = [
+            frame
+            for frame in frame_records
+            if start_time <= float(frame["timestamp"]) <= end_time
+        ]
+        if len(segment_frames) < 3:
+            return None
+
+        midpoint = start_time + ((end_time - start_time) / 2)
+        targets = [start_time, midpoint, end_time]
+        selected_paths: list[str] = []
+        used_paths: set[str] = set()
+
+        for target in targets:
+            closest = min(
+                segment_frames,
+                key=lambda frame: abs(float(frame["timestamp"]) - float(target)),
+            )
+            frame_path = str(closest["path"])
+            if frame_path in used_paths:
+                return None
+            used_paths.add(frame_path)
+            selected_paths.append(frame_path)
+
+        return selected_paths
+
+    def _load_frame_records(self, frames_dir: str) -> list[dict[str, Any]]:
+        frames_path = Path(frames_dir)
+        frames_json = frames_path / "frames.json"
+        if frames_json.exists():
+            records = json.loads(frames_json.read_text())
+            return sorted(records, key=lambda frame: float(frame.get("timestamp", 0.0)))
+
+        all_frames: list[dict[str, Any]] = []
+        scene_dirs = sorted(frames_path.glob("scene*"))
+        if not scene_dirs:
+            scene_dirs = [frames_path]
+
+        index = 0
+        for scene_dir in scene_dirs:
+            for jpg in sorted(scene_dir.glob("frame_*.jpg")):
+                all_frames.append(
+                    {
+                        "path": str(jpg),
+                        "timestamp": float(index),
+                    }
+                )
+                index += 1
+
+        return all_frames
+
+    def _save_results(self, confirmed: list[dict[str, Any]], task_id: str) -> None:
         """Save confirmed segments to JSON file."""
-        from app.services.state_machine import TaskStateMachine
-
         # Determine task_dir from task_id (convention: uploads/{task_id})
         task_dir = Path("uploads") / task_id
         vlm_dir = task_dir / "vlm"

@@ -3,7 +3,7 @@
 import base64
 import logging
 import time
-from pathlib import Path
+from typing import Any, cast
 
 from openai import OpenAI
 
@@ -24,10 +24,10 @@ class VLMClient:
         base_url: str = DEFAULT_BASE_URL,
         model: str = DEFAULT_MODEL,
     ):
-        self.api_key = api_key
-        self.base_url = base_url
-        self.model = model
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
+        self.api_key: str = api_key
+        self.base_url: str = base_url
+        self.model: str = model
+        self.client: OpenAI = OpenAI(api_key=api_key, base_url=base_url)
 
     def encode_image_base64(self, image_path: str) -> str:
         """Read image file and return base64-encoded string."""
@@ -43,35 +43,32 @@ class VLMClient:
         Retry: 3x with exponential backoff (1s, 2s, 4s).
         Timeout: 120s per request.
         """
-        b64_1 = self.encode_image_base64(image1_path)
-        b64_2 = self.encode_image_base64(image2_path)
+        return self.compare_frames_multi([image1_path, image2_path], prompt)
 
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{b64_1}"},
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{b64_2}"},
-                    },
-                    {"type": "text", "text": prompt},
-                ],
-            }
-        ]
+    def compare_frames_multi(self, image_paths: list[str], prompt: str) -> str:
+        """Send multiple frames to VLM for comparison without breaking two-frame callers."""
+        content: list[dict[str, object]] = []
+        for image_path in image_paths:
+            b64 = self.encode_image_base64(image_path)
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
+                }
+            )
+        content.append({"type": "text", "text": prompt})
+
+        messages: list[dict[str, Any]] = [{"role": "user", "content": content}]
 
         last_error = None
         for attempt in range(MAX_RETRIES):
             try:
                 response = self.client.chat.completions.create(
                     model=self.model,
-                    messages=messages,
+                    messages=cast(Any, messages),
                     timeout=TIMEOUT_SECONDS,
                 )
-                return response.choices[0].message.content
+                return response.choices[0].message.content or ""
             except Exception as e:
                 last_error = e
                 if attempt < MAX_RETRIES - 1:

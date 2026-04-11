@@ -82,6 +82,7 @@ def test_start_pipeline_dispatches_full_task_chain(monkeypatch):
                 "snapshot-key",
                 "https://open.bigmodel.cn/api/paas/v4",
                 "glm-5v-turbo",
+                "segment_multiframe",
             ),
         ),
         ("enrich_segments", (task_id, task_dir)),
@@ -149,6 +150,7 @@ def test_start_pipeline_falls_back_to_environment_without_settings_snapshot(
             "env-key",
             "https://dashscope.aliyuncs.com/compatible-mode/v1",
             "qwen-vl-plus",
+            "segment_multiframe",
         ),
     )
 
