@@ -1,15 +1,124 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useSettingsStore, type Settings } from "@/stores/settingsStore";
 import { useTaskStore } from "@/stores/taskStore";
 
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
+interface UploadSettingsPayload {
+  api_key: string;
+  enable_vlm: boolean;
+  export_mode: Settings["exportMode"];
+  vlm_provider: Settings["provider"];
+  api_base: string;
+  model: string;
+  review_strictness: Settings["reviewStrictness"];
+  review_mode: Settings["reviewMode"];
+  scene_threshold: number;
+  frame_sample_fps: number;
+  recall_cooldown_seconds: number;
+  candidate_looseness: Settings["candidateLooseness"];
+  min_segment_duration_seconds: number;
+  dedupe_window_seconds: number;
+  merge_count: number;
+  allow_returned_product: boolean;
+  max_candidate_count: number;
+  subtitle_mode: Settings["subtitleMode"];
+  subtitle_position: Settings["subtitlePosition"];
+  subtitle_template: Settings["subtitleTemplate"];
+  funasr_mode: Settings["funasrMode"];
+  asr_provider: Settings["asrProvider"];
+  asr_api_key: Settings["asrApiKey"];
+  tos_ak: string;
+  tos_sk: string;
+  tos_bucket: string;
+  tos_region: string;
+  tos_endpoint: string;
+}
+
+interface UploadContext {
+  enableVlm: boolean;
+  exportMode: Settings["exportMode"];
+  provider: Settings["provider"];
+  subtitleMode: Settings["subtitleMode"];
+}
+
+const VLM_STATUS_LABELS: Record<"on" | "off", string> = {
+  on: "开启",
+  off: "关闭",
+};
+
+const PROVIDER_LABELS: Record<UploadContext["provider"], string> = {
+  qwen: "Qwen",
+  glm: "GLM",
+};
+
+const EXPORT_MODE_LABELS: Record<UploadContext["exportMode"], string> = {
+  smart: "智能模式",
+  no_vlm: "跳过 VLM",
+  all_candidates: "候选全切",
+  all_scenes: "场景全切",
+};
+
+const SUBTITLE_MODE_LABELS: Record<UploadContext["subtitleMode"], string> = {
+  off: "关闭",
+  basic: "基础字幕",
+  styled: "样式字幕",
+  karaoke: "卡拉 OK",
+};
+
+function buildUploadSettingsPayload(settings: Settings): UploadSettingsPayload {
+  return {
+    api_key: settings.apiKey,
+    enable_vlm: settings.enableVlm,
+    export_mode: settings.exportMode,
+    vlm_provider: settings.provider,
+    api_base: settings.apiBase,
+    model: settings.model,
+    review_strictness: settings.reviewStrictness,
+    review_mode: settings.reviewMode,
+    scene_threshold: settings.sceneThreshold,
+    frame_sample_fps: settings.frameSampleFps,
+    recall_cooldown_seconds: settings.recallCooldownSeconds,
+    candidate_looseness: settings.candidateLooseness,
+    min_segment_duration_seconds: settings.minSegmentDurationSeconds,
+    dedupe_window_seconds: settings.dedupeWindowSeconds,
+    merge_count: settings.mergeCount,
+    allow_returned_product: settings.allowReturnedProduct,
+    max_candidate_count: settings.maxCandidateCount,
+    subtitle_mode: settings.subtitleMode,
+    subtitle_position: settings.subtitlePosition,
+    subtitle_template: settings.subtitleTemplate,
+    funasr_mode: settings.funasrMode,
+    asr_provider: settings.asrProvider,
+    asr_api_key: settings.asrApiKey,
+    tos_ak: settings.tosAk,
+    tos_sk: settings.tosSk,
+    tos_bucket: settings.tosBucket,
+    tos_region: settings.tosRegion,
+    tos_endpoint: settings.tosEndpoint,
+  };
+}
+
 export function UploadZone() {
   const [dragging, setDragging] = useState(false);
+  const [activeUploadContext, setActiveUploadContext] = useState<UploadContext | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { status, progress, error, setTask, setStatus, setError, setProgress, reset } =
     useTaskStore();
+  const provider = useSettingsStore((state) => state.provider);
+  const enableVlm = useSettingsStore((state) => state.enableVlm);
+  const exportMode = useSettingsStore((state) => state.exportMode);
+  const subtitleMode = useSettingsStore((state) => state.subtitleMode);
+
+  const previewContext = useMemo<UploadContext>(
+    () => ({ enableVlm, exportMode, provider, subtitleMode }),
+    [enableVlm, exportMode, provider, subtitleMode],
+  );
+
+  const displayContext = activeUploadContext ?? previewContext;
+  const contextLabel = activeUploadContext ? "当前任务使用" : "新上传将使用";
 
   const upload = useCallback(
     async (file: File) => {
@@ -18,11 +127,21 @@ export function UploadZone() {
         return;
       }
 
+      const currentSettings = useSettingsStore.getState();
+      const uploadContext: UploadContext = {
+        enableVlm: currentSettings.enableVlm,
+        exportMode: currentSettings.exportMode,
+        provider: currentSettings.provider,
+        subtitleMode: currentSettings.subtitleMode,
+      };
+
       reset();
+      setActiveUploadContext(uploadContext);
       setStatus("uploading");
 
       const form = new FormData();
       form.append("file", file);
+      form.append("settings_json", JSON.stringify(buildUploadSettingsPayload(currentSettings)));
 
       try {
         const xhr = new XMLHttpRequest();
@@ -107,6 +226,24 @@ export function UploadZone() {
           onChange={onFileChange}
           className="hidden"
         />
+      </div>
+
+      <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+          <span className="font-medium text-slate-600">{contextLabel}</span>
+          <span className="inline-flex items-center rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
+            VLM：{VLM_STATUS_LABELS[displayContext.enableVlm ? "on" : "off"]}
+          </span>
+          <span className="inline-flex items-center rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
+            模式：{EXPORT_MODE_LABELS[displayContext.exportMode]}
+          </span>
+          <span className="inline-flex items-center rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
+            Provider：{PROVIDER_LABELS[displayContext.provider]}
+          </span>
+          <span className="inline-flex items-center rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
+            字幕：{SUBTITLE_MODE_LABELS[displayContext.subtitleMode]}
+          </span>
+        </div>
       </div>
 
       {isUploading && (

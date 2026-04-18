@@ -1,9 +1,15 @@
 # pyright: reportImplicitRelativeImport=false, reportFunctionMemberAccess=false
+import importlib
 import logging
+import sys
 from unittest.mock import MagicMock, patch
 
-from app.tasks.pipeline import vlm_confirm
 from app.services.vlm_client import VLMClient
+
+
+def _reload_pipeline_module():
+    sys.modules.pop("app.tasks.pipeline", None)
+    return importlib.import_module("app.tasks.pipeline")
 
 
 def test_vlm_client_uses_qwen_defaults_when_provider_absent():
@@ -52,6 +58,7 @@ def test_vlm_client_prefers_explicit_base_and_model_over_provider_defaults():
 
 def test_vlm_confirm_routes_provider_to_vlm_client_and_logs_selection(tmp_path, caplog):
     caplog.set_level(logging.INFO, logger="app.tasks.pipeline")
+    pipeline = _reload_pipeline_module()
     candidates_file = tmp_path / "candidates.json"
     candidates_file.write_text("[]")
     (tmp_path / "frames").mkdir()
@@ -60,12 +67,12 @@ def test_vlm_confirm_routes_provider_to_vlm_client_and_logs_selection(tmp_path, 
     fake_confirmor.confirm_candidates.return_value = []
 
     with (
-        patch("app.tasks.pipeline.VLMClient") as mock_client_cls,
-        patch("app.tasks.pipeline.VLMConfirmor", return_value=fake_confirmor),
+        patch.object(pipeline, "VLMClient") as mock_client_cls,
+        patch.object(pipeline, "VLMConfirmor", return_value=fake_confirmor),
     ):
         mock_client_cls.return_value = MagicMock()
 
-        result = vlm_confirm.run(
+        result = pipeline.vlm_confirm.run(
             "task-123",
             str(tmp_path),
             "test-key",

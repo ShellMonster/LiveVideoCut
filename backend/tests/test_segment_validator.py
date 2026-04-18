@@ -1,3 +1,5 @@
+# pyright: reportImplicitRelativeImport=false
+
 """Tests for SegmentValidator — pure logic, no external dependencies."""
 
 from app.services.segment_validator import SegmentValidator
@@ -33,6 +35,21 @@ class TestDurationValidation:
 
         result = validator.validate(segments, video_duration=3600.0)
         assert len(result) == 0
+
+    def test_lower_min_duration_setting_keeps_short_valid_segment(self):
+        validator = SegmentValidator(min_duration=25.0)
+
+        segments = [
+            {
+                "start_time": 0.0,
+                "end_time": 30.0,
+                "product_name": "短但有效",
+            }
+        ]
+
+        result = validator.validate(segments, video_duration=3600.0)
+        assert len(result) == 1
+        assert result[0]["end_time"] == 30.0
 
     def test_700s_segment_truncated_to_600s(self):
         validator = SegmentValidator()
@@ -104,6 +121,25 @@ class TestDeduplication:
         assert len(result) == 1
         assert result[0]["start_time"] == 0.0
 
+    def test_dedupe_window_setting_changes_collapse_behavior(self):
+        validator = SegmentValidator(dedupe_window=90.0)
+
+        segments = [
+            {
+                "start_time": 0.0,
+                "end_time": 120.0,
+                "product_name": "白色连衣裙",
+            },
+            {
+                "start_time": 180.0,
+                "end_time": 300.0,
+                "product_name": "白色连衣裙",
+            },
+        ]
+
+        result = validator.validate(segments, video_duration=3600.0)
+        assert len(result) == 2
+
     def test_same_name_beyond_5min_both_kept(self):
         validator = SegmentValidator()
 
@@ -142,6 +178,61 @@ class TestDeduplication:
 
         result = validator.validate(segments, video_duration=3600.0)
         assert len(result) == 2
+
+    def test_allow_returned_product_true_keeps_repeat_visits(self):
+        validator = SegmentValidator(dedupe_window=300.0, allow_returned_product=True)
+
+        segments = [
+            {
+                "start_time": 0.0,
+                "end_time": 120.0,
+                "product_name": "白色连衣裙",
+            },
+            {
+                "start_time": 130.0,
+                "end_time": 220.0,
+                "product_name": "黑色T恤",
+            },
+            {
+                "start_time": 250.0,
+                "end_time": 390.0,
+                "product_name": "白色连衣裙",
+            },
+        ]
+
+        result = validator.validate(segments, video_duration=3600.0)
+        assert [seg["product_name"] for seg in result] == [
+            "白色连衣裙",
+            "黑色T恤",
+            "白色连衣裙",
+        ]
+
+    def test_allow_returned_product_false_still_collapses_repeat_visits(self):
+        validator = SegmentValidator(dedupe_window=300.0, allow_returned_product=False)
+
+        segments = [
+            {
+                "start_time": 0.0,
+                "end_time": 120.0,
+                "product_name": "白色连衣裙",
+            },
+            {
+                "start_time": 130.0,
+                "end_time": 220.0,
+                "product_name": "黑色T恤",
+            },
+            {
+                "start_time": 250.0,
+                "end_time": 390.0,
+                "product_name": "白色连衣裙",
+            },
+        ]
+
+        result = validator.validate(segments, video_duration=3600.0)
+        assert [seg["product_name"] for seg in result] == [
+            "白色连衣裙",
+            "黑色T恤",
+        ]
 
 
 class TestEdgeCases:

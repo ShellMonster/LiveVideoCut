@@ -138,8 +138,10 @@ class TestLowConfidenceFlag:
     def test_low_confidence_flagged(
         self, confirmor, mock_client, frames_dir, candidates
     ):
-        mock_client.compare_frames.return_value = _make_vlm_response(confidence=0.4)
-        result = confirmor.confirm_candidates(candidates, frames_dir)
+        mock_client.compare_frames.return_value = _make_vlm_response(confidence=0.55)
+        result = confirmor.confirm_candidates(
+            candidates, frames_dir, review_strictness="loose"
+        )
         assert result[0]["low_confidence"] is True
 
     def test_high_confidence_not_flagged(
@@ -148,6 +150,47 @@ class TestLowConfidenceFlag:
         mock_client.compare_frames.return_value = _make_vlm_response(confidence=0.9)
         result = confirmor.confirm_candidates(candidates, frames_dir)
         assert result[0]["low_confidence"] is False
+
+
+class TestReviewStrictnessThresholds:
+    def test_strict_filters_mid_confidence_matches(
+        self, confirmor, mock_client, frames_dir, candidates
+    ):
+        mock_client.compare_frames.return_value = _make_vlm_response(
+            is_different=True, confidence=0.65
+        )
+
+        result = confirmor.confirm_candidates(
+            candidates, frames_dir, review_strictness="strict"
+        )
+
+        assert result == []
+
+    def test_standard_keeps_threshold_match(
+        self, confirmor, mock_client, frames_dir, candidates
+    ):
+        mock_client.compare_frames.return_value = _make_vlm_response(
+            is_different=True, confidence=0.6
+        )
+
+        result = confirmor.confirm_candidates(
+            candidates, frames_dir, review_strictness="standard"
+        )
+
+        assert len(result) == 2
+
+    def test_loose_keeps_lower_confidence_matches(
+        self, confirmor, mock_client, frames_dir, candidates
+    ):
+        mock_client.compare_frames.return_value = _make_vlm_response(
+            is_different=True, confidence=0.55
+        )
+
+        result = confirmor.confirm_candidates(
+            candidates, frames_dir, review_strictness="loose"
+        )
+
+        assert len(result) == 2
 
 
 class TestEmptyCandidates:

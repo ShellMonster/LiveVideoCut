@@ -2,10 +2,14 @@
   "active_plan": "/Users/daozhang/Trae_AI/直播视频剪辑_GLM/.sisyphus/plans/live-stream-clipper.md",
   "started_at": "2026-04-09T17:39:32.656Z",
   "session_ids": [
-    "ses_28d18356cffe9Q07JltMn7zuG7"
+    "ses_28d18356cffe9Q07JltMn7zuG7",
+    "ses_27b322904ffex76dBn1XfMuLzS",
+    "ses_27b3225bbffeEvzN3IxG04Hc3V"
   ],
   "session_origins": {
-    "ses_28d18356cffe9Q07JltMn7zuG7": "direct"
+    "ses_28d18356cffe9Q07JltMn7zuG7": "direct",
+    "ses_27b322904ffex76dBn1XfMuLzS": "appended",
+    "ses_27b3225bbffeEvzN3IxG04Hc3V": "appended"
   },
   "plan_name": "live-stream-clipper",
   "agent": "atlas",

@@ -4,9 +4,11 @@
 *.safetensors
 *.pt
 *.pth
+*.tflite
 
-# Uploads
+# Uploads & task outputs
 uploads/
+clip_verify/
 
 # Python
 __pycache__/
@@ -33,6 +35,7 @@ frontend/dist/
 # OS
 .DS_Store
 Thumbs.db
+top-right.png
 
 # Environment
 .env
@@ -43,3 +46,9 @@ Thumbs.db
 *.mp4
 !backend/tests/fixtures/test_30s.mp4
 frame_*.jpg
+
+# Playwright MCP
+.playwright-mcp/
+
+# Sisyphus working files
+.sisyphus/notepads/

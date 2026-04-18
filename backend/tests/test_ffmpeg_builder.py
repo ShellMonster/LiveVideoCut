@@ -1,5 +1,7 @@
 """Tests for FFmpegBuilder."""
 
+# pyright: reportImplicitRelativeImport=false
+
 import shutil
 import tempfile
 from pathlib import Path
@@ -7,7 +9,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.services.ffmpeg_builder import FFmpegBuilder
+from app.services.ffmpeg_builder import (
+    FFmpegBuilder,
+    SUBTITLE_FONT_FAMILY,
+    SUBTITLE_FONTS_DIR,
+)
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 TEST_VIDEO = FIXTURES_DIR / "test_30s.mp4"
@@ -52,20 +58,30 @@ class TestBuildCutCommand:
         )
         cmd_str = " ".join(cmd)
         assert "subtitles=" in cmd_str
+        assert f"fontsdir={SUBTITLE_FONTS_DIR.resolve()}" in cmd_str
+
+    def test_uses_ass_subtitle_file_without_force_style(self, builder):
+        cmd = builder.build_cut_command(
+            "input.mp4", 0.0, 30.0, "sub.ass", "bgm.mp3", "wm.png", "out.mp4"
+        )
+        cmd_str = " ".join(cmd)
+        assert "subtitles=filename=sub.ass" in cmd_str
+        assert "force_style=" not in cmd_str
 
     def test_does_not_embed_force_style_in_filter(self, builder):
         cmd = builder.build_cut_command(
             "input.mp4", 0.0, 30.0, "sub.srt", "bgm.mp3", "wm.png", "out.mp4"
         )
         cmd_str = " ".join(cmd)
-        assert "force_style=" not in cmd_str
+        assert "force_style=" in cmd_str
+        assert f"FontName={SUBTITLE_FONT_FAMILY}" in cmd_str
 
-    def test_contains_overlay_filter(self, builder):
+    def test_does_not_contain_overlay_filter(self, builder):
         cmd = builder.build_cut_command(
             "input.mp4", 0.0, 30.0, "sub.srt", "bgm.mp3", "wm.png", "out.mp4"
         )
         cmd_str = " ".join(cmd)
-        assert "overlay=W-w-15:15" in cmd_str
+        assert "overlay=W-w-15:15" not in cmd_str
 
     def test_contains_amix_filter(self, builder):
         cmd = builder.build_cut_command(
@@ -154,7 +170,24 @@ class TestBuildCutCommand:
         )
         cmd_str = " ".join(cmd)
         assert "subtitles=" not in cmd_str
-        assert "overlay=W-w-15:15" in cmd_str
+        assert "overlay=W-w-15:15" not in cmd_str
+
+    def test_threads_subtitle_position_and_template_into_filter(self, builder):
+        cmd = builder.build_cut_command(
+            "input.mp4",
+            0.0,
+            30.0,
+            "sub.srt",
+            "bgm.mp3",
+            "wm.png",
+            "out.mp4",
+            subtitle_position="middle",
+            subtitle_template="bold",
+        )
+        cmd_str = " ".join(cmd)
+        assert "force_style=" in cmd_str
+        assert "Alignment=10" in cmd_str
+        assert "FontSize=22" in cmd_str
 
 
 class TestBuildThumbnailCommand:
@@ -208,6 +241,34 @@ class TestFallbackBehavior:
         second_cmd = mock_run.call_args_list[1].args[0]
         assert "subtitles=" in " ".join(first_cmd)
         assert "subtitles=" not in " ".join(second_cmd)
+
+    def test_skips_subtitle_retry_when_mode_is_off(self, builder, tmp_dir):
+        output_path = str(tmp_dir / "clip.mp4")
+        thumb_path = str(tmp_dir / "thumb.jpg")
+
+        segment = {"start_time": 0.0, "end_time": 5.0}
+
+        ok = MagicMock(returncode=0, stderr="")
+        thumb_ok = MagicMock(returncode=0, stderr="")
+
+        with patch(
+            "app.services.ffmpeg_builder.subprocess.run",
+            side_effect=[ok, thumb_ok],
+        ) as mock_run:
+            builder.process_clip(
+                input_path="input.mp4",
+                segment=segment,
+                srt_path=None,
+                bgm_path="bgm.mp3",
+                watermark_path="wm.png",
+                output_path=output_path,
+                thumbnail_path=thumb_path,
+                subtitle_mode="off",
+            )
+
+        first_cmd = mock_run.call_args_list[0].args[0]
+        assert "subtitles=" not in " ".join(first_cmd)
+        assert len(mock_run.call_args_list) == 2
 
 
 @pytest.mark.skipif(not ffmpeg_available, reason="ffmpeg not installed")

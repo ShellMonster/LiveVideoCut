@@ -2,6 +2,7 @@ import { ErrorCard } from "@/components/ErrorCard";
 import { ProgressBar } from "@/components/ProgressBar";
 import { ResultGrid } from "@/components/ResultGrid";
 import { SettingsModal } from "@/components/SettingsModal";
+import { ToastViewport } from "@/components/ToastViewport";
 import { UploadZone } from "@/components/UploadZone";
 import { useTaskProgress } from "@/hooks/useWebSocket";
 import { useTaskStore } from "@/stores/taskStore";
@@ -15,6 +16,7 @@ function App() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <SettingsModal />
+      <ToastViewport />
 
       <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-8 px-4 py-10 sm:px-6 lg:px-8">
         <section className="space-y-3">

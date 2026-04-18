@@ -51,7 +51,9 @@ def _resolve_upload_settings(settings_json: str | None) -> SettingsRequest:
             )
         payload = parsed
 
-    payload.setdefault("api_key", os.getenv("VLM_API_KEY", ""))
+    env_api_key = os.getenv("VLM_API_KEY", "").strip()
+    if not str(payload.get("api_key", "")).strip() and env_api_key:
+        payload["api_key"] = env_api_key
 
     if not settings_json:
         legacy_api_base = os.getenv("VLM_BASE_URL")

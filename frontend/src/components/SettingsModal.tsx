@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Settings } from "lucide-react";
+import { Settings as SettingsIcon } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -8,14 +8,20 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import {
+  DEFAULT_API_BASES,
+  DEFAULT_MODELS,
   useSettingsStore,
+  type Settings as SettingsValues,
   type ReviewMode,
+  type ExportMode,
   type StrictnessMode,
   type SubtitleMode,
   type SubtitlePosition,
   type SubtitleTemplate,
   type VlmProvider,
+  type AsrProvider,
 } from "@/stores/settingsStore";
+import { useToastStore } from "@/stores/toastStore";
 
 const inputClassName =
   "w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none";
@@ -42,9 +48,21 @@ function Section({
   );
 }
 
+function applyProviderDefaults(provider: VlmProvider, draft: SettingsValues): SettingsValues {
+  return {
+    ...draft,
+    provider,
+    apiBase: DEFAULT_API_BASES[provider],
+    model: DEFAULT_MODELS[provider],
+  };
+}
+
 export function SettingsModal() {
   const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const {
+    enableVlm,
+    exportMode,
     provider,
     apiKey,
     apiBase,
@@ -57,16 +75,26 @@ export function SettingsModal() {
     candidateLooseness,
     minSegmentDurationSeconds,
     dedupeWindowSeconds,
+    mergeCount,
     allowReturnedProduct,
     maxCandidateCount,
     subtitleMode,
     subtitlePosition,
     subtitleTemplate,
     funasrMode,
+    asrProvider,
+    asrApiKey,
+    tosAk,
+    tosSk,
+    tosBucket,
+    tosRegion,
+    tosEndpoint,
     setSettings,
   } = useSettingsStore();
 
   const [draft, setDraft] = useState({
+    enableVlm,
+    exportMode,
     provider,
     apiKey,
     apiBase,
@@ -79,17 +107,27 @@ export function SettingsModal() {
     candidateLooseness,
     minSegmentDurationSeconds,
     dedupeWindowSeconds,
+    mergeCount,
     allowReturnedProduct,
     maxCandidateCount,
     subtitleMode,
     subtitlePosition,
     subtitleTemplate,
     funasrMode,
+    asrProvider,
+    asrApiKey,
+    tosAk,
+    tosSk,
+    tosBucket,
+    tosRegion,
+    tosEndpoint,
   });
-  const [error, setError] = useState<string | null>(null);
+  const showToast = useToastStore((state) => state.showToast);
 
   const handleOpen = () => {
     setDraft({
+      enableVlm,
+      exportMode,
       provider,
       apiKey,
       apiBase,
@@ -102,13 +140,21 @@ export function SettingsModal() {
       candidateLooseness,
       minSegmentDurationSeconds,
       dedupeWindowSeconds,
+      mergeCount,
       allowReturnedProduct,
       maxCandidateCount,
       subtitleMode,
       subtitlePosition,
       subtitleTemplate,
       funasrMode,
-    });
+    asrProvider,
+    asrApiKey,
+    tosAk,
+    tosSk,
+    tosBucket,
+    tosRegion,
+    tosEndpoint,
+  });
     setError(null);
     setOpen(true);
   };
@@ -122,43 +168,46 @@ export function SettingsModal() {
   };
 
   const handleSave = () => {
-    if (!draft.apiKey.trim()) {
-      setError("API Key is required");
+    if (draft.exportMode === "smart" && !draft.apiKey.trim()) {
+      const message = "VLM 已启用，请先输入 API 密钥";
+      setError(message);
+      showToast(message, "error");
       return;
     }
     setSettings(draft);
     setError(null);
     setOpen(false);
+    showToast("设置已保存", "success");
   };
 
   return (
     <>
-      <button
-        className="settings-btn fixed right-4 top-4 rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-        onClick={handleOpen}
-        aria-label="Settings"
-      >
-        <Settings size={20} />
+        <button
+          className="settings-btn fixed right-4 top-4 rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+          onClick={handleOpen}
+          aria-label="设置"
+        >
+        <SettingsIcon size={20} />
       </button>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Pipeline Settings</DialogTitle>
+            <DialogTitle>流程设置</DialogTitle>
             <DialogDescription>
-              Configure segmentation, VLM review, and subtitle defaults for new uploads.
+              配置分段、VLM 复核和新上传任务的默认字幕参数。
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
             <Section
-              title="Segmentation"
-              description="Tune how candidate segments are recalled and compressed before VLM review."
+              title="分段设置"
+              description="调整候选片段在进入 VLM 复核前的召回与压缩方式。"
             >
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
                   <label htmlFor="scene-threshold" className="mb-1 block text-sm font-medium text-slate-700">
-                    Scene Threshold
+                    场景阈值
                   </label>
                   <input
                     id="scene-threshold"
@@ -174,14 +223,14 @@ export function SettingsModal() {
 
                 <div>
                   <label htmlFor="frame-sample-fps" className="mb-1 block text-sm font-medium text-slate-700">
-                    Frame Sample FPS
+                    采样帧率 FPS
                   </label>
                   <input
                     id="frame-sample-fps"
                     type="number"
-                    min={1}
+                    min={0.25}
                     max={5}
-                    step="1"
+                    step="0.25"
                     className={inputClassName}
                     value={draft.frameSampleFps}
                     onChange={(e) => updateNumber("frameSampleFps", e.target.value)}
@@ -190,7 +239,7 @@ export function SettingsModal() {
 
                 <div>
                   <label htmlFor="recall-cooldown" className="mb-1 block text-sm font-medium text-slate-700">
-                    Recall Cooldown (seconds)
+                    召回冷却时间（秒）
                   </label>
                   <input
                     id="recall-cooldown"
@@ -206,7 +255,7 @@ export function SettingsModal() {
 
                 <div>
                   <label htmlFor="candidate-looseness" className="mb-1 block text-sm font-medium text-slate-700">
-                    Candidate Looseness
+                    候选宽松度
                   </label>
                   <select
                     id="candidate-looseness"
@@ -216,15 +265,15 @@ export function SettingsModal() {
                       setDraft({ ...draft, candidateLooseness: e.target.value as StrictnessMode })
                     }
                   >
-                    <option value="strict">Strict</option>
-                    <option value="standard">Standard</option>
-                    <option value="loose">Loose</option>
+                    <option value="strict">严格</option>
+                    <option value="standard">标准</option>
+                    <option value="loose">宽松</option>
                   </select>
                 </div>
 
                 <div>
                   <label htmlFor="min-segment-duration" className="mb-1 block text-sm font-medium text-slate-700">
-                    Min Segment Duration (seconds)
+                    最短片段时长（秒）
                   </label>
                   <input
                     id="min-segment-duration"
@@ -240,7 +289,7 @@ export function SettingsModal() {
 
                 <div>
                   <label htmlFor="dedupe-window" className="mb-1 block text-sm font-medium text-slate-700">
-                    Dedupe Window (seconds)
+                    去重窗口（秒）
                   </label>
                   <input
                     id="dedupe-window"
@@ -253,13 +302,29 @@ export function SettingsModal() {
                     onChange={(e) => updateNumber("dedupeWindowSeconds", e.target.value)}
                   />
                 </div>
+
+                <div>
+                  <label htmlFor="merge-count" className="mb-1 block text-sm font-medium text-slate-700">
+                    片段合并数
+                  </label>
+                  <input
+                    id="merge-count"
+                    type="number"
+                    min={1}
+                    max={10}
+                    step="1"
+                    className={inputClassName}
+                    value={draft.mergeCount}
+                    onChange={(e) => updateNumber("mergeCount", e.target.value)}
+                  />
+                </div>
               </div>
 
               <label className="flex items-center justify-between gap-4 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
                 <div>
-                  <span className="font-medium text-slate-900">Allow Returned Product</span>
+                  <span className="font-medium text-slate-900">允许商品再次出现</span>
                   <p className="mt-0.5 text-xs text-slate-500">
-                    Keep segments where the same product returns later in the stream.
+                    保留同一商品在直播后续再次出现的片段。
                   </p>
                 </div>
                 <input
@@ -272,19 +337,45 @@ export function SettingsModal() {
             </Section>
 
             <Section
-              title="VLM"
-              description="Keep the existing API credentials while adding provider and review strategy controls."
+              title="VLM 设置"
+              description="选择导出走哪条流程线，再决定是否需要 VLM 复核与相关参数。"
             >
               <div className="grid gap-4 md:grid-cols-2">
+                <div className="md:col-span-2">
+                  <label htmlFor="export-mode" className="mb-1 block text-sm font-medium text-slate-700">
+                    导出模式
+                  </label>
+                  <select
+                    id="export-mode"
+                    className={inputClassName}
+                    value={draft.exportMode}
+                    onChange={(e) => {
+                      const nextExportMode = e.target.value as ExportMode;
+                      setDraft({
+                        ...draft,
+                        exportMode: nextExportMode,
+                        enableVlm: nextExportMode === "smart",
+                      });
+                    }}
+                  >
+                    <option value="smart">智能模式</option>
+                    <option value="no_vlm">跳过 VLM</option>
+                    <option value="all_candidates">候选全切</option>
+                    <option value="all_scenes">场景全切</option>
+                  </select>
+                </div>
+
                 <div>
                   <label htmlFor="provider" className="mb-1 block text-sm font-medium text-slate-700">
-                    Provider
+                    提供方
                   </label>
                   <select
                     id="provider"
                     className={inputClassName}
                     value={draft.provider}
-                    onChange={(e) => setDraft({ ...draft, provider: e.target.value as VlmProvider })}
+                    onChange={(e) =>
+                      setDraft(applyProviderDefaults(e.target.value as VlmProvider, draft))
+                    }
                   >
                     <option value="qwen">Qwen</option>
                     <option value="glm">GLM</option>
@@ -293,7 +384,7 @@ export function SettingsModal() {
 
                 <div>
                   <label htmlFor="review-strictness" className="mb-1 block text-sm font-medium text-slate-700">
-                    Review Strictness
+                    VLM 严格度
                   </label>
                   <select
                     id="review-strictness"
@@ -302,16 +393,17 @@ export function SettingsModal() {
                     onChange={(e) =>
                       setDraft({ ...draft, reviewStrictness: e.target.value as StrictnessMode })
                     }
+                    disabled={draft.exportMode !== "smart"}
                   >
-                    <option value="strict">Strict</option>
-                    <option value="standard">Standard</option>
-                    <option value="loose">Loose</option>
+                    <option value="strict">严格</option>
+                    <option value="standard">标准</option>
+                    <option value="loose">宽松</option>
                   </select>
                 </div>
 
                 <div className="md:col-span-2">
                   <label htmlFor="api-key" className="mb-1 block text-sm font-medium text-slate-700">
-                    VLM API Key
+                    VLM API 密钥
                   </label>
                   <input
                     id="api-key"
@@ -320,12 +412,13 @@ export function SettingsModal() {
                     value={draft.apiKey}
                     onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })}
                     placeholder="sk-..."
+                    disabled={draft.exportMode !== "smart"}
                   />
                 </div>
 
                 <div className="md:col-span-2">
                   <label htmlFor="api-base" className="mb-1 block text-sm font-medium text-slate-700">
-                    API Base URL
+                    API 基础地址
                   </label>
                   <input
                     id="api-base"
@@ -338,7 +431,7 @@ export function SettingsModal() {
 
                 <div>
                   <label htmlFor="model" className="mb-1 block text-sm font-medium text-slate-700">
-                    Model
+                    模型
                   </label>
                   <input
                     id="model"
@@ -351,7 +444,7 @@ export function SettingsModal() {
 
                 <div>
                   <label htmlFor="review-mode" className="mb-1 block text-sm font-medium text-slate-700">
-                    Review Mode
+                    复核模式
                   </label>
                   <select
                     id="review-mode"
@@ -359,14 +452,14 @@ export function SettingsModal() {
                     value={draft.reviewMode}
                     onChange={(e) => setDraft({ ...draft, reviewMode: e.target.value as ReviewMode })}
                   >
-                    <option value="adjacent_frames">Adjacent Frames</option>
-                    <option value="segment_multiframe">Segment Multi-frame</option>
+                    <option value="adjacent_frames">相邻帧</option>
+                    <option value="segment_multiframe">片段多帧</option>
                   </select>
                 </div>
 
                 <div>
                   <label htmlFor="max-candidate-count" className="mb-1 block text-sm font-medium text-slate-700">
-                    Max Candidate Count
+                    最大候选数量
                   </label>
                   <input
                     id="max-candidate-count"
@@ -382,7 +475,7 @@ export function SettingsModal() {
 
                 <div>
                   <label htmlFor="funasr-mode" className="mb-1 block text-sm font-medium text-slate-700">
-                    FunASR Mode
+                    FunASR 模式
                   </label>
                   <select
                     id="funasr-mode"
@@ -392,21 +485,131 @@ export function SettingsModal() {
                       setDraft({ ...draft, funasrMode: e.target.value as "local" | "remote" })
                     }
                   >
-                    <option value="local">Local Docker</option>
-                    <option value="remote">Remote API</option>
+                    <option value="local">本地 Docker</option>
+                    <option value="remote">远程 API</option>
                   </select>
                 </div>
               </div>
             </Section>
 
             <Section
-              title="Subtitle"
-              description="Choose how clip subtitles should be generated when later backend wiring lands."
+              title="语音识别设置"
+              description="选择语音转写（ASR）的服务提供方。"
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label htmlFor="asr-provider" className="mb-1 block text-sm font-medium text-slate-700">
+                    ASR 提供方
+                  </label>
+                  <select
+                    id="asr-provider"
+                    className={inputClassName}
+                    value={draft.asrProvider}
+                    onChange={(e) =>
+                      setDraft({ ...draft, asrProvider: e.target.value as AsrProvider })
+                    }
+                  >
+                    <option value="dashscope">阿里云 DashScope</option>
+                    <option value="volcengine">火山引擎 豆包</option>
+                  </select>
+                </div>
+
+                {draft.asrProvider === "volcengine" && (
+                  <>
+                    <div className="md:col-span-2">
+                      <label htmlFor="asr-api-key" className="mb-1 block text-sm font-medium text-slate-700">
+                        火山引擎 API Key
+                      </label>
+                      <input
+                        id="asr-api-key"
+                        type="password"
+                        className={inputClassName}
+                        value={draft.asrApiKey}
+                        onChange={(e) => setDraft({ ...draft, asrApiKey: e.target.value })}
+                        placeholder="火山引擎控制台获取的 API Key"
+                      />
+                    </div>
+                    <div className="md:col-span-2 mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+                      <p className="text-xs font-medium text-amber-800">TOS 对象存储配置（bigmodel ASR 需要通过 TOS 传音频）</p>
+                    </div>
+                    <div className="md:col-span-2">
+                      <label htmlFor="tos-ak" className="mb-1 block text-sm font-medium text-slate-700">
+                        TOS Access Key
+                      </label>
+                      <input
+                        id="tos-ak"
+                        type="password"
+                        className={inputClassName}
+                        value={draft.tosAk}
+                        onChange={(e) => setDraft({ ...draft, tosAk: e.target.value })}
+                        placeholder="火山引擎 TOS 的 AK"
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label htmlFor="tos-sk" className="mb-1 block text-sm font-medium text-slate-700">
+                        TOS Secret Key
+                      </label>
+                      <input
+                        id="tos-sk"
+                        type="password"
+                        className={inputClassName}
+                        value={draft.tosSk}
+                        onChange={(e) => setDraft({ ...draft, tosSk: e.target.value })}
+                        placeholder="火山引擎 TOS 的 SK"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="tos-bucket" className="mb-1 block text-sm font-medium text-slate-700">
+                        TOS 桶名称
+                      </label>
+                      <input
+                        id="tos-bucket"
+                        type="text"
+                        className={inputClassName}
+                        value={draft.tosBucket}
+                        onChange={(e) => setDraft({ ...draft, tosBucket: e.target.value })}
+                        placeholder="mp3-srt"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="tos-region" className="mb-1 block text-sm font-medium text-slate-700">
+                        TOS 区域
+                      </label>
+                      <input
+                        id="tos-region"
+                        type="text"
+                        className={inputClassName}
+                        value={draft.tosRegion}
+                        onChange={(e) => setDraft({ ...draft, tosRegion: e.target.value })}
+                        placeholder="cn-beijing"
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label htmlFor="tos-endpoint" className="mb-1 block text-sm font-medium text-slate-700">
+                        TOS Endpoint
+                      </label>
+                      <input
+                        id="tos-endpoint"
+                        type="text"
+                        className={inputClassName}
+                        value={draft.tosEndpoint}
+                        onChange={(e) => setDraft({ ...draft, tosEndpoint: e.target.value })}
+                        placeholder="tos-cn-beijing.volces.com"
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            </Section>
+
+            <Section
+              title="字幕设置"
+              description="选择片段字幕的生成方式，待后端接入后默认生效。"
             >
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
                   <label htmlFor="subtitle-mode" className="mb-1 block text-sm font-medium text-slate-700">
-                    Subtitle Mode
+                    字幕模式
                   </label>
                   <select
                     id="subtitle-mode"
@@ -414,16 +617,16 @@ export function SettingsModal() {
                     value={draft.subtitleMode}
                     onChange={(e) => setDraft({ ...draft, subtitleMode: e.target.value as SubtitleMode })}
                   >
-                    <option value="off">Off</option>
-                    <option value="basic">Basic</option>
-                    <option value="styled">Styled</option>
-                    <option value="karaoke">Karaoke</option>
+                    <option value="off">关闭</option>
+                    <option value="basic">基础</option>
+                    <option value="styled">样式化</option>
+                    <option value="karaoke">卡拉 OK</option>
                   </select>
                 </div>
 
                 <div>
                   <label htmlFor="subtitle-position" className="mb-1 block text-sm font-medium text-slate-700">
-                    Subtitle Position
+                    字幕位置
                   </label>
                   <select
                     id="subtitle-position"
@@ -433,15 +636,15 @@ export function SettingsModal() {
                       setDraft({ ...draft, subtitlePosition: e.target.value as SubtitlePosition })
                     }
                   >
-                    <option value="bottom">Bottom</option>
-                    <option value="middle">Middle</option>
-                    <option value="custom">Custom</option>
+                    <option value="bottom">底部</option>
+                    <option value="middle">中间</option>
+                    <option value="custom">自定义</option>
                   </select>
                 </div>
 
                 <div>
                   <label htmlFor="subtitle-template" className="mb-1 block text-sm font-medium text-slate-700">
-                    Subtitle Template
+                    字幕模板
                   </label>
                   <select
                     id="subtitle-template"
@@ -451,10 +654,10 @@ export function SettingsModal() {
                       setDraft({ ...draft, subtitleTemplate: e.target.value as SubtitleTemplate })
                     }
                   >
-                    <option value="clean">Clean</option>
-                    <option value="ecommerce">Ecommerce</option>
-                    <option value="bold">Bold</option>
-                    <option value="karaoke">Karaoke</option>
+                    <option value="clean">简洁</option>
+                    <option value="ecommerce">电商</option>
+                    <option value="bold">加粗</option>
+                    <option value="karaoke">卡拉 OK</option>
                   </select>
                 </div>
               </div>
@@ -468,13 +671,13 @@ export function SettingsModal() {
               className="rounded-md px-4 py-2 text-sm text-slate-600 hover:bg-slate-100"
               onClick={() => setOpen(false)}
             >
-              Cancel
+              取消
             </button>
             <button
               className="save-btn rounded-md bg-slate-900 px-4 py-2 text-sm text-white hover:bg-slate-800"
               onClick={handleSave}
             >
-              Save
+              保存
             </button>
           </div>
         </DialogContent>

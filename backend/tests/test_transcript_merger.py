@@ -64,7 +64,15 @@ class TestMergeEdgeCases:
         merger = TranscriptMerger()
 
         chunk = [
-            {"text": "片段A", "start_time": 0.0, "end_time": 10.0},
+            {
+                "text": "片段A",
+                "start_time": 0.0,
+                "end_time": 10.0,
+                "words": [
+                    {"text": "片", "start_time": 0.0, "end_time": 5.0},
+                    {"text": "段A", "start_time": 5.0, "end_time": 10.0},
+                ],
+            },
             {"text": "片段B", "start_time": 10.0, "end_time": 20.0},
         ]
 
@@ -72,6 +80,7 @@ class TestMergeEdgeCases:
 
         assert len(result) == 2
         assert result[0]["text"] == "片段A"
+        assert result[0]["words"][0]["text"] == "片"
         assert result[1]["text"] == "片段B"
 
     def test_empty_chunk_segments_skipped(self):

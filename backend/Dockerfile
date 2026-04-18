@@ -3,22 +3,26 @@ ARG DOCKER_REGISTRY=
 ARG APT_MIRROR=
 ARG PYPI_INDEX_URL=
 FROM ${DOCKER_REGISTRY:-}python:3.11-slim AS builder
+ARG APT_MIRROR=
+ARG PYPI_INDEX_URL=
 
 RUN if [ -n "$APT_MIRROR" ]; then \
         sed -i "s@deb.debian.org@$APT_MIRROR@g" /etc/apt/sources.list.d/debian.sources 2>/dev/null || true; \
     fi && \
-    apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
+    apt-get update && apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
 
 COPY requirements.txt .
-RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel
-RUN if [ -n "$PYPI_INDEX_URL" ]; then \
-        pip install --no-cache-dir --prefix=/install -r requirements.txt -i "$PYPI_INDEX_URL"; \
+RUN set -eux; \
+    if [ -n "$PYPI_INDEX_URL" ]; then \
+        HOST=$(python -c "from urllib.parse import urlparse; import os; print(urlparse(os.environ['PYPI_INDEX_URL']).hostname or '')"); \
+        python -m pip install --no-cache-dir --disable-pip-version-check --upgrade pip setuptools wheel -i "$PYPI_INDEX_URL" --trusted-host "$HOST"; \
+        pip install --no-cache-dir --disable-pip-version-check --prefix=/install -r requirements.txt -i "$PYPI_INDEX_URL" --trusted-host "$HOST"; \
     else \
-        pip install --no-cache-dir --prefix=/install -r requirements.txt; \
+        python -m pip install --no-cache-dir --disable-pip-version-check --upgrade pip setuptools wheel; \
+        pip install --no-cache-dir --disable-pip-version-check --prefix=/install -r requirements.txt; \
     fi
 
 # ===== Stage 2: Runtime — minimal image =====

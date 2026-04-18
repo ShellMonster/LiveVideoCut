@@ -41,7 +41,7 @@ services:
     command: celery -A app.tasks.pipeline worker --loglevel=info --concurrency=1
     volumes:
       - ./uploads:/app/uploads
-      - whisper_cache:/root/.cache/huggingface
+      - model_cache:/root/.cache
     depends_on:
       redis:
         condition: service_healthy
@@ -50,9 +50,6 @@ services:
       - VLM_API_KEY=${VLM_API_KEY:-}
       - VLM_BASE_URL=${VLM_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       - VLM_MODEL=${VLM_MODEL:-qwen-vl-plus}
-      - FASTER_WHISPER_MODEL=${FASTER_WHISPER_MODEL:-small}
-      - FASTER_WHISPER_DEVICE=${FASTER_WHISPER_DEVICE:-cpu}
-      - FASTER_WHISPER_COMPUTE_TYPE=${FASTER_WHISPER_COMPUTE_TYPE:-int8}
       - HF_ENDPOINT=${HF_ENDPOINT:-https://hf-mirror.com}
       - APT_MIRROR=${APT_MIRROR:-}
     healthcheck:
@@ -102,4 +99,5 @@ services:
 
 volumes:
   redis_data:
+  model_cache:
   whisper_cache:

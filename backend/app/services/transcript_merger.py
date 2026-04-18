@@ -1,6 +1,7 @@
 """Transcript merger — offset correction and overlap deduplication for chunked ASR results."""
 
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -15,10 +16,10 @@ class TranscriptMerger:
 
     def merge(
         self,
-        chunks: list[list[dict]],
+        chunks: list[list[dict[str, Any]]],
         offsets: list[float],
         overlap: float = 3.0,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Merge multiple transcript chunks.
 
         Args:
@@ -44,6 +45,7 @@ class TranscriptMerger:
                         "text": seg.get("text", ""),
                         "start_time": seg.get("start_time", 0.0),
                         "end_time": seg.get("end_time", 0.0),
+                        "words": seg.get("words", []),
                         "_chunk_idx": chunk_idx,
                     }
                 )
@@ -85,6 +87,8 @@ class TranscriptMerger:
                     "start_time": seg["start_time"],
                     "end_time": seg["end_time"],
                 }
+                if seg.get("words"):
+                    clean_seg["words"] = seg["words"]
                 result.append(clean_seg)
 
         result.sort(key=lambda s: s["start_time"])

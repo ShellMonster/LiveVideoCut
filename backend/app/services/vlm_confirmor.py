@@ -47,6 +47,12 @@ class VLMConfirmor:
 - 如果图中没有服装展示（只有人脸/空镜头），is_different=false
 - 只有确实换了不同商品时才设为true"""
 
+    REVIEW_CONFIDENCE_THRESHOLDS: dict[str, float] = {
+        "strict": 0.7,
+        "standard": 0.6,
+        "loose": 0.5,
+    }
+
     def __init__(self, vlm_client: VLMClient):
         self.client: VLMClient = vlm_client
         self.parser: VLMResponseParser = VLMResponseParser()
@@ -57,6 +63,7 @@ class VLMConfirmor:
         frames_dir: str,
         task_id: str = "",
         review_mode: str = "adjacent_frames",
+        review_strictness: str = "standard",
     ) -> list[dict[str, Any]]:
         """For each candidate segment, compare first and last frame via VLM.
 
@@ -65,6 +72,9 @@ class VLMConfirmor:
         """
         confirmed = []
         frame_records = self._load_frame_records(frames_dir)
+        confidence_threshold = self.REVIEW_CONFIDENCE_THRESHOLDS.get(
+            review_strictness, self.REVIEW_CONFIDENCE_THRESHOLDS["standard"]
+        )
 
         for candidate in candidates:
             try:
@@ -88,6 +98,9 @@ class VLMConfirmor:
                 continue
 
             if not parsed.get("is_different", False):
+                continue
+
+            if float(parsed.get("confidence", 0.0)) < confidence_threshold:
                 continue
 
             product_info = parsed.get("product_2", {})

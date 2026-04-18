@@ -9,11 +9,13 @@ from app.api.settings import SettingsRequest, VLMProvider
 def test_settings_request_uses_backend_defaults_for_qwen():
     settings = SettingsRequest(api_key="test-key")
 
+    assert settings.enable_vlm is True
+    assert settings.export_mode == "smart"
     assert settings.vlm_provider == "qwen"
     assert settings.api_base == "https://dashscope.aliyuncs.com/compatible-mode/v1"
     assert settings.model == "qwen-vl-plus"
     assert settings.scene_threshold == 27.0
-    assert settings.frame_sample_fps == 2
+    assert settings.frame_sample_fps == 0.5
     assert settings.recall_cooldown_seconds == 15
     assert settings.candidate_looseness == "standard"
     assert settings.min_segment_duration_seconds == 25
@@ -22,7 +24,7 @@ def test_settings_request_uses_backend_defaults_for_qwen():
     assert settings.review_strictness == "standard"
     assert settings.review_mode == "segment_multiframe"
     assert settings.max_candidate_count == 20
-    assert settings.subtitle_mode == "off"
+    assert settings.subtitle_mode == "basic"
     assert settings.subtitle_position == "bottom"
     assert settings.subtitle_template == "clean"
     assert settings.custom_position_y is None
@@ -35,13 +37,33 @@ def test_settings_request_resolves_glm_defaults():
     assert settings.model == "glm-5v-turbo"
 
 
+def test_settings_request_allows_blank_api_key_when_vlm_disabled():
+    settings = SettingsRequest(enable_vlm=False, api_key="")
+
+    assert settings.enable_vlm is False
+    assert settings.export_mode == "no_vlm"
+    assert settings.api_key == ""
+
+
+def test_settings_request_rejects_blank_api_key_when_vlm_enabled():
+    with pytest.raises(ValidationError):
+        _ = SettingsRequest(enable_vlm=True, api_key="")
+
+
+def test_settings_request_allows_blank_api_key_for_all_scenes_mode():
+    settings = SettingsRequest(export_mode="all_scenes", api_key="")
+
+    assert settings.export_mode == "all_scenes"
+    assert settings.api_key == ""
+
+
 @pytest.mark.parametrize(
     ("field_name", "value"),
     [
         ("scene_threshold", 9.9),
         ("scene_threshold", 60.1),
-        ("frame_sample_fps", 0),
-        ("frame_sample_fps", 6),
+        ("frame_sample_fps", 0.24),
+        ("frame_sample_fps", 5.1),
         ("recall_cooldown_seconds", -1),
         ("recall_cooldown_seconds", 61),
         ("min_segment_duration_seconds", 4),
@@ -159,3 +181,51 @@ async def test_validate_settings_accepts_glm_payload(client, monkeypatch):
     assert response.status_code == 200
     assert response.json() == {"valid": True}
     assert calls[0]["model"] == "glm-5v-turbo"
+
+
+@pytest.mark.anyio
+async def test_validate_settings_short_circuits_when_vlm_disabled(client, monkeypatch):
+    class FakeOpenAI:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError(
+                "OpenAI client should not be created when VLM is disabled"
+            )
+
+    monkeypatch.setattr("openai.OpenAI", FakeOpenAI)
+
+    response = await client.post(
+        "/api/settings/validate",
+        json={
+            "enable_vlm": False,
+            "api_key": "",
+            "vlm_provider": "qwen",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"valid": True}
+
+
+@pytest.mark.anyio
+async def test_validate_settings_short_circuits_for_all_candidates_mode(
+    client, monkeypatch
+):
+    class FakeOpenAI:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError(
+                "OpenAI client should not be created outside smart mode"
+            )
+
+    monkeypatch.setattr("openai.OpenAI", FakeOpenAI)
+
+    response = await client.post(
+        "/api/settings/validate",
+        json={
+            "export_mode": "all_candidates",
+            "api_key": "",
+            "vlm_provider": "qwen",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"valid": True}

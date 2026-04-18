@@ -288,9 +288,9 @@ Any subtitle failure must still allow clip export to succeed.
 - Modify: `backend/app/services/segment_validator.py`
 - Modify: `backend/app/tasks/pipeline.py`
 
-- [ ] Make `min_segment_duration_seconds` configurable
-- [ ] Make `dedupe_window_seconds` configurable
-- [ ] Implement `allow_returned_product` semantics so return visits are not dropped when enabled
+- [x] Make `min_segment_duration_seconds` configurable
+- [x] Make `dedupe_window_seconds` configurable
+- [x] Implement `allow_returned_product` semantics so return visits are not dropped when enabled
 
 **Acceptance criteria**
 - Short valid product sections survive when user lowers min duration
@@ -302,12 +302,12 @@ Any subtitle failure must still allow clip export to succeed.
 - Modify: `backend/app/services/ffmpeg_builder.py`
 - Modify: `backend/app/tasks/pipeline.py`
 
-- [ ] Route export behavior based on `subtitle_mode`
-- [ ] `off`: do not generate/burn subtitle assets
-- [ ] `basic`: current SRT path with safe fallback to no subtitles
-- [ ] `styled`: in phase 1, provide schema, task snapshot plumbing, and downgrade contract to `basic/off`
-- [ ] `karaoke`: in phase 1, provide schema, task snapshot plumbing, and downgrade contract through `styled/basic/off`
-- [ ] Thread subtitle position/template settings into selected export path
+- [x] Route export behavior based on `subtitle_mode`
+- [x] `off`: do not generate/burn subtitle assets
+- [x] `basic`: current SRT path with safe fallback to no subtitles
+- [x] `styled`: in phase 1, provide schema, task snapshot plumbing, and downgrade contract to `basic/off`
+- [x] `karaoke`: in phase 1, provide schema, task snapshot plumbing, and downgrade contract through `styled/basic/off`
+- [x] Thread subtitle position/template settings into selected export path
 
 **Acceptance criteria**
 - Subtitle mode is reflected in export behavior
@@ -317,8 +317,8 @@ Any subtitle failure must still allow clip export to succeed.
 **Files**
 - Modify: `frontend/src/components/UploadZone.tsx`
 
-- [ ] Upload request includes current settings payload
-- [ ] UI shows active provider/subtitle mode context on current task
+- [x] Upload request includes current settings payload
+- [x] UI shows active provider/subtitle mode context on current task
 
 **Acceptance criteria**
 - Backend task uses the exact settings visible in UI at upload time

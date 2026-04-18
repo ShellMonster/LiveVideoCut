@@ -1,19 +1,45 @@
 """Segment validator — duration filtering and deduplication rules."""
 
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
+
+Segment = dict[str, Any]
 
 
 class SegmentValidator:
     """Validates and filters segments by duration and deduplication rules."""
 
-    MIN_DURATION = 60.0
-    MAX_DURATION = 600.0
-    DEDUP_WINDOW = 300.0  # 5 minutes
-    POINT_FALLBACK_DURATION = 60.0
+    DEFAULT_MIN_DURATION: float = 60.0
+    DEFAULT_MAX_DURATION: float = 600.0
+    DEFAULT_DEDUP_WINDOW: float = 300.0  # 5 minutes
 
-    def validate(self, segments: list[dict], video_duration: float) -> list[dict]:
+    def __init__(
+        self,
+        min_duration: float | None = None,
+        dedupe_window: float | None = None,
+        allow_returned_product: bool = False,
+        max_duration: float | None = None,
+    ) -> None:
+        self.min_duration: float = (
+            float(min_duration)
+            if min_duration is not None
+            else self.DEFAULT_MIN_DURATION
+        )
+        self.max_duration: float = (
+            float(max_duration)
+            if max_duration is not None
+            else self.DEFAULT_MAX_DURATION
+        )
+        self.dedupe_window: float = (
+            float(dedupe_window)
+            if dedupe_window is not None
+            else self.DEFAULT_DEDUP_WINDOW
+        )
+        self.allow_returned_product: bool = allow_returned_product
+
+    def validate(self, segments: list[Segment], video_duration: float) -> list[Segment]:
         """Filter and validate segments.
 
         Rules:
@@ -35,22 +61,22 @@ class SegmentValidator:
             duration = end - start
 
             # 跳过过短的片段
-            if duration < self.MIN_DURATION:
+            if duration < self.min_duration:
                 logger.debug(
                     "Segment too short (%.1fs < %.1fs): %s",
                     duration,
-                    self.MIN_DURATION,
+                    self.min_duration,
                     seg.get("product_name", ""),
                 )
                 continue
 
             # 截断过长的片段
-            if duration > self.MAX_DURATION:
-                seg["end_time"] = start + self.MAX_DURATION
+            if duration > self.max_duration:
+                seg["end_time"] = start + self.max_duration
                 logger.debug(
                     "Segment truncated (%.1fs → %.1fs)",
                     duration,
-                    self.MAX_DURATION,
+                    self.max_duration,
                 )
 
             # 确保不超过视频总时长
@@ -60,7 +86,7 @@ class SegmentValidator:
                 seg["start_time"] = 0.0
 
             # 截断后可能变太短
-            if seg["end_time"] - seg["start_time"] < self.MIN_DURATION:
+            if seg["end_time"] - seg["start_time"] < self.min_duration:
                 continue
 
             validated.append(seg)
@@ -71,8 +97,8 @@ class SegmentValidator:
         return validated
 
     def _expand_point_segments(
-        self, segments: list[dict], video_duration: float
-    ) -> list[dict]:
+        self, segments: list[Segment], video_duration: float
+    ) -> list[Segment]:
         """Expand point-in-time detections into exportable ranges.
 
         Upstream VLM confirmations currently produce product-change points where
@@ -99,15 +125,15 @@ class SegmentValidator:
                 seg["end_time"] = max(next_start, start)
             else:
                 seg["end_time"] = float(video_duration)
-                if seg["end_time"] - start < self.MIN_DURATION:
-                    seg["start_time"] = max(0.0, seg["end_time"] - self.MIN_DURATION)
+                if seg["end_time"] - start < self.min_duration:
+                    seg["start_time"] = max(0.0, seg["end_time"] - self.min_duration)
 
             expanded.append(seg)
 
         return expanded
 
-    def _deduplicate(self, segments: list[dict]) -> list[dict]:
-        """Remove duplicate same-name segments within DEDUP_WINDOW seconds."""
+    def _deduplicate(self, segments: list[Segment]) -> list[Segment]:
+        """Remove duplicate same-name segments within the configured window."""
         if not segments:
             return segments
 
@@ -116,6 +142,8 @@ class SegmentValidator:
 
         seen: dict[str, float] = {}
         result = []
+        last_kept_name = ""
+        last_kept_start: float | None = None
 
         for seg in segments:
             name = seg.get("product_name", "")
@@ -126,19 +154,29 @@ class SegmentValidator:
                 continue
 
             last_seen_time = seen.get(name)
-            if (
+            should_deduplicate = (
                 last_seen_time is not None
-                and (start - last_seen_time) < self.DEDUP_WINDOW
-            ):
+                and (start - last_seen_time) < self.dedupe_window
+            )
+            if self.allow_returned_product:
+                should_deduplicate = (
+                    last_kept_name == name
+                    and last_kept_start is not None
+                    and (start - last_kept_start) < self.dedupe_window
+                )
+
+            if should_deduplicate:
                 logger.debug(
                     "Deduplicating segment '%s' at %.1fs (seen at %.1fs)",
                     name,
                     start,
-                    last_seen_time,
+                    last_seen_time if last_seen_time is not None else -1.0,
                 )
                 continue
 
             seen[name] = start
             result.append(seg)
+            last_kept_name = name
+            last_kept_start = start
 
         return result

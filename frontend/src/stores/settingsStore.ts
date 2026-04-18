@@ -1,13 +1,17 @@
 import { create } from "zustand";
 
 export type VlmProvider = "qwen" | "glm";
+export type ExportMode = "smart" | "no_vlm" | "all_candidates" | "all_scenes";
 export type StrictnessMode = "strict" | "standard" | "loose";
 export type ReviewMode = "adjacent_frames" | "segment_multiframe";
 export type SubtitleMode = "off" | "basic" | "styled" | "karaoke";
 export type SubtitlePosition = "bottom" | "middle" | "custom";
 export type SubtitleTemplate = "clean" | "ecommerce" | "bold" | "karaoke";
+export type AsrProvider = "dashscope" | "volcengine";
 
 export interface Settings {
+  enableVlm: boolean;
+  exportMode: ExportMode;
   provider: VlmProvider;
   apiKey: string;
   apiBase: string;
@@ -20,42 +24,74 @@ export interface Settings {
   candidateLooseness: StrictnessMode;
   minSegmentDurationSeconds: number;
   dedupeWindowSeconds: number;
+  mergeCount: number;
   allowReturnedProduct: boolean;
   maxCandidateCount: number;
   subtitleMode: SubtitleMode;
   subtitlePosition: SubtitlePosition;
   subtitleTemplate: SubtitleTemplate;
   funasrMode: "local" | "remote";
+  asrProvider: AsrProvider;
+  asrApiKey: string;
+  tosAk: string;
+  tosSk: string;
+  tosBucket: string;
+  tosRegion: string;
+  tosEndpoint: string;
 }
 
 const STORAGE_KEY = "clipper-settings";
 
+export const DEFAULT_API_BASES: Record<VlmProvider, string> = {
+  qwen: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  glm: "https://open.bigmodel.cn/api/paas/v4",
+};
+
+export const DEFAULT_MODELS: Record<VlmProvider, string> = {
+  qwen: "qwen-vl-plus",
+  glm: "glm-5v-turbo",
+};
+
 const defaultSettings: Settings = {
+  enableVlm: true,
+  exportMode: "smart",
   provider: "qwen",
   apiKey: "",
-  apiBase: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-  model: "qwen-vl-plus",
+  apiBase: DEFAULT_API_BASES.qwen,
+  model: DEFAULT_MODELS.qwen,
   reviewStrictness: "standard",
   reviewMode: "segment_multiframe",
   sceneThreshold: 27,
-  frameSampleFps: 2,
+  frameSampleFps: 0.5,
   recallCooldownSeconds: 15,
   candidateLooseness: "standard",
   minSegmentDurationSeconds: 25,
   dedupeWindowSeconds: 90,
+  mergeCount: 1,
   allowReturnedProduct: true,
   maxCandidateCount: 20,
-  subtitleMode: "off",
+  subtitleMode: "basic",
   subtitlePosition: "bottom",
   subtitleTemplate: "clean",
   funasrMode: "local",
+  asrProvider: "dashscope",
+  asrApiKey: "",
+  tosAk: "",
+  tosSk: "",
+  tosBucket: "mp3-srt",
+  tosRegion: "cn-beijing",
+  tosEndpoint: "tos-cn-beijing.volces.com",
 };
 
 function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      return { ...defaultSettings, ...JSON.parse(raw) };
+      const parsed = JSON.parse(raw) as Partial<Settings>;
+      if (!parsed.exportMode && parsed.enableVlm === false) {
+        parsed.exportMode = "no_vlm";
+      }
+      return { ...defaultSettings, ...parsed };
     }
   } catch {
     // ignore parse errors

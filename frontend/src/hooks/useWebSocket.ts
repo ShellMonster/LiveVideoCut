@@ -1,7 +1,20 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useTaskStore } from "@/stores/taskStore";
 
-const WS_BASE = import.meta.env.VITE_WS_URL || "ws://localhost:8000";
+function resolveWebSocketBase(): string {
+  if (import.meta.env.VITE_WS_URL) {
+    return import.meta.env.VITE_WS_URL;
+  }
+
+  if (typeof window !== "undefined") {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${protocol}//${window.location.host}`;
+  }
+
+  return "ws://localhost:5537";
+}
+
+const WS_BASE = resolveWebSocketBase();
 
 interface WSMessage {
   state: string;
