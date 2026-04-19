@@ -4,7 +4,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-MERGE_GAP = 10.0  # dedup boundaries within this gap
+MERGE_GAP = 10.0  # dedup fused candidates within this gap
 
 
 def fuse_candidates(
@@ -26,7 +26,8 @@ def fuse_candidates(
     Returns:
         Sorted list of fused boundary points by timestamp ascending, each carrying:
         {timestamp, end_time, similarity, source, confidence,
-         product_description, product_type, boundary_reason, key_phrases}
+         product_description, product_type, boundary_reason, key_phrases,
+         merged_group_id: int | None}
     """
     logger.info(
         "Fusing %d visual candidates + %d text boundaries (duration=%.1fs)",
@@ -35,28 +36,37 @@ def fuse_candidates(
         video_duration,
     )
 
-    fused: list[dict] = []
-    matched_tb_indices: set[int] = set()
+    # Step 0: merge overlapping text_boundaries into non-overlapping regions
+    merged_regions = _merge_overlapping_boundaries(text_boundaries)
+    logger.info(
+        "Merged %d text boundaries → %d non-overlapping regions",
+        len(text_boundaries),
+        len(merged_regions),
+    )
 
-    # Pass 1: match visual candidates against text boundary intervals
+    fused: list[dict] = []
+    matched_region_ids: set[int] = set()
+
+    # Pass 1: match visual candidates against merged text boundary regions
     for vc in visual_candidates:
         ts = vc["timestamp"]
         sim = vc.get("similarity", 0.0)
-        matched_idx = _find_containing_interval(ts, text_boundaries)
+        region_idx = _find_containing_region(ts, merged_regions)
 
-        if matched_idx is not None:
-            matched_tb_indices.add(matched_idx)
-            tb = text_boundaries[matched_idx]
+        if region_idx is not None:
+            matched_region_ids.add(region_idx)
+            region = merged_regions[region_idx]
             fused.append({
                 "timestamp": ts,
-                "end_time": tb.get("end_time", ts),
-                "similarity": max(sim, tb.get("confidence", 0.0)),
+                "end_time": region["end_time"],
+                "similarity": max(sim, region.get("confidence", 0.0)),
                 "source": "visual+text",
-                "confidence": tb.get("confidence", 0.0),
-                "product_description": tb.get("product_description", ""),
-                "product_type": tb.get("product_type", ""),
-                "boundary_reason": tb.get("boundary_reason", ""),
-                "key_phrases": tb.get("key_phrases", []),
+                "confidence": region.get("confidence", 0.0),
+                "product_description": region.get("product_description", ""),
+                "product_type": region.get("product_type", ""),
+                "boundary_reason": region.get("boundary_reason", ""),
+                "key_phrases": region.get("key_phrases", []),
+                "merged_group_id": region_idx,
             })
         else:
             fused.append({
@@ -69,64 +79,115 @@ def fuse_candidates(
                 "product_type": "",
                 "boundary_reason": "",
                 "key_phrases": [],
+                "merged_group_id": None,
             })
 
-    # Pass 2: add text boundaries not matched by any visual candidate
-    for i, tb in enumerate(text_boundaries):
-        if i in matched_tb_indices:
+    # Pass 2: add text regions not matched by any visual candidate
+    for i, region in enumerate(merged_regions):
+        if i in matched_region_ids:
             continue
-        ts = tb.get("start_time", 0.0)
-        conf = tb.get("confidence", 0.0)
+        ts = region["start_time"]
+        conf = region.get("confidence", 0.0)
         fused.append({
             "timestamp": ts,
-            "end_time": tb.get("end_time", ts),
+            "end_time": region["end_time"],
             "similarity": conf,
             "source": "text",
             "confidence": conf,
-            "product_description": tb.get("product_description", ""),
-            "product_type": tb.get("product_type", ""),
-            "boundary_reason": tb.get("boundary_reason", ""),
-            "key_phrases": tb.get("key_phrases", []),
+            "product_description": region.get("product_description", ""),
+            "product_type": region.get("product_type", ""),
+            "boundary_reason": region.get("boundary_reason", ""),
+            "key_phrases": region.get("key_phrases", []),
+            "merged_group_id": i,
         })
 
-    result = _merge_close_boundaries(fused)
+    result = _dedup_close_boundaries(fused)
 
     logger.info(
-        "Fusion result: %d segments (%s)",
+        "Fusion result: %d candidates (%s)",
         len(result),
         _source_summary(result),
     )
     return result
 
 
-def _find_containing_interval(
-    ts: float,
+def _merge_overlapping_boundaries(
     text_boundaries: list[dict],
-) -> int | None:
-    """Find the text boundary whose [start_time, end_time] contains *ts*.
+) -> list[dict]:
+    """Merge overlapping text_boundaries into non-overlapping regions.
 
-    If multiple boundaries contain *ts*, return the one with highest confidence.
-    Returns boundary index or None.
+    Adjacent boundaries (gap < 1s) are also merged.
+    Merged region keeps the longest product_description and highest confidence.
+    """
+    if not text_boundaries:
+        return []
+
+    sorted_tb = sorted(text_boundaries, key=lambda tb: tb.get("start_time", 0.0))
+    regions: list[dict] = [_region_from_boundary(sorted_tb[0])]
+
+    for tb in sorted_tb[1:]:
+        prev = regions[-1]
+        tb_start = tb.get("start_time", 0.0)
+
+        if tb_start < prev["end_time"]:
+            prev["end_time"] = max(prev["end_time"], tb.get("end_time", tb_start))
+            if tb.get("confidence", 0.0) > prev.get("confidence", 0.0):
+                prev["confidence"] = tb.get("confidence", 0.0)
+            # keep longest description
+            if len(tb.get("product_description", "")) > len(prev.get("product_description", "")):
+                prev["product_description"] = tb.get("product_description", "")
+            if tb.get("product_type", ""):
+                prev["product_type"] = tb.get("product_type", "")
+            if tb.get("boundary_reason", ""):
+                prev["boundary_reason"] = tb.get("boundary_reason", "")
+            prev["key_phrases"] = list(set(prev.get("key_phrases", []) + tb.get("key_phrases", [])))
+        else:
+            regions.append(_region_from_boundary(tb))
+
+    return regions
+
+
+def _region_from_boundary(tb: dict) -> dict:
+    """Create a region dict from a text boundary."""
+    start = tb.get("start_time", 0.0)
+    return {
+        "start_time": start,
+        "end_time": tb.get("end_time", start),
+        "confidence": tb.get("confidence", 0.0),
+        "product_description": tb.get("product_description", ""),
+        "product_type": tb.get("product_type", ""),
+        "boundary_reason": tb.get("boundary_reason", ""),
+        "key_phrases": list(tb.get("key_phrases", [])),
+    }
+
+
+def _find_containing_region(
+    ts: float,
+    regions: list[dict],
+) -> int | None:
+    """Find the merged region whose [start_time, end_time] contains *ts*.
+
+    If multiple regions contain *ts*, return the one with highest confidence.
+    Returns region index or None.
     """
     best_idx: int | None = None
     best_conf = -1.0
 
-    for i, tb in enumerate(text_boundaries):
-        start = tb.get("start_time", 0.0)
-        end = tb.get("end_time", start)
-        conf = tb.get("confidence", 0.0)
-        if start <= ts <= end and conf > best_conf:
-            best_conf = conf
-            best_idx = i
+    for i, region in enumerate(regions):
+        if region["start_time"] <= ts <= region["end_time"]:
+            conf = region.get("confidence", 0.0)
+            if conf > best_conf:
+                best_conf = conf
+                best_idx = i
 
     return best_idx
 
 
-def _merge_close_boundaries(
+def _dedup_close_boundaries(
     boundaries: list[dict],
     gap_seconds: float = MERGE_GAP,
 ) -> list[dict]:
-    """Deduplicate boundaries within *gap_seconds*, keeping highest score."""
+    """Deduplicate boundaries within *gap_seconds* with the same merged_group_id."""
     if not boundaries:
         return []
 
@@ -135,7 +196,12 @@ def _merge_close_boundaries(
 
     for b in sorted_b[1:]:
         prev = merged[-1]
-        if b["timestamp"] - prev["timestamp"] <= gap_seconds:
+        same_group = (
+            b.get("merged_group_id") is not None
+            and b.get("merged_group_id") == prev.get("merged_group_id")
+        )
+        if b["timestamp"] - prev["timestamp"] <= gap_seconds and same_group:
+            # same group & close → keep higher score
             prev_score = prev["similarity"] + prev.get("confidence", 0.0)
             curr_score = b["similarity"] + b.get("confidence", 0.0)
             if curr_score > prev_score:
@@ -158,36 +224,49 @@ def _source_summary(segments: list[dict]) -> str:
 def fused_to_segments(
     fused: list[dict],
     video_duration: float,
+    min_duration: float = 10.0,
 ) -> list[dict]:
-    """Convert fused boundary points into segment intervals for downstream pipeline.
+    """Convert fused candidates into segments, grouped by LLM text boundary.
 
-    Sorts boundaries by timestamp, then pairs consecutive boundaries into
-    segments [boundary_i, boundary_{i+1}). Last segment ends at video_duration.
+    Candidates sharing the same merged_group_id (same LLM product region)
+    are collapsed into ONE segment. Pure-visual candidates become individual segments.
+
+    Args:
+        fused: Output of fuse_candidates(), sorted by timestamp.
+        video_duration: Total video length in seconds.
+        min_duration: Discard segments shorter than this.
 
     Returns:
-        List of segments in the same format as VLM confirmed_segments:
-        {start_time, end_time, confidence, product_info, low_confidence,
-         product_name, name_source}
+        List of segments in the same format as VLM confirmed_segments.
     """
     if not fused:
         return []
 
     sorted_fused = sorted(fused, key=lambda f: f["timestamp"])
+
+    # Phase 1: group candidates by merged_group_id
+    text_groups: dict[int, list[dict]] = {}
+    visual_singles: list[dict] = []
+
+    for fc in sorted_fused:
+        gid = fc.get("merged_group_id")
+        if gid is not None:
+            text_groups.setdefault(gid, []).append(fc)
+        else:
+            visual_singles.append(fc)
+
+    # Phase 2: build segments from text groups
     segments: list[dict] = []
+    for gid, group in text_groups.items():
+        start_time = group[0]["timestamp"]
+        end_time = group[-1].get("end_time", group[-1]["timestamp"])
+        # use the region's end_time if it extends beyond last candidate
+        region_end = max(fc.get("end_time", fc["timestamp"]) for fc in group)
+        end_time = max(end_time, region_end)
 
-    for i, boundary in enumerate(sorted_fused):
-        start_time = boundary["timestamp"]
-        end_time = (
-            sorted_fused[i + 1]["timestamp"]
-            if i + 1 < len(sorted_fused)
-            else video_duration
-        )
-        confidence = boundary.get("confidence", 0.0)
-        product_description = boundary.get("product_description", "")
-        source = boundary.get("source", "visual")
-
-        # name_source: "llm_fusion" when text contributed, "vlm" otherwise
-        name_source = "llm_fusion" if "text" in source else "vlm"
+        best = max(group, key=lambda fc: fc.get("confidence", 0.0))
+        confidence = best.get("confidence", 0.0)
+        product_description = best.get("product_description", "")
 
         segments.append({
             "start_time": start_time,
@@ -196,13 +275,76 @@ def fused_to_segments(
             "product_info": {},
             "low_confidence": confidence < 0.5,
             "product_name": product_description if product_description else "未命名商品",
-            "name_source": name_source,
+            "name_source": "llm_fusion",
         })
 
+    # Phase 3: add pure-visual candidates as individual segments
+    for fc in visual_singles:
+        segments.append({
+            "start_time": fc["timestamp"],
+            "end_time": fc.get("end_time", fc["timestamp"]),
+            "confidence": fc.get("confidence", 0.0),
+            "product_info": {},
+            "low_confidence": True,
+            "product_name": "未命名商品",
+            "name_source": "vlm",
+        })
+
+    # Phase 4: sort by start_time, resolve overlaps, filter short
+    segments.sort(key=lambda s: s["start_time"])
+    segments = _resolve_overlaps(segments, video_duration)
+    segments = [s for s in segments if s["end_time"] - s["start_time"] >= min_duration]
+
     logger.info(
-        "Converted %d fused boundaries → %d segments (duration=%.1fs)",
+        "Converted %d fused candidates → %d segments (text_groups=%d, visual=%d, after_filter=%d)",
         len(fused),
         len(segments),
-        video_duration,
+        len(text_groups),
+        len(visual_singles),
+        len(segments),
     )
     return segments
+
+
+def _resolve_overlaps(
+    segments: list[dict],
+    video_duration: float,
+) -> list[dict]:
+    """Resolve overlapping segments: text-grouped segments take priority."""
+    if not segments:
+        return []
+
+    # text-grouped (llm_fusion) take priority over visual-only
+    resolved: list[dict] = [segments[0]]
+
+    for seg in segments[1:]:
+        prev = resolved[-1]
+        if seg["start_time"] < prev["end_time"]:
+            # overlap: prefer higher confidence
+            if seg.get("name_source") == "llm_fusion" and prev.get("name_source") != "llm_fusion":
+                # trim previous to make room
+                prev["end_time"] = seg["start_time"]
+            elif prev.get("name_source") == "llm_fusion" and seg.get("name_source") != "llm_fusion":
+                # trim current
+                seg["start_time"] = prev["end_time"]
+            else:
+                # both same type: keep higher confidence, trim the other
+                if seg["confidence"] > prev["confidence"]:
+                    prev["end_time"] = seg["start_time"]
+                else:
+                    seg["start_time"] = prev["end_time"]
+
+            # if trimmed segment became invalid, skip it
+            if seg["start_time"] >= seg["end_time"]:
+                continue
+            if prev["start_time"] >= prev["end_time"]:
+                resolved[-1] = seg
+                continue
+
+        resolved.append(seg)
+
+    # clamp to video duration
+    for seg in resolved:
+        seg["end_time"] = min(seg["end_time"], video_duration)
+
+    return resolved

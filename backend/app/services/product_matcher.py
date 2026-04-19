@@ -41,6 +41,11 @@ class ProductNameMatcher:
 
         enriched = []
         for seg in segments:
+            # LLM 融合已经给了高质量商品名，直接保留
+            if seg.get("name_source") == "llm_fusion" and seg.get("product_name", "未命名商品") != "未命名商品":
+                enriched.append(dict(seg))
+                continue
+
             product_info = seg.get("product_info", {})
             start_time = seg.get("start_time", 0.0)
             end_time = seg.get("end_time", 0.0)
