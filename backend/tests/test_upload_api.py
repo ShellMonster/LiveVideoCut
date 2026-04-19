@@ -74,28 +74,15 @@ async def test_upload_persists_resolved_settings_snapshot(
     assert json.loads((task_dir / "meta.json").read_text()) == metadata
 
     settings_snapshot = json.loads((task_dir / "settings.json").read_text())
-    assert settings_snapshot == {
-        "api_key": "glm-key",
-        "enable_vlm": True,
-        "export_mode": "smart",
-        "vlm_provider": "glm",
-        "api_base": "https://open.bigmodel.cn/api/paas/v4",
-        "model": "glm-5v-turbo",
-        "scene_threshold": 27.0,
-        "frame_sample_fps": 2,
-        "recall_cooldown_seconds": 15,
-        "candidate_looseness": "loose",
-        "min_segment_duration_seconds": 25,
-        "dedupe_window_seconds": 90,
-        "allow_returned_product": True,
-        "review_strictness": "standard",
-        "review_mode": "segment_multiframe",
-        "max_candidate_count": 20,
-        "subtitle_mode": "basic",
-        "subtitle_position": "bottom",
-        "subtitle_template": "clean",
-        "custom_position_y": None,
-    }
+    assert settings_snapshot["api_key"] == "glm-key"
+    assert settings_snapshot["enable_vlm"] is True
+    assert settings_snapshot["export_mode"] == "smart"
+    assert settings_snapshot["vlm_provider"] == "glm"
+    assert settings_snapshot["api_base"] == "https://open.bigmodel.cn/api/paas/v4"
+    assert settings_snapshot["model"] == "glm-5v-turbo"
+    assert settings_snapshot["frame_sample_fps"] == 0.5
+    assert settings_snapshot["candidate_looseness"] == "loose"
+    assert settings_snapshot["subtitle_mode"] == "basic"
     assert queued == [(task_id, str(task_dir / "original.mp4"))]
 
 

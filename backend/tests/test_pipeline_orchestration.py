@@ -926,7 +926,7 @@ def test_enrich_segments_uses_candidates_directly_for_all_candidates_mode(
 
     monkeypatch.setattr(pipeline, "TaskStateMachine", _FakeStateMachine)
     monkeypatch.setattr(pipeline, "PipelineErrorHandler", _FakeErrorHandler)
-    monkeypatch.setattr(pipeline, "DashScopeASRClient", _FakeASR)
+    monkeypatch.setattr(pipeline, "_create_asr_client", lambda _s: _FakeASR())
     monkeypatch.setattr(pipeline, "ProductNameMatcher", _UnusedMatcher)
 
     result = pipeline.enrich_segments.run(task_id, str(task_dir))
@@ -968,7 +968,7 @@ def test_enrich_segments_uses_scenes_directly_for_all_scenes_mode(
     task_dir.mkdir(parents=True, exist_ok=True)
     (task_dir / "original.mp4").write_bytes(b"video")
     (task_dir / "settings.json").write_text(
-        json.dumps({"api_key": "", "enable_vlm": True, "export_mode": "all_scenes"})
+        json.dumps({"api_key": "", "enable_vlm": True, "export_mode": "all_scenes", "asr_enabled": True, "asr_provider": "dashscope"})
     )
     scenes_dir = task_dir / "scenes"
     scenes_dir.mkdir(parents=True, exist_ok=True)
@@ -1004,7 +1004,7 @@ def test_enrich_segments_uses_scenes_directly_for_all_scenes_mode(
 
     monkeypatch.setattr(pipeline, "TaskStateMachine", _FakeStateMachine)
     monkeypatch.setattr(pipeline, "PipelineErrorHandler", _FakeErrorHandler)
-    monkeypatch.setattr(pipeline, "DashScopeASRClient", _FakeASR)
+    monkeypatch.setattr(pipeline, "_create_asr_client", lambda _s: _FakeASR())
 
     result = pipeline.enrich_segments.run(task_id, str(task_dir))
 

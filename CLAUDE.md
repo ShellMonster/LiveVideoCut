@@ -149,13 +149,18 @@
 
 - 整体转写，写出 `transcript.json`
 - LLM 文本分析（如果 `enable_llm_analysis` 开启）：用 LLM 分析 transcript 识别换品边界，产出 `text_boundaries.json`
-- 信号融合（`segment_fusion.py`）：视觉 candidates + 文本 boundaries → `fused_candidates.json`
-  - 区间匹配：visual candidate 的 timestamp 落在 text boundary 的 `[start_time, end_time]` 内即为匹配
-  - 透传 `end_time`、`product_description`、`product_type` 等元数据
-- 融合后分段重建（如果融合成功）：`fused_to_segments()` 将融合边界点转为 segments，替换 VLM segments
+- 信号融合（`segment_fusion.py`）：**两层树架构**
+  - Level 0（Outfit Period）：视觉 candidates 定义换装区间，每个 visual candidate 是两个 outfit period 的边界
+  - Level 1（Product Discussion）：LLM text boundaries 按最大重叠度嵌套进 Level 0 区间
+  - 导出粒度由 `segment_granularity` 控制：
+    - `single_item` → 展平到 Level 1（每个商品讨论段一个视频）
+    - `outfit` → 展平到 Level 0（每套搭配一个视频，合并所有子商品）
+  - 无视觉信号时退化为单层（整个视频是一个 outfit period）
+  - 无 LLM 信号时退化为单层（每个 visual candidate 自成一个 segment）
+- 融合后分段重建（如果融合成功）：`fused_to_segments()` 将融合结果转为 segments，替换 VLM segments
   - 融合 candidates 带 `region_start_time`（LLM 区间起点），避免片段起点被视觉候选点 timestamp 截短
-  - 切分粒度由 `segment_granularity` 控制：`single_item` 用 `_split_overlapping_boundaries` 拆分，`outfit` 用 `_merge_overlapping_boundaries` 合并
   - 未开启 LLM 或融合失败时退回用原始 VLM segments（行为不变）
+- 换衣检测增强：品类变化（YOLO 46类）不再单独触发候选，必须同时有至少一个视觉佐证信号（HSV 下降 / 分区域 HSV 下降 / 纹理变化），过滤主播拿放物品误触
 - 商品名匹配
 - 分段合法性校验
 - 产出 `enriched_segments.json`

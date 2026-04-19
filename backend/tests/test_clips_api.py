@@ -17,12 +17,14 @@ CLIPS_DIR = UPLOAD_DIR / FIXTURE_TASK / "clips"
 def _setup_clips(tmp_path, monkeypatch):
     task_dir = tmp_path / FIXTURE_TASK
     clips_dir = task_dir / "clips"
+    covers_dir = task_dir / "covers"
     clips_dir.mkdir(parents=True)
+    covers_dir.mkdir(parents=True)
 
     for i in range(1, 4):
         idx = f"{i:03d}"
         (clips_dir / f"clip_{idx}.mp4").write_bytes(b"fake-mp4-data")
-        (clips_dir / f"clip_{idx}_thumb.jpg").write_bytes(b"fake-jpg-data")
+        (covers_dir / f"clip_{idx}.jpg").write_bytes(b"fake-jpg-data")
         meta = {
             "product_name": f"商品 {i}",
             "duration": 15.0 + i,

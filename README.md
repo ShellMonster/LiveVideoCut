@@ -120,7 +120,7 @@ graph TD
 - **VLM 确认** -- 支持 Qwen / GLM 两种 Provider，按导出模式决定是否参与
 - **多 ASR 支持** -- 火山 VC 字幕（推荐）、火山 BigModel、阿里 DashScope，三选一
 - **商品匹配** -- 自动关联商品名称与讲解片段
-- **LLM 文本分析** -- 可选开启，用 LLM 分析字幕文本识别换品边界，与视觉检测信号融合提升分段准确度
+- **LLM 文本分析** -- 可选开启，用 LLM 分析字幕文本识别换品边界，与视觉检测信号两层树融合（Level 0 换装区间 + Level 1 商品讨论段），按切分粒度（单品/搭配）导出
 - **字幕烧录** -- 支持四种模式：off / basic / styled / karaoke（逐字高亮+弹跳动画）
 - **导出模式** -- smart / no_vlm / all_candidates / all_scenes
 - **实时进度** -- WebSocket 推送处理进度，前端实时展示

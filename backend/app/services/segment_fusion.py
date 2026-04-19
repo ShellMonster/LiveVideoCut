@@ -1,4 +1,13 @@
-"""Segment fusion — merge visual clothing-change candidates with text boundaries."""
+"""Segment fusion — two-layer tree: visual outfit periods + LLM product discussions.
+
+Architecture:
+  Level 0: Outfit Period — driven by visual clothing-change signals
+  Level 1: Product Discussion — driven by LLM text boundaries within each outfit period
+
+Export granularity selects the level:
+  single_item → Level 1 (each product discussion is a clip)
+  outfit      → Level 0 (each outfit period is a clip)
+"""
 
 import logging
 
@@ -7,84 +16,260 @@ logger = logging.getLogger(__name__)
 MERGE_GAP = 10.0  # dedup fused candidates within this gap
 
 
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
 def fuse_candidates(
     visual_candidates: list[dict],
     text_boundaries: list[dict],
     video_duration: float,
     segment_granularity: str = "single_item",
 ) -> list[dict]:
-    """Merge visual candidates and text boundaries into a unified list.
+    """Two-layer fusion: visual outfit periods + LLM product discussions.
 
-    Uses interval matching: a visual candidate matches a text boundary if the
-    candidate's timestamp falls within the text boundary's [start_time, end_time].
+    Builds a tree:
+      Level 0 (outfit periods): defined by visual candidate timestamps
+      Level 1 (product discussions): LLM text boundaries nested inside Level 0
+
+    Then flattens to the appropriate level based on *segment_granularity*.
 
     Args:
         visual_candidates: [{timestamp, similarity, frame_idx}]
         text_boundaries: [{start_time, end_time, confidence, product_description,
                            product_type, boundary_reason, key_phrases}]
         video_duration: Total video length in seconds.
+        segment_granularity: "single_item" (Level 1) or "outfit" (Level 0).
 
     Returns:
-        Sorted list of fused boundary points by timestamp ascending, each carrying:
-        {timestamp, end_time, similarity, source, confidence,
-         product_description, product_type, boundary_reason, key_phrases,
-         merged_group_id: int | None}
+        Sorted list of fused boundary points by timestamp ascending.
     """
     logger.info(
-        "Fusing %d visual candidates + %d text boundaries (duration=%.1fs, granularity=%s)",
+        "Two-layer fusion: %d visual + %d text (duration=%.1fs, granularity=%s)",
         len(visual_candidates),
         len(text_boundaries),
         video_duration,
         segment_granularity,
     )
 
+    if not visual_candidates and not text_boundaries:
+        return []
+
+    # --- Build Level 0: outfit periods from visual candidates ---
+    outfit_periods = _build_outfit_periods(visual_candidates, video_duration)
+    logger.info("Level 0: %d outfit periods from visual signals", len(outfit_periods))
+
+    # --- Build Level 1: nest LLM text boundaries into outfit periods ---
+    text_regions = _split_overlapping_boundaries(text_boundaries)
+    _nest_text_regions(outfit_periods, text_regions)
+
+    # --- Flatten to the selected granularity ---
     if segment_granularity == "outfit":
-        merged_regions = _merge_overlapping_boundaries(text_boundaries)
-        logger.info(
-            "Merged %d text boundaries → %d regions (outfit mode)",
-            len(text_boundaries),
-            len(merged_regions),
-        )
+        result = _flatten_to_level0(outfit_periods, video_duration)
     else:
-        merged_regions = _split_overlapping_boundaries(text_boundaries)
-        logger.info(
-            "Split %d text boundaries → %d regions (single_item mode)",
-            len(text_boundaries),
-            len(merged_regions),
-        )
+        result = _flatten_to_level1(outfit_periods, video_duration)
 
-    fused: list[dict] = []
-    matched_region_ids: set[int] = set()
+    result = _dedup_close_boundaries(result)
 
-    # Pass 1: match visual candidates against merged text boundary regions
-    for vc in visual_candidates:
+    logger.info(
+        "Fusion result: %d segments at %s level (%s)",
+        len(result),
+        "L0 outfit" if segment_granularity == "outfit" else "L1 product",
+        _source_summary(result),
+    )
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Level 0: outfit periods
+# ---------------------------------------------------------------------------
+
+def _build_outfit_periods(
+    visual_candidates: list[dict],
+    video_duration: float,
+) -> list[dict]:
+    """Build outfit periods (Level 0) from visual change detection points.
+
+    Each visual candidate marks a boundary between two outfit periods.
+    Returns list of {start_time, end_time, visual_confidence, children: []}.
+    """
+    if not visual_candidates:
+        # No visual signals → single outfit period spanning the whole video
+        return [{
+            "start_time": 0.0,
+            "end_time": video_duration,
+            "visual_confidence": 0.0,
+            "children": [],
+        }]
+
+    sorted_vc = sorted(visual_candidates, key=lambda vc: vc["timestamp"])
+
+    periods: list[dict] = []
+    prev_ts = 0.0
+
+    for vc in sorted_vc:
         ts = vc["timestamp"]
         sim = vc.get("similarity", 0.0)
-        region_idx = _find_containing_region(ts, merged_regions)
-
-        if region_idx is not None:
-            matched_region_ids.add(region_idx)
-            region = merged_regions[region_idx]
-            fused.append({
-                "timestamp": ts,
-                "end_time": region["end_time"],
-                "region_start_time": region["start_time"],
-                "similarity": max(sim, region.get("confidence", 0.0)),
-                "source": "visual+text",
-                "confidence": region.get("confidence", 0.0),
-                "product_description": region.get("product_description", ""),
-                "product_type": region.get("product_type", ""),
-                "boundary_reason": region.get("boundary_reason", ""),
-                "key_phrases": region.get("key_phrases", []),
-                "merged_group_id": region_idx,
-            })
-        else:
-            fused.append({
-                "timestamp": ts,
+        if ts > prev_ts:
+            periods.append({
+                "start_time": prev_ts,
                 "end_time": ts,
-                "similarity": sim,
+                "visual_confidence": sim,
+                "children": [],
+            })
+        prev_ts = ts
+
+    # Final period from last visual point to end of video
+    if prev_ts < video_duration:
+        periods.append({
+            "start_time": prev_ts,
+            "end_time": video_duration,
+            "visual_confidence": 0.0,
+            "children": [],
+        })
+
+    return periods
+
+
+# ---------------------------------------------------------------------------
+# Level 1: text regions nested into outfit periods
+# ---------------------------------------------------------------------------
+
+def _nest_text_regions(
+    outfit_periods: list[dict],
+    text_regions: list[dict],
+) -> None:
+    """Assign each text region to the outfit period that best contains it.
+
+    A text region is assigned to the period that overlaps the most with it.
+    Text regions not contained in any period are assigned to the nearest one.
+    """
+    for tr in text_regions:
+        tr_start = tr["start_time"]
+        tr_end = tr["end_time"]
+        best_idx = -1
+        best_overlap = -1.0
+
+        for i, period in enumerate(outfit_periods):
+            overlap_start = max(tr_start, period["start_time"])
+            overlap_end = min(tr_end, period["end_time"])
+            overlap = max(0.0, overlap_end - overlap_start)
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_idx = i
+
+        if best_idx >= 0:
+            outfit_periods[best_idx]["children"].append(tr)
+        elif outfit_periods:
+            # Fallback: assign to the nearest period
+            nearest = min(
+                range(len(outfit_periods)),
+                key=lambda i: abs(tr_start - outfit_periods[i]["start_time"]),
+            )
+            outfit_periods[nearest]["children"].append(tr)
+
+
+# ---------------------------------------------------------------------------
+# Flatten helpers
+# ---------------------------------------------------------------------------
+
+def _flatten_to_level0(
+    outfit_periods: list[dict],
+    video_duration: float,
+) -> list[dict]:
+    """Flatten to outfit periods (Level 0). Each period becomes one segment.
+
+    Merges product info from nested Level 1 children into the parent period.
+    """
+    result: list[dict] = []
+
+    for period in outfit_periods:
+        children = period.get("children", [])
+        # Use the best child's product info if available
+        best_child = max(children, key=lambda c: c.get("confidence", 0.0)) if children else None
+
+        product_description = ""
+        product_type = ""
+        confidence = period.get("visual_confidence", 0.0)
+        key_phrases: list[str] = []
+        boundary_reason = ""
+
+        if best_child:
+            product_description = best_child.get("product_description", "")
+            product_type = best_child.get("product_type", "")
+            confidence = max(confidence, best_child.get("confidence", 0.0))
+            key_phrases = best_child.get("key_phrases", [])
+            boundary_reason = best_child.get("boundary_reason", "")
+
+        # Collect all phrases from all children
+        if children:
+            all_phrases = set()
+            for c in children:
+                all_phrases.update(c.get("key_phrases", []))
+            key_phrases = list(all_phrases)
+
+        source = "visual+text" if children else "visual"
+
+        result.append({
+            "timestamp": period["start_time"],
+            "end_time": period["end_time"],
+            "region_start_time": period["start_time"],
+            "similarity": confidence,
+            "source": source,
+            "confidence": confidence,
+            "product_description": product_description,
+            "product_type": product_type,
+            "boundary_reason": boundary_reason,
+            "key_phrases": key_phrases,
+            "merged_group_id": 0,
+        })
+
+    return result
+
+
+def _flatten_to_level1(
+    outfit_periods: list[dict],
+    video_duration: float,
+) -> list[dict]:
+    """Flatten to product discussions (Level 1).
+
+    - Periods WITH children → one segment per child (product discussion)
+    - Periods WITHOUT children → one segment per period (visual-only)
+    """
+    result: list[dict] = []
+    group_id = 0
+
+    for period in outfit_periods:
+        children = period.get("children", [])
+
+        if children:
+            for child in children:
+                # Clamp child times to period boundaries
+                start = max(child["start_time"], period["start_time"])
+                end = min(child["end_time"], period["end_time"])
+
+                result.append({
+                    "timestamp": start,
+                    "end_time": end,
+                    "region_start_time": start,
+                    "similarity": child.get("confidence", 0.0),
+                    "source": "visual+text",
+                    "confidence": child.get("confidence", 0.0),
+                    "product_description": child.get("product_description", ""),
+                    "product_type": child.get("product_type", ""),
+                    "boundary_reason": child.get("boundary_reason", ""),
+                    "key_phrases": child.get("key_phrases", []),
+                    "merged_group_id": group_id,
+                })
+                group_id += 1
+        else:
+            # Visual-only period — becomes its own segment
+            result.append({
+                "timestamp": period["start_time"],
+                "end_time": period["end_time"],
+                "similarity": period.get("visual_confidence", 0.0),
                 "source": "visual",
-                "confidence": 0.0,
+                "confidence": period.get("visual_confidence", 0.0),
                 "product_description": "",
                 "product_type": "",
                 "boundary_reason": "",
@@ -92,33 +277,6 @@ def fuse_candidates(
                 "merged_group_id": None,
             })
 
-    # Pass 2: add text regions not matched by any visual candidate
-    for i, region in enumerate(merged_regions):
-        if i in matched_region_ids:
-            continue
-        ts = region["start_time"]
-        conf = region.get("confidence", 0.0)
-        fused.append({
-            "timestamp": ts,
-            "end_time": region["end_time"],
-            "region_start_time": region["start_time"],
-            "similarity": conf,
-            "source": "text",
-            "confidence": conf,
-            "product_description": region.get("product_description", ""),
-            "product_type": region.get("product_type", ""),
-            "boundary_reason": region.get("boundary_reason", ""),
-            "key_phrases": region.get("key_phrases", []),
-            "merged_group_id": i,
-        })
-
-    result = _dedup_close_boundaries(fused)
-
-    logger.info(
-        "Fusion result: %d candidates (%s)",
-        len(result),
-        _source_summary(result),
-    )
     return result
 
 

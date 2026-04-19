@@ -170,5 +170,8 @@ def test_start_pipeline_threads_review_mode_from_settings_snapshot(
             "https://dashscope.aliyuncs.com/compatible-mode/v1",
             "qwen-vl-plus",
             "adjacent_frames",
+            True,
+            "smart",
+            "standard",
         ),
     )
