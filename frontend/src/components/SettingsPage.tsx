@@ -403,6 +403,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
               </select>
             </div>
 
+            {draft.exportMode === "smart" && <>
             <div>
               <label htmlFor="provider" className="mb-1 block text-sm font-medium text-slate-700">
                 提供方
@@ -419,6 +420,113 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 <option value="glm">GLM</option>
               </select>
             </div>
+
+            <div>
+              <label htmlFor="review-strictness" className="mb-1 block text-sm font-medium text-slate-700">
+                VLM 严格度
+              </label>
+              <select
+                id="review-strictness"
+                className={inputClassName}
+                value={draft.reviewStrictness}
+                onChange={(e) =>
+                  setDraft({ ...draft, reviewStrictness: e.target.value as StrictnessMode })
+                }
+              >
+                <option value="strict">严格</option>
+                <option value="standard">标准</option>
+                <option value="loose">宽松</option>
+              </select>
+            </div>
+
+            <div className="md:col-span-2">
+              <label htmlFor="api-key" className="mb-1 block text-sm font-medium text-slate-700">
+                VLM API 密钥
+              </label>
+              <input
+                id="api-key"
+                type="password"
+                className={inputClassName}
+                value={draft.apiKey}
+                onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })}
+                placeholder="sk-..."
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label htmlFor="api-base" className="mb-1 block text-sm font-medium text-slate-700">
+                API 基础地址
+              </label>
+              <input
+                id="api-base"
+                type="text"
+                className={inputClassName}
+                value={draft.apiBase}
+                onChange={(e) => setDraft({ ...draft, apiBase: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="model" className="mb-1 block text-sm font-medium text-slate-700">
+                模型
+              </label>
+              <input
+                id="model"
+                type="text"
+                className={inputClassName}
+                value={draft.model}
+                onChange={(e) => setDraft({ ...draft, model: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="review-mode" className="mb-1 block text-sm font-medium text-slate-700">
+                复核模式
+              </label>
+              <select
+                id="review-mode"
+                className={inputClassName}
+                value={draft.reviewMode}
+                onChange={(e) => setDraft({ ...draft, reviewMode: e.target.value as ReviewMode })}
+              >
+                <option value="adjacent_frames">相邻帧</option>
+                <option value="segment_multiframe">片段多帧</option>
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="max-candidate-count" className="mb-1 block text-sm font-medium text-slate-700">
+                最大候选数量
+              </label>
+              <input
+                id="max-candidate-count"
+                type="number"
+                min={1}
+                max={100}
+                step={1}
+                className={inputClassName}
+                value={draft.maxCandidateCount}
+                onChange={(e) => updateNumber("maxCandidateCount", e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="funasr-mode" className="mb-1 block text-sm font-medium text-slate-700">
+                FunASR 模式
+              </label>
+              <select
+                id="funasr-mode"
+                className={inputClassName}
+                value={draft.funasrMode}
+                onChange={(e) =>
+                  setDraft({ ...draft, funasrMode: e.target.value as "local" | "remote" })
+                }
+              >
+                <option value="local">本地 Docker</option>
+                <option value="remote">远程 API</option>
+              </select>
+            </div>
+            </>}
 
             <div>
               <label htmlFor="review-strictness" className="mb-1 block text-sm font-medium text-slate-700">

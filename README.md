@@ -38,7 +38,7 @@ graph TB
         subgraph 本地模型
             YOLO["YOLOv8 (ONNX)<br/>46类服装检测"]
             MediaPipe["MediaPipe Selfie (TFLite)<br/>6类像素分割"]
-            HSV["HSV 直方图"]
+            HSV["HSV + 分区域 HSV<br/>+ ORB 纹理"]
         end
 
         FFmpeg["FFmpeg 视频处理"]
@@ -82,7 +82,7 @@ graph TD
 
     D --> E["阶段1: visual_prescreen"]
     E --> E1["FFmpeg 抽帧 (0.5fps)"]
-    E1 --> E2["换衣检测<br/>YOLO 46类 + MediaPipe 像素分割 + HSV 直方图"]
+    E1 --> E2["换衣检测<br/>YOLO 46类 + MediaPipe + HSV + 分区域 HSV + ORB 纹理"]
     E2 --> E3["产出 candidates.json + scenes.json"]
 
     E3 --> F["阶段2: vlm_confirm"]
@@ -116,7 +116,7 @@ graph TD
 ## 功能特性
 
 - **上传** -- 支持 20GB 以内 MP4，自动校验编码格式和音频流
-- **换衣检测** -- 三信号联合：YOLO 46类服装检测 + MediaPipe 像素分割 + HSV 直方图兜底
+- **换衣检测** -- 五信号联合：YOLO 46类服装检测 + MediaPipe 像素分割 + 全帧 HSV + 分区域 HSV（上身/下身）+ ORB 纹理
 - **VLM 确认** -- 支持 Qwen / GLM 两种 Provider，按导出模式决定是否参与
 - **多 ASR 支持** -- 火山 VC 字幕（推荐）、火山 BigModel、阿里 DashScope，三选一
 - **商品匹配** -- 自动关联商品名称与讲解片段
@@ -136,7 +136,7 @@ graph TD
 | 前端 | React 19 + TypeScript 6 + Vite 8 + Tailwind CSS 4 + Zustand 5 |
 | 后端 API | FastAPI + Uvicorn |
 | 异步任务 | Celery + Redis |
-| 换衣检测 | YOLOv8 (ONNX, 46类) + MediaPipe Selfie (TFLite, 6类) + HSV 直方图 |
+| 换衣检测 | YOLOv8 (ONNX, 46类) + MediaPipe Selfie (TFLite, 6类) + HSV + 分区域 HSV + ORB 纹理 |
 | VLM | Qwen / GLM (OpenAI 兼容 API) |
 | ASR | 火山 VC 字幕 (推荐) / 火山大模型 / 阿里 DashScope |
 | 视频处理 | FFmpeg |

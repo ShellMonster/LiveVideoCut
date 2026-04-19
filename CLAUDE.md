@@ -18,7 +18,7 @@
 - 异步任务：Celery
 - 队列/状态：Redis
 - 视频处理：FFmpeg
-- 换衣检测：ClothingChangeDetector（三信号联合：YOLO 46类检测 + MediaPipe 像素分割 + HSV 直方图兜底）
+- 换衣检测：ClothingChangeDetector（五信号联合：YOLO 46类检测 + MediaPipe 像素分割 + 全帧 HSV + 分区域 HSV（上身/下身）+ ORB 纹理）
 - VLM：Qwen / GLM（二选一）
 - ASR：当前支持四个 ASR provider：
   - `dashscope`：DashScope paraformer-v2（阿里云百炼，直接传 MP4，返回逐字时间戳）
@@ -69,6 +69,10 @@
   - `llm_type`：API 类型 `openai`（默认）/ `gemini`（预留）
   - `llm_api_key` / `llm_api_base` / `llm_model`：独立的 LLM 配置（不与 VLM 共用）
   - 在 ASR 转写完成后，用 LLM 分析 transcript 文本识别换品边界，与视觉检测信号融合
+- 切分粒度：`segment_granularity`：`single_item`（默认）/ `outfit`
+  - `single_item`：把搭配中的每件单品（毛衣、裙子、背心等）各切成一段
+  - `outfit`：整套搭配合为一段
+- 导出分辨率：`export_resolution`：`1080p`（默认）/ `4k` / `original`
 
 这些设置保存在前端 Zustand store + localStorage 中，只影响之后新上传的任务。
 
@@ -127,7 +131,7 @@
 做这些事：
 
 - FFmpeg 抽帧（默认 0.5fps）
-- 用 ClothingChangeDetector（三信号联合：YOLO 品类变化 + MediaPipe 衣服 mask 内 HSV + 全帧 HSV 兜底）检测换衣节点
+- 用 ClothingChangeDetector（五信号联合：YOLO 品类变化 + MediaPipe 像素分割 + 全帧 HSV + 分区域 HSV（上身/下身）+ ORB 纹理）检测换衣节点
 - 产出 `candidates.json` 和 `scenes.json`
 
 ### 2) vlm_confirm
@@ -149,6 +153,8 @@
   - 区间匹配：visual candidate 的 timestamp 落在 text boundary 的 `[start_time, end_time]` 内即为匹配
   - 透传 `end_time`、`product_description`、`product_type` 等元数据
 - 融合后分段重建（如果融合成功）：`fused_to_segments()` 将融合边界点转为 segments，替换 VLM segments
+  - 融合 candidates 带 `region_start_time`（LLM 区间起点），避免片段起点被视觉候选点 timestamp 截短
+  - 切分粒度由 `segment_granularity` 控制：`single_item` 用 `_split_overlapping_boundaries` 拆分，`outfit` 用 `_merge_overlapping_boundaries` 合并
   - 未开启 LLM 或融合失败时退回用原始 VLM segments（行为不变）
 - 商品名匹配
 - 分段合法性校验
@@ -435,3 +441,8 @@ VC 贵 3 倍但效果最好，适合对字幕质量有要求的场景。
 - `frame_sample_fps` 默认值已改为 `0.5`（float 类型），原来 `2` 导致帧数过多、处理慢且容易 OOM
 - 换衣检测的帧分析会在处理前 resize 到 640px 以降低内存占用
 - 新增依赖 `mediapipe>=0.10.14`（在 requirements.txt 中）
+- 换衣检测已从三信号升级到五信号：YOLO 品类变化 + MediaPipe 像素分割 + 全帧 HSV + 分区域 HSV（上身/下身，用 YOLO bbox 区分 UPPER_BODY_CLASSES / LOWER_BODY_CLASSES）+ ORB 纹理（上身 bbox 裁剪后提取描述子）
+- `hist_debug.json` 新增 `upper_correlations`、`lower_correlations`、`texture_similarities` 字段
+- `analyze_frame()` 返回值已扩展：`{mask, items, hsv_hist, upper_hsv_hist, lower_hsv_hist, orb_descriptors}`
+- 融合修复：fused candidates 带 `region_start_time` 字段，`fused_to_segments()` 优先用 LLM 区间起点避免片段被截短
+- 前端设置页面：ASR/LLM 关闭时折叠子配置，VLM 导出模式非 smart 时折叠 VLM 子配置
