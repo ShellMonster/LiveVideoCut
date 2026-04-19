@@ -96,6 +96,11 @@ class ExportResolution(str, Enum):
     r4k = "4k"
 
 
+class SegmentGranularity(str, Enum):
+    single_item = "single_item"
+    outfit = "outfit"
+
+
 def _validate_api_base(provider: str, api_base: str) -> str:
     parsed = urlparse(api_base)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -166,6 +171,7 @@ class SettingsRequest(BaseModel):
     llm_api_key: str = ""
     llm_api_base: str = ""
     llm_model: str = ""
+    segment_granularity: SegmentGranularity = SegmentGranularity.single_item
 
     @model_validator(mode="after")
     def apply_provider_defaults_and_validate(self):

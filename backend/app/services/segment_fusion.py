@@ -11,6 +11,7 @@ def fuse_candidates(
     visual_candidates: list[dict],
     text_boundaries: list[dict],
     video_duration: float,
+    segment_granularity: str = "single_item",
 ) -> list[dict]:
     """Merge visual candidates and text boundaries into a unified list.
 
@@ -30,19 +31,27 @@ def fuse_candidates(
          merged_group_id: int | None}
     """
     logger.info(
-        "Fusing %d visual candidates + %d text boundaries (duration=%.1fs)",
+        "Fusing %d visual candidates + %d text boundaries (duration=%.1fs, granularity=%s)",
         len(visual_candidates),
         len(text_boundaries),
         video_duration,
+        segment_granularity,
     )
 
-    # Step 0: merge overlapping text_boundaries into non-overlapping regions
-    merged_regions = _merge_overlapping_boundaries(text_boundaries)
-    logger.info(
-        "Merged %d text boundaries → %d non-overlapping regions",
-        len(text_boundaries),
-        len(merged_regions),
-    )
+    if segment_granularity == "outfit":
+        merged_regions = _merge_overlapping_boundaries(text_boundaries)
+        logger.info(
+            "Merged %d text boundaries → %d regions (outfit mode)",
+            len(text_boundaries),
+            len(merged_regions),
+        )
+    else:
+        merged_regions = _split_overlapping_boundaries(text_boundaries)
+        logger.info(
+            "Split %d text boundaries → %d regions (single_item mode)",
+            len(text_boundaries),
+            len(merged_regions),
+        )
 
     fused: list[dict] = []
     matched_region_ids: set[int] = set()
@@ -59,6 +68,7 @@ def fuse_candidates(
             fused.append({
                 "timestamp": ts,
                 "end_time": region["end_time"],
+                "region_start_time": region["start_time"],
                 "similarity": max(sim, region.get("confidence", 0.0)),
                 "source": "visual+text",
                 "confidence": region.get("confidence", 0.0),
@@ -91,6 +101,7 @@ def fuse_candidates(
         fused.append({
             "timestamp": ts,
             "end_time": region["end_time"],
+            "region_start_time": region["start_time"],
             "similarity": conf,
             "source": "text",
             "confidence": conf,
@@ -114,11 +125,6 @@ def fuse_candidates(
 def _merge_overlapping_boundaries(
     text_boundaries: list[dict],
 ) -> list[dict]:
-    """Merge overlapping text_boundaries into non-overlapping regions.
-
-    Adjacent boundaries (gap < 1s) are also merged.
-    Merged region keeps the longest product_description and highest confidence.
-    """
     if not text_boundaries:
         return []
 
@@ -133,7 +139,6 @@ def _merge_overlapping_boundaries(
             prev["end_time"] = max(prev["end_time"], tb.get("end_time", tb_start))
             if tb.get("confidence", 0.0) > prev.get("confidence", 0.0):
                 prev["confidence"] = tb.get("confidence", 0.0)
-            # keep longest description
             if len(tb.get("product_description", "")) > len(prev.get("product_description", "")):
                 prev["product_description"] = tb.get("product_description", "")
             if tb.get("product_type", ""):
@@ -143,6 +148,60 @@ def _merge_overlapping_boundaries(
             prev["key_phrases"] = list(set(prev.get("key_phrases", []) + tb.get("key_phrases", [])))
         else:
             regions.append(_region_from_boundary(tb))
+
+    return regions
+
+
+def _split_overlapping_boundaries(
+    text_boundaries: list[dict],
+) -> list[dict]:
+    """Split overlapping text_boundaries into fine-grained non-overlapping pieces.
+
+    Instead of merging overlapping intervals into a giant region (which loses
+    granularity), this splits them at every boundary edge. Each resulting piece
+    carries the info of the most specific (shortest) boundary that covers it.
+    """
+    if not text_boundaries:
+        return []
+
+    sorted_tb = sorted(text_boundaries, key=lambda tb: tb.get("start_time", 0.0))
+
+    # collect all unique split points (every start and end)
+    split_points: set[float] = set()
+    for tb in sorted_tb:
+        split_points.add(tb.get("start_time", 0.0))
+        split_points.add(tb.get("end_time", 0.0))
+    splits = sorted(split_points)
+
+    # build non-overlapping pieces by slicing at every split point
+    regions: list[dict] = []
+    for i in range(len(splits) - 1):
+        piece_start = splits[i]
+        piece_end = splits[i + 1]
+        if piece_end - piece_start < 1.0:
+            continue
+
+        # find all boundaries covering this piece, pick the most specific (shortest)
+        candidates = [
+            tb for tb in sorted_tb
+            if tb.get("start_time", 0.0) <= piece_start
+            and tb.get("end_time", 0.0) >= piece_end
+        ]
+        if not candidates:
+            continue
+
+        # prefer the shortest (most specific) boundary
+        best = min(candidates, key=lambda tb: tb.get("end_time", 0.0) - tb.get("start_time", 0.0))
+
+        regions.append({
+            "start_time": piece_start,
+            "end_time": piece_end,
+            "confidence": best.get("confidence", 0.0),
+            "product_description": best.get("product_description", ""),
+            "product_type": best.get("product_type", ""),
+            "boundary_reason": best.get("boundary_reason", ""),
+            "key_phrases": list(best.get("key_phrases", [])),
+        })
 
     return regions
 
@@ -258,7 +317,10 @@ def fused_to_segments(
     # Phase 2: build segments from text groups
     segments: list[dict] = []
     for gid, group in text_groups.items():
-        start_time = group[0]["timestamp"]
+        # Use LLM region's start_time to capture full product discussion
+        # (visual candidate may fire mid-way through the discussion)
+        region_start = group[0].get("region_start_time")
+        start_time = region_start if region_start is not None else group[0]["timestamp"]
         end_time = group[-1].get("end_time", group[-1]["timestamp"])
         # use the region's end_time if it extends beyond last candidate
         region_end = max(fc.get("end_time", fc["timestamp"]) for fc in group)

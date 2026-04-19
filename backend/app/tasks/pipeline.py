@@ -514,7 +514,9 @@ def enrich_segments(
                     model=settings.llm_model,
                     llm_type=settings.llm_type.value,
                 )
-                text_boundaries = analyzer.analyze(transcript)
+                granularity = getattr(settings, "segment_granularity", "single_item")
+                granularity = granularity.value if hasattr(granularity, "value") else granularity
+                text_boundaries = analyzer.analyze(transcript, segment_granularity=granularity)
                 logger.info("LLM text analysis found %d boundaries", len(text_boundaries))
 
                 text_boundaries_file = task_path / "text_boundaries.json"
@@ -526,7 +528,7 @@ def enrich_segments(
                 visual_candidates = json.loads(candidates_file.read_text()) if candidates_file.exists() else []
                 video_duration = _get_video_duration(str(video_path))
 
-                fused = fuse_candidates(visual_candidates, text_boundaries, video_duration)
+                fused = fuse_candidates(visual_candidates, text_boundaries, video_duration, segment_granularity=granularity)
                 fused_file = task_path / "fused_candidates.json"
                 fused_file.write_text(json.dumps(fused, ensure_ascii=False, indent=2))
 

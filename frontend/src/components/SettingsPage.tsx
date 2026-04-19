@@ -100,6 +100,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     llmModel,
     llmType,
     exportResolution,
+    segmentGranularity,
     setSettings,
   } = useSettingsStore();
 
@@ -142,6 +143,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     llmModel,
     llmType,
     exportResolution,
+    segmentGranularity,
   });
 
   const showToast = useToastStore((state) => state.showToast);
@@ -533,22 +535,6 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
           description="选择语音转写（ASR）的服务提供方。关闭后跳过 ASR 转写，不做字幕烧录，适合快速验证分段效果。"
         >
           <div className="grid gap-4 md:grid-cols-2">
-            <div className="md:col-span-2">
-              <label className="mb-1 flex items-center gap-2 text-sm font-medium text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={draft.asrEnabled}
-                  onChange={(e) => setDraft({ ...draft, asrEnabled: e.target.checked })}
-                  className="rounded border-slate-300"
-                />
-                开启 ASR 语音转写
-              </label>
-              <p className="mt-1 text-xs text-slate-500">
-                关闭后跳过语音转写和字幕烧录，大幅缩短处理时间（适合快速测试分段效果）
-              </p>
-            </div>
-
-            {draft.asrEnabled && (<>
             <div>
               <label htmlFor="asr-provider" className="mb-1 block text-sm font-medium text-slate-700">
                 ASR 提供方
@@ -556,18 +542,24 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
               <select
                 id="asr-provider"
                 className={inputClassName}
-                value={draft.asrProvider}
-                onChange={(e) =>
-                  setDraft({ ...draft, asrProvider: e.target.value as AsrProvider })
-                }
+                value={draft.asrEnabled ? draft.asrProvider : "off"}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "off") {
+                    setDraft({ ...draft, asrEnabled: false });
+                  } else {
+                    setDraft({ ...draft, asrEnabled: true, asrProvider: v as AsrProvider });
+                  }
+                }}
               >
+                <option value="off">关闭（不进行语音转写）</option>
                 <option value="volcengine_vc">火山 VC 字幕（推荐 · 剪映分句+逐字同步最佳）</option>
                 <option value="volcengine">火山豆包大模型（真实时间戳，分句偏长）</option>
                 <option value="dashscope">阿里云 DashScope（最便宜，逐字匀速不适合跳字）</option>
               </select>
             </div>
 
-            {(draft.asrProvider === "volcengine" || draft.asrProvider === "volcengine_vc") && (
+            {draft.asrEnabled && (draft.asrProvider === "volcengine" || draft.asrProvider === "volcengine_vc") && (
               <>
                 <div className="md:col-span-2">
                   <label htmlFor="asr-api-key" className="mb-1 block text-sm font-medium text-slate-700">
@@ -652,7 +644,6 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 </div>
               </>
             )}
-            </>)}
           </div>
         </Section>
 
@@ -661,36 +652,30 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
           description="配置用于文本分析的大模型服务，通过字幕文本识别换品边界，与视觉检测结合提高分段准确度。"
         >
           <div className="grid gap-4 md:grid-cols-2">
-            <div className="col-span-full">
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={draft.enableLlmAnalysis}
-                  onChange={(e) => setDraft({ ...draft, enableLlmAnalysis: e.target.checked })}
-                  className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-500"
-                />
-                <span className="text-sm font-medium text-slate-700">启用 LLM 文本分析</span>
-              </label>
-            </div>
-
             <div>
-              <label htmlFor="llm-type" className="mb-1 block text-sm font-medium text-slate-700">
-                LLM 类型
+              <label htmlFor="llm-status" className="mb-1 block text-sm font-medium text-slate-700">
+                LLM 文本分析
               </label>
               <select
-                id="llm-type"
+                id="llm-status"
                 className={inputClassName}
-                value={draft.llmType}
-                onChange={(e) =>
-                  setDraft({ ...draft, llmType: e.target.value as LlmType })
-                }
-                disabled={!draft.enableLlmAnalysis}
+                value={draft.enableLlmAnalysis ? draft.llmType : "off"}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "off") {
+                    setDraft({ ...draft, enableLlmAnalysis: false });
+                  } else {
+                    setDraft({ ...draft, enableLlmAnalysis: true, llmType: v as LlmType });
+                  }
+                }}
               >
+                <option value="off">关闭（不使用 LLM 分析）</option>
                 <option value="openai">OpenAI 兼容</option>
                 <option value="gemini">Gemini</option>
               </select>
             </div>
 
+            {draft.enableLlmAnalysis && <>
             <div className="md:col-span-2">
               <label htmlFor="llm-api-key" className="mb-1 block text-sm font-medium text-slate-700">
                 LLM API 密钥
@@ -702,7 +687,6 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 value={draft.llmApiKey}
                 onChange={(e) => setDraft({ ...draft, llmApiKey: e.target.value })}
                 placeholder="sk-..."
-                disabled={!draft.enableLlmAnalysis}
               />
             </div>
 
@@ -717,7 +701,6 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 value={draft.llmApiBase}
                 onChange={(e) => setDraft({ ...draft, llmApiBase: e.target.value })}
                 placeholder="https://api.openai.com/v1"
-                disabled={!draft.enableLlmAnalysis}
               />
             </div>
 
@@ -732,9 +715,30 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 value={draft.llmModel}
                 onChange={(e) => setDraft({ ...draft, llmModel: e.target.value })}
                 placeholder="gpt-4o-mini"
-                disabled={!draft.enableLlmAnalysis}
               />
             </div>
+
+            <div>
+              <label htmlFor="segment-granularity" className="mb-1 block text-sm font-medium text-slate-700">
+                切分粒度
+              </label>
+              <select
+                id="segment-granularity"
+                className={inputClassName}
+                value={draft.segmentGranularity}
+                onChange={(e) =>
+                  setDraft({ ...draft, segmentGranularity: e.target.value as "single_item" | "outfit" })
+                }
+                disabled={!draft.enableLlmAnalysis}
+              >
+                <option value="single_item">按单件切分（每件商品单独成段）</option>
+                <option value="outfit">按搭配切分（同一套搭配合为一段）</option>
+              </select>
+              <p className="mt-1 text-xs text-slate-500">
+                单件模式：把搭配中的每件单品（毛衣、裙子、背心等）各切成一段；搭配模式：整套搭配合为一段
+              </p>
+            </div>
+            </>}
           </div>
         </Section>
 

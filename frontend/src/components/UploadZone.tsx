@@ -45,6 +45,7 @@ interface UploadSettingsPayload {
   llm_model: string;
   llm_type: Settings["llmType"];
   export_resolution: Settings["exportResolution"];
+  segment_granularity: Settings["segmentGranularity"];
 }
 
 interface UploadContext {
@@ -118,6 +119,7 @@ function buildUploadSettingsPayload(settings: Settings): UploadSettingsPayload {
     llm_model: settings.llmModel,
     llm_type: settings.llmType,
     export_resolution: settings.exportResolution,
+    segment_granularity: settings.segmentGranularity,
   };
 }
 
