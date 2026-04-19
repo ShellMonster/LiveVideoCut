@@ -83,6 +83,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     subtitlePosition,
     subtitleTemplate,
     funasrMode,
+    asrEnabled,
     asrProvider,
     fillerFilterMode,
     coverStrategy,
@@ -124,6 +125,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     subtitlePosition,
     subtitleTemplate,
     funasrMode,
+    asrEnabled,
     asrProvider,
     fillerFilterMode,
     coverStrategy,
@@ -528,9 +530,25 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
 
         <Section
           title="语音识别设置"
-          description="选择语音转写（ASR）的服务提供方。"
+          description="选择语音转写（ASR）的服务提供方。关闭后跳过 ASR 转写，不做字幕烧录，适合快速验证分段效果。"
         >
           <div className="grid gap-4 md:grid-cols-2">
+            <div className="md:col-span-2">
+              <label className="mb-1 flex items-center gap-2 text-sm font-medium text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={draft.asrEnabled}
+                  onChange={(e) => setDraft({ ...draft, asrEnabled: e.target.checked })}
+                  className="rounded border-slate-300"
+                />
+                开启 ASR 语音转写
+              </label>
+              <p className="mt-1 text-xs text-slate-500">
+                关闭后跳过语音转写和字幕烧录，大幅缩短处理时间（适合快速测试分段效果）
+              </p>
+            </div>
+
+            {draft.asrEnabled && (<>
             <div>
               <label htmlFor="asr-provider" className="mb-1 block text-sm font-medium text-slate-700">
                 ASR 提供方
@@ -634,6 +652,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 </div>
               </>
             )}
+            </>)}
           </div>
         </Section>
 

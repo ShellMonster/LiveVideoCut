@@ -39,6 +39,7 @@ export interface Settings {
   coverStrategy: CoverStrategy;
   videoSpeed: VideoSpeed;
   funasrMode: "local" | "remote";
+  asrEnabled: boolean;
   asrProvider: AsrProvider;
   asrApiKey: string;
   tosAk: string;
@@ -91,6 +92,7 @@ const defaultSettings: Settings = {
   coverStrategy: "content_first" as CoverStrategy,
   videoSpeed: 1.25 as VideoSpeed,
   funasrMode: "local",
+  asrEnabled: false,
   asrProvider: "volcengine_vc",
   asrApiKey: "",
   tosAk: "",

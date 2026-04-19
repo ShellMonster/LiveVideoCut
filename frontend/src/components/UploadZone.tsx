@@ -28,6 +28,7 @@ interface UploadSettingsPayload {
   subtitle_position: Settings["subtitlePosition"];
   subtitle_template: Settings["subtitleTemplate"];
   funasr_mode: Settings["funasrMode"];
+  asr_enabled: boolean;
   asr_provider: Settings["asrProvider"];
   asr_api_key: Settings["asrApiKey"];
   tos_ak: string;
@@ -100,6 +101,7 @@ function buildUploadSettingsPayload(settings: Settings): UploadSettingsPayload {
     subtitle_position: settings.subtitlePosition,
     subtitle_template: settings.subtitleTemplate,
     funasr_mode: settings.funasrMode,
+    asr_enabled: settings.asrEnabled,
     asr_provider: settings.asrProvider,
     asr_api_key: settings.asrApiKey,
     tos_ak: settings.tosAk,

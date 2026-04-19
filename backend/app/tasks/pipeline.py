@@ -457,7 +457,11 @@ def enrich_segments(
                 return {"segments_count": len(scenes), "validated_count": 0}
 
             asr_client = _create_asr_client(settings)
-            transcript = asr_client.transcribe(str(video_path))
+            if getattr(settings, "asr_enabled", True):
+                transcript = asr_client.transcribe(str(video_path))
+            else:
+                logger.info("ASR disabled, skipping transcription (all_scenes path)")
+                transcript = []
 
             transcript_file = task_path / "transcript.json"
             transcript_file.write_text(
@@ -490,14 +494,18 @@ def enrich_segments(
             return {"segments_count": len(segments), "validated_count": 0}
 
         asr_client = _create_asr_client(settings)
-        transcript = asr_client.transcribe(str(video_path))
+        if getattr(settings, "asr_enabled", True):
+            transcript = asr_client.transcribe(str(video_path))
+        else:
+            logger.info("ASR disabled, skipping transcription")
+            transcript = []
 
         transcript_file = task_path / "transcript.json"
         transcript_file.write_text(json.dumps(transcript, ensure_ascii=False, indent=2))
 
         cleaner.cleanup_chunks(task_dir)
 
-        if settings.enable_llm_analysis and settings.llm_api_key and settings.llm_api_base and settings.llm_model:
+        if getattr(settings, "asr_enabled", True) and settings.enable_llm_analysis and settings.llm_api_key and settings.llm_api_base and settings.llm_model:
             try:
                 sm.transition("TRANSCRIBING", "LLM_ANALYZING", step="llm_analysis")
                 analyzer = TextSegmentAnalyzer(

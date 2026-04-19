@@ -41,7 +41,6 @@ class FFmpegBuilder:
         )
         subtitle_filter = (
             f"subtitles=filename={escaped_subtitle_path}:fontsdir={escaped_fonts_dir}"
-            f":shaping=simple"
         )
         if not subtitle_path.lower().endswith(".ass"):
             style = self._build_force_style(
@@ -398,7 +397,10 @@ class FFmpegBuilder:
         logger.info("Processing clip: %s → %s", input_path, output_path)
         result = subprocess.run(cut_cmd, capture_output=True, text=True, timeout=600)
         if result.returncode != 0 and srt_path and subtitle_mode != "off":
-            logger.warning("FFmpeg subtitle burn failed, retrying without subtitles")
+            logger.warning(
+                "FFmpeg subtitle burn failed, retrying without subtitles: %s",
+                result.stderr[-500:] if result.stderr else "",
+            )
             cut_cmd = self.build_cut_command(
                 input_path=input_path,
                 start=start,
