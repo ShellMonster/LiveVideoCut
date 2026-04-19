@@ -69,6 +69,7 @@ class SubtitleTemplate(str, Enum):
 class AsrProvider(str, Enum):
     dashscope = "dashscope"
     volcengine = "volcengine"
+    volcengine_vc = "volcengine_vc"
 
 
 class CandidateLooseness(str, Enum):
@@ -132,6 +133,10 @@ class SettingsRequest(BaseModel):
     subtitle_position: SubtitlePosition = SubtitlePosition.bottom
     subtitle_template: SubtitleTemplate = SubtitleTemplate.clean
     custom_position_y: int | None = Field(default=None, ge=0, le=100)
+
+    filter_filler_mode: str = "off"
+    cover_strategy: str = "content_first"
+    video_speed: float = Field(default=1.25, ge=0.5, le=3.0)
 
     asr_provider: AsrProvider = AsrProvider.dashscope
     asr_api_key: str = ""

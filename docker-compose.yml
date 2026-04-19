@@ -38,7 +38,7 @@ services:
         DOCKER_REGISTRY: ${DOCKER_REGISTRY:-}
         APT_MIRROR: ${APT_MIRROR:-}
         PYPI_INDEX_URL: ${PYPI_INDEX_URL:-}
-    command: celery -A app.tasks.pipeline worker --loglevel=info --concurrency=1
+    command: celery -A app.tasks.pipeline worker --loglevel=info --concurrency=1 --max-tasks-per-child=10 --max-memory-per-child=3000000 --prefetch-multiplier=1 -Ofair
     volumes:
       - ./uploads:/app/uploads
       - model_cache:/root/.cache

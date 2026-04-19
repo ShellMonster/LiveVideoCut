@@ -1,9 +1,19 @@
-"""Volcengine (火山引擎) bigmodel ASR client — 逐字时间戳。
+"""Volcengine (火山引擎) VC 字幕生成 ASR client — 逐字时间戳。
 
-Uses TOS object storage for audio upload and the cheaper bigmodel API
-(¥0.8/hour) instead of the legacy vc/submit binary upload (¥6.5/hour).
+Uses the VC (Video Captioning) API which accepts audio via TOS presigned URL
+and returns utterances with character-level timestamps.
 
-Output format (unchanged from previous version):
+Flow:
+    1. Extract audio from video if needed (FFmpeg)
+    2. Upload audio to TOS, get pre-signed URL
+    3. POST presigned URL to VC submit endpoint (with appid URL param)
+    4. GET VC query endpoint (appid + id in URL params) until complete
+    5. Parse utterances with character-level timestamps (ms → seconds)
+    6. Clean up TOS object and temp audio file
+
+Auth: x-api-key header (same credential as bigmodel ASR).
+
+Output format (identical to other ASR clients):
     [{text, start_time, end_time, words: [{text, start_time, end_time, probability}]}]
 """
 
@@ -23,21 +33,24 @@ logger = logging.getLogger(__name__)
 _MAX_WAIT_SECONDS = 600
 _POLL_INTERVAL_SECONDS = 10
 
-_SUBMIT_URL = "https://openspeech.bytedance.com/api/v3/auc/bigmodel/submit"
-_QUERY_URL = "https://openspeech.bytedance.com/api/v3/auc/bigmodel/query"
-_FLASH_URL = "https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash"
+_VC_SUBMIT_URL = "https://openspeech.bytedance.com/api/v1/vc/submit"
+_VC_QUERY_URL = "https://openspeech.bytedance.com/api/v1/vc/query"
+
+# Default submit query params — VC uses appid, not language
+_DEFAULT_SUBMIT_PARAMS = {
+    "appid": "volcengine_vc",
+    "use_itn": "True",
+    "use_capitalize": "True",
+    "max_lines": "1",
+    "words_per_line": "15",
+}
 
 
-class VolcengineASRClient:
-    """Cloud ASR client using Volcengine bigmodel API via TOS pre-signed URLs.
+class VolcengineVCClient:
+    """Cloud ASR client using Volcengine VC API via TOS pre-signed URLs.
 
-    Flow:
-        1. Extract audio from video if needed (FFmpeg)
-        2. Upload audio to TOS, get pre-signed URL
-        3. Submit pre-signed URL to bigmodel API
-        4. Poll bigmodel query API until complete
-        5. Parse utterances with character-level timestamps (ms → seconds)
-        6. Clean up TOS object (best-effort)
+    The VC API uses submit+poll pattern similar to the bigmodel API,
+    but with different endpoints and request body structure.
     """
 
     def __init__(
@@ -49,7 +62,7 @@ class VolcengineASRClient:
         tos_region: str | None = None,
         tos_endpoint: str | None = None,
     ) -> None:
-        self._api_key = api_key or os.getenv("VOLCENGINE_ASR_API_KEY", "")
+        self._api_key = api_key or os.getenv("VOLCENGINE_VC_API_KEY", "")
         self._tos_ak = tos_ak or os.getenv("TOS_AK", "")
         self._tos_sk = tos_sk or os.getenv("TOS_SK", "")
         self._tos_bucket = tos_bucket or os.getenv("TOS_BUCKET", "mp3-srt")
@@ -65,15 +78,6 @@ class VolcengineASRClient:
     def _headers(self) -> dict[str, str]:
         return {
             "x-api-key": self._api_key,
-            "X-Api-Resource-Id": "volc.seedasr.auc",
-            "Content-Type": "application/json",
-        }
-
-    @property
-    def _flash_headers(self) -> dict[str, str]:
-        return {
-            "x-api-key": self._api_key,
-            "X-Api-Resource-Id": "volc.bigasr.auc_turbo",
             "Content-Type": "application/json",
         }
 
@@ -102,11 +106,11 @@ class VolcengineASRClient:
     ) -> list[dict[str, Any]]:
         """Transcribe audio file, return segments with word-level timestamps."""
         if not self._api_key:
-            logger.error("Volcengine ASR credentials not configured (api_key)")
+            logger.error("Volcengine VC credentials not configured (api_key)")
             return []
 
         file_size_mb = os.path.getsize(audio_path) / 1024 / 1024
-        logger.info("Submitting to Volcengine bigmodel: %s (%.1f MB)", audio_path, file_size_mb)
+        logger.info("Submitting to Volcengine VC: %s (%.1f MB)", audio_path, file_size_mb)
 
         # Step 1: extract audio from video if needed
         submit_path = self._maybe_extract_audio(audio_path)
@@ -117,12 +121,12 @@ class VolcengineASRClient:
             if not presigned_url:
                 return []
 
-            # Step 3: submit to bigmodel
+            # Step 3: submit to VC
             request_id = self._submit(presigned_url)
             if not request_id:
                 return []
 
-            logger.info("Volcengine bigmodel task submitted: %s", request_id)
+            logger.info("Volcengine VC task submitted: %s", request_id)
 
             # Step 4: poll for result
             result = self._wait_for_result(request_id)
@@ -139,103 +143,12 @@ class VolcengineASRClient:
             if tos_key:
                 self._cleanup_tos(tos_key)
 
-    def transcribe_flash(
-        self,
-        audio_path: str,
-    ) -> list[dict[str, Any]]:
-        """Transcribe audio using Volcengine bigmodel *flash* (one-shot) endpoint.
-
-        Same output format as :meth:`transcribe`, but uses the single-request
-        ``/recognize/flash`` endpoint which returns the full result in one
-        response — no polling needed.  Generally faster and cheaper.
-        """
-        if not self._api_key:
-            logger.error("Volcengine ASR credentials not configured (api_key)")
-            return []
-
-        file_size_mb = os.path.getsize(audio_path) / 1024 / 1024
-        logger.info("Submitting to Volcengine bigmodel FLASH: %s (%.1f MB)", audio_path, file_size_mb)
-
-        submit_path = self._maybe_extract_audio(audio_path)
-        tos_key: str | None = None
-        try:
-            presigned_url, tos_key = self._upload_to_tos(submit_path)
-            if not presigned_url:
-                return []
-
-            body = {
-                "user": {"uid": "1"},
-                "audio": {
-                    "url": presigned_url,
-                    "format": "wav",
-                },
-                "request": {
-                    "model_name": "bigmodel",
-                    "show_utterances": True,
-                    "result_type": "single",
-                },
-            }
-
-            try:
-                resp = requests.post(
-                    _FLASH_URL,
-                    json=body,
-                    headers=self._flash_headers,
-                    timeout=600,
-                )
-                resp.raise_for_status()
-            except Exception as exc:
-                logger.error("Volcengine bigmodel FLASH request failed: %s", exc)
-                return []
-
-            result = resp.json()
-            code = result.get("code")
-            message = result.get("message", "")
-
-            if code is not None and code != 0:
-                logger.error(
-                    "Volcengine bigmodel FLASH returned error: code=%s message=%s",
-                    code,
-                    message,
-                )
-                return []
-
-            logger.info("Volcengine bigmodel FLASH completed successfully")
-            return self._parse_result(result)
-        finally:
-            if submit_path != audio_path and os.path.exists(submit_path):
-                os.unlink(submit_path)
-            if tos_key:
-                self._cleanup_tos(tos_key)
-
-    def transcribe_auto(
-        self,
-        audio_path: str,
-    ) -> list[dict[str, Any]]:
-        """Try flash first; fall back to standard submit+poll on failure.
-
-        Returns the transcription result from whichever mode succeeds.
-        Returns an empty list only when *both* modes fail (or when no
-        credentials are configured).
-        """
-        if not self._api_key:
-            logger.error("Volcengine ASR credentials not configured (api_key)")
-            return []
-
-        logger.info("transcribe_auto: trying FLASH mode first")
-        result = self.transcribe_flash(audio_path)
-        if result:
-            return result
-
-        logger.warning("transcribe_auto: FLASH failed, falling back to standard mode")
-        return self.transcribe(audio_path)
-
     def health_check(self) -> bool:
         """Verify credentials are configured."""
         return bool(self._api_key)
 
     # ------------------------------------------------------------------
-    # Audio extraction (unchanged)
+    # Audio extraction
     # ------------------------------------------------------------------
 
     @staticmethod
@@ -300,7 +213,7 @@ class VolcengineASRClient:
 
         except Exception as exc:
             logger.error("TOS upload failed: %s", exc)
-            return None, tos_key  # return key so cleanup can still try
+            return None, tos_key
 
     def _cleanup_tos(self, tos_key: str) -> None:
         """Best-effort delete of TOS object."""
@@ -314,91 +227,88 @@ class VolcengineASRClient:
             logger.warning("TOS cleanup failed for %s: %s", tos_key, exc)
 
     # ------------------------------------------------------------------
-    # bigmodel submit
+    # VC submit
     # ------------------------------------------------------------------
 
     def _submit(self, presigned_url: str) -> str | None:
-        """Submit presigned URL to bigmodel API, return request_id."""
-        request_id = uuid.uuid4().hex
-
-        body = {
-            "user": {"uid": "1"},
-            "audio": {
-                "url": presigned_url,
-                "format": "wav",
-            },
-            "request": {
-                "model_name": "bigmodel",
-                "show_utterances": True,
-                "result_type": "single",
-            },
-        }
-
-        headers = {
-            **self._headers,
-            "X-Api-Request-Id": request_id,
-            "X-Api-Sequence": "-1",
-        }
+        """Submit presigned URL to VC API, return request_id."""
+        body = {"url": presigned_url}
 
         try:
             resp = requests.post(
-                _SUBMIT_URL,
+                _VC_SUBMIT_URL,
+                params=_DEFAULT_SUBMIT_PARAMS,
                 json=body,
-                headers=headers,
+                headers=self._headers,
                 timeout=120,
             )
             resp.raise_for_status()
         except Exception as exc:
-            logger.error("Volcengine bigmodel submit failed: %s", exc)
+            logger.error("Volcengine VC submit request failed: %s", exc)
             return None
 
-        # bigmodel submit returns empty JSON {} on success;
-        # the request_id we generated IS the task identifier
+        result = resp.json()
+        code = result.get("code")
+        message = result.get("message", "")
+
+        # VC submit may return request_id in the response
+        request_id = result.get("request_id") or result.get("id") or uuid.uuid4().hex
+
+        if code is not None and code != 0:
+            logger.error(
+                "Volcengine VC submit returned error: code=%s message=%s",
+                code,
+                message,
+            )
+            return None
+
         logger.info(
-            "Volcengine bigmodel submit accepted (request_id=%s): %s",
+            "Volcengine VC submit accepted (request_id=%s): %s",
             request_id,
             resp.text[:200],
         )
         return request_id
 
     # ------------------------------------------------------------------
-    # bigmodel query (poll)
+    # VC query (poll)
     # ------------------------------------------------------------------
 
     def _wait_for_result(self, request_id: str) -> dict[str, Any] | None:
-        """Poll bigmodel query API until completion or error."""
-        headers = {
-            **self._headers,
-            "X-Api-Request-Id": request_id,
-            "X-Api-Sequence": "-1",
-        }
+        """Poll VC query API until completion or error.
 
+        VC query uses GET with appid + id in URL params (not POST with JSON body).
+        """
         start = time.time()
         while time.time() - start < _MAX_WAIT_SECONDS:
             try:
-                resp = requests.post(
-                    _QUERY_URL,
-                    json={},
-                    headers=headers,
+                query_params = {
+                    "appid": _DEFAULT_SUBMIT_PARAMS["appid"],
+                    "id": request_id,
+                    "blocking": "0",
+                }
+                resp = requests.get(
+                    _VC_QUERY_URL,
+                    params=query_params,
+                    headers=self._headers,
                     timeout=60,
                 )
                 resp.raise_for_status()
                 result = resp.json()
             except Exception as exc:
-                logger.warning("Volcengine bigmodel poll error: %s", exc)
+                logger.warning("Volcengine VC poll error: %s", exc)
                 time.sleep(_POLL_INTERVAL_SECONDS)
                 continue
 
             code = result.get("code")
             message = result.get("message", "")
-            result_text = result.get("result", {}).get("text", "") if isinstance(result.get("result"), dict) else ""
+            utterances = self._extract_utterances(result)
 
             logger.info(
-                "Volcengine bigmodel task %s: code=%s message=%s has_text=%s (%.0fs elapsed)",
+                "Volcengine VC task %s: code=%s message=%s utterances=%d (%.0fs elapsed)",
                 request_id,
                 code,
                 message,
-                bool(result_text),
+                len(utterances),
                 time.time() - start,
             )
 
@@ -407,20 +317,20 @@ class VolcengineASRClient:
                     time.sleep(_POLL_INTERVAL_SECONDS)
                     continue
                 logger.error(
-                    "Volcengine bigmodel task %s failed: code=%s message=%s",
+                    "Volcengine VC task %s failed: code=%s message=%s",
                     request_id,
                     code,
                     message,
                 )
                 return None
 
-            if result_text:
+            if utterances:
                 return result
 
             time.sleep(_POLL_INTERVAL_SECONDS)
 
         logger.error(
-            "Volcengine bigmodel task %s timed out after %ds",
+            "Volcengine VC task %s timed out after %ds",
             request_id,
             _MAX_WAIT_SECONDS,
         )
@@ -431,27 +341,57 @@ class VolcengineASRClient:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _parse_result(result: dict[str, Any]) -> list[dict[str, Any]]:
-        """Convert bigmodel result to pipeline format.
+    def _extract_utterances(result: dict[str, Any]) -> list[dict[str, Any]]:
+        """Extract utterances list from VC API response.
 
-        bigmodel returns (nested under result):
-            utterances[]:
-                text, start_time, end_time (ms, integer)
-                words[]: {text, start_time, end_time} (ms, integer)
+        VC may nest utterances under different keys depending on the response.
+        """
+        # Try result.utterances first
+        inner = result.get("result", {})
+        if isinstance(inner, dict):
+            utterances = inner.get("utterances", [])
+            if utterances:
+                return utterances
+
+        # Try top-level utterances
+        utterances = result.get("utterances", [])
+        if utterances:
+            return utterances
+
+        # Try data.utterances
+        data = result.get("data", {})
+        if isinstance(data, dict):
+            utterances = data.get("utterances", [])
+            if utterances:
+                return utterances
+
+        return []
+
+    @staticmethod
+    def _parse_result(result: dict[str, Any]) -> list[dict[str, Any]]:
+        """Convert VC result to pipeline format.
+
+        VC returns utterances[]:
+            text, start_time, end_time (ms, integer)
+            words[]: {text, start_time, end_time} (ms, integer)
 
         Pipeline expects seconds (float):
             [{text, start_time, end_time, words: [{text, start_time, end_time, probability}]}]
         """
-        # bigmodel wraps utterances under result.utterances
+        # Try result.utterances first
         inner = result.get("result", {})
-        utterances = inner.get("utterances", [])
-
-        # Fallback: some responses may put utterances at top level
+        utterances = []
+        if isinstance(inner, dict):
+            utterances = inner.get("utterances", [])
         if not utterances:
             utterances = result.get("utterances", [])
+        if not utterances:
+            data = result.get("data", {})
+            if isinstance(data, dict):
+                utterances = data.get("utterances", [])
 
         if not utterances:
-            logger.warning("No utterances in Volcengine bigmodel result")
+            logger.warning("No utterances in Volcengine VC result")
             return []
 
         segments: list[dict[str, Any]] = []

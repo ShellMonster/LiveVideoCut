@@ -1,22 +1,36 @@
+import { useState } from "react";
+import { Settings as SettingsIcon } from "lucide-react";
 import { ErrorCard } from "@/components/ErrorCard";
 import { ProgressBar } from "@/components/ProgressBar";
 import { ResultGrid } from "@/components/ResultGrid";
-import { SettingsModal } from "@/components/SettingsModal";
+import { SettingsPage } from "@/components/SettingsPage";
 import { ToastViewport } from "@/components/ToastViewport";
 import { UploadZone } from "@/components/UploadZone";
 import { useTaskProgress } from "@/hooks/useWebSocket";
 import { useTaskStore } from "@/stores/taskStore";
 
 function App() {
+  const [page, setPage] = useState<"main" | "settings">("main");
   const { taskId, status, error, currentState, clips } = useTaskStore();
   const { connected } = useTaskProgress(taskId);
 
   const hasTask = Boolean(taskId);
 
+  if (page === "settings") {
+    return <SettingsPage onBack={() => setPage("main")} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
-      <SettingsModal />
       <ToastViewport />
+
+      <button
+        className="fixed right-4 top-4 rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+        onClick={() => setPage("settings")}
+        aria-label="设置"
+      >
+        <SettingsIcon size={20} />
+      </button>
 
       <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-8 px-4 py-10 sm:px-6 lg:px-8">
         <section className="space-y-3">

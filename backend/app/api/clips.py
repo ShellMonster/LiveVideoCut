@@ -23,7 +23,7 @@ def _collect_clips(clips_dir: Path) -> list[dict]:
         stem = meta_file.stem.replace("_meta", "")
         clip_id = f"{clips_dir.parent.name}/{stem}"
         video_path = clips_dir / f"{stem}.mp4"
-        thumb_path = clips_dir / f"{stem}_thumb.jpg"
+        thumb_path = clips_dir.parent / "covers" / f"{stem}.jpg"
 
         clips.append(
             {
@@ -69,7 +69,7 @@ async def download_clip(task_id: str, clip_name: str):
 
 @router.get("/api/clips/{task_id}/{clip_name}/thumbnail")
 async def get_thumbnail(task_id: str, clip_name: str):
-    thumb_path = _clips_dir(task_id) / f"{clip_name}_thumb.jpg"
+    thumb_path = UPLOAD_DIR / task_id / "covers" / f"{clip_name}.jpg"
     if not thumb_path.exists():
         return JSONResponse(status_code=404, content={"detail": "Thumbnail not found"})
 

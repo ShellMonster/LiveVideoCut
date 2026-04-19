@@ -7,7 +7,10 @@ export type ReviewMode = "adjacent_frames" | "segment_multiframe";
 export type SubtitleMode = "off" | "basic" | "styled" | "karaoke";
 export type SubtitlePosition = "bottom" | "middle" | "custom";
 export type SubtitleTemplate = "clean" | "ecommerce" | "bold" | "karaoke";
-export type AsrProvider = "dashscope" | "volcengine";
+export type AsrProvider = "dashscope" | "volcengine" | "volcengine_vc";
+export type FillerFilterMode = "off" | "subtitle" | "video";
+export type CoverStrategy = "content_first" | "person_first";
+export type VideoSpeed = 0.5 | 0.75 | 1.0 | 1.25 | 1.5 | 1.75 | 2.0 | 3.0;
 
 export interface Settings {
   enableVlm: boolean;
@@ -30,6 +33,9 @@ export interface Settings {
   subtitleMode: SubtitleMode;
   subtitlePosition: SubtitlePosition;
   subtitleTemplate: SubtitleTemplate;
+  fillerFilterMode: FillerFilterMode;
+  coverStrategy: CoverStrategy;
+  videoSpeed: VideoSpeed;
   funasrMode: "local" | "remote";
   asrProvider: AsrProvider;
   asrApiKey: string;
@@ -73,8 +79,11 @@ const defaultSettings: Settings = {
   subtitleMode: "basic",
   subtitlePosition: "bottom",
   subtitleTemplate: "clean",
+  fillerFilterMode: "off",
+  coverStrategy: "content_first" as CoverStrategy,
+  videoSpeed: 1.25 as VideoSpeed,
   funasrMode: "local",
-  asrProvider: "dashscope",
+  asrProvider: "volcengine_vc",
   asrApiKey: "",
   tosAk: "",
   tosSk: "",

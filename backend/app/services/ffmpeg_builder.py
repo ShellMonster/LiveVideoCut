@@ -76,6 +76,148 @@ class FFmpegBuilder:
 
         return ",".join(style_parts)
 
+    @staticmethod
+    def _build_atempo_chain(speed: float) -> str:
+        """Build atempo filter chain. atempo only supports [0.5, 2.0], so chain for >2.0."""
+        if speed == 1.0:
+            return "volume=1.0"
+        filters = []
+        remaining = speed
+        while remaining > 2.0:
+            filters.append("atempo=2.0")
+            remaining /= 2.0
+        if remaining != 1.0:
+            filters.append(f"atempo={remaining:.4f}")
+        return ",".join(filters)
+
+    def _build_trim_concat_command(
+        self,
+        input_path: str,
+        start: float,
+        duration: float,
+        srt_path: str | None,
+        bgm_path: str,
+        output_path: str,
+        filler_cut_ranges: list[dict],
+        subtitle_position: str = "bottom",
+        subtitle_template: str = "clean",
+        custom_position_y: int | None = None,
+        video_speed: float = 1.0,
+    ) -> list[str]:
+        # 1. filler_cut_ranges → keep_ranges (segments to KEEP)
+        keep_ranges: list[tuple[float, float]] = []
+        prev_end = 0.0
+        for fc in filler_cut_ranges:
+            fs = fc["start_time"]
+            fe = fc["end_time"]
+            if fs > prev_end + 0.05:
+                keep_ranges.append((prev_end, fs))
+            prev_end = fe
+        if prev_end < duration - 0.05:
+            keep_ranges.append((prev_end, duration))
+
+        # Fallback: if no valid keep ranges, keep the whole clip
+        if not keep_ranges:
+            keep_ranges = [(0.0, duration)]
+
+        logger.info(
+            "Trim-concat: %d filler cuts → %d keep ranges",
+            len(filler_cut_ranges),
+            len(keep_ranges),
+        )
+
+        # 2. Build filter_complex
+        filters: list[str] = []
+
+        # trim/atrim for each keep range
+        for i, (ks, ke) in enumerate(keep_ranges):
+            abs_start = start + ks
+            abs_end = start + ke
+            filters.append(
+                f"[0:v]trim=start={abs_start:.6f}:end={abs_end:.6f},setpts=PTS-STARTPTS[v{i}]"
+            )
+            filters.append(
+                f"[0:a]atrim=start={abs_start:.6f}:end={abs_end:.6f},asetpts=PTS-STARTPTS[a{i}]"
+            )
+
+        # concat all trimmed segments (video + audio interleaved)
+        n = len(keep_ranges)
+        concat_inputs = "".join(f"[v{i}][a{i}]" for i in range(n))
+        filters.append(
+            f"{concat_inputs}concat=n={n}:v=1:a=1[v_cat][a_cat]"
+        )
+
+        # optional subtitle burn
+        if srt_path:
+            sub_filter = self._build_subtitle_filter(
+                subtitle_path=srt_path,
+                subtitle_position=subtitle_position,
+                subtitle_template=subtitle_template,
+                custom_position_y=custom_position_y,
+            )
+            filters.append(f"[v_cat]{sub_filter}[v_sub]")
+        else:
+            filters.append("[v_cat]copy[v_sub]")
+
+        # optional speed change
+        if video_speed != 1.0:
+            filters.append(f"[v_sub]setpts=PTS/{video_speed}[v_out]")
+            atempo_chain = self._build_atempo_chain(video_speed)
+            filters.append(f"[a_cat]{atempo_chain}[a_speed]")
+        else:
+            filters.append("[v_sub]copy[v_out]")
+            filters.append("[a_cat]copy[a_speed]")
+
+        # BGM mix
+        filters.append(
+            "[1:a]volume=0.25,aloop=loop=-1:size=2e+09[bgm]"
+        )
+        filters.append(
+            "[a_speed][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]"
+        )
+
+        filter_complex = ";".join(filters)
+
+        # 3. Calculate effective duration
+        total_keep = sum(ke - ks for ks, ke in keep_ranges)
+        effective_duration = total_keep / video_speed
+
+        return [
+            "ffmpeg",
+            "-i",
+            input_path,
+            "-i",
+            bgm_path,
+            "-filter_complex",
+            filter_complex,
+            "-map",
+            "[v_out]",
+            "-map",
+            "[aout]",
+            "-t",
+            str(effective_duration),
+            "-c:v",
+            "libx264",
+            "-preset",
+            "fast",
+            "-crf",
+            "23",
+            "-x264opts",
+            "rc-lookahead=5:bframes=1:ref=1",
+            "-threads",
+            "4",
+            "-filter_threads",
+            "2",
+            "-movflags",
+            "+faststart",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-y",
+            output_path,
+        ]
+
     def build_cut_command(
         self,
         input_path: str,
@@ -88,12 +230,17 @@ class FFmpegBuilder:
         subtitle_position: str = "bottom",
         subtitle_template: str = "clean",
         custom_position_y: int | None = None,
+        filler_cut_ranges: list[dict] | None = None,
+        video_speed: float = 1.0,
     ) -> list[str]:
-        """Build FFmpeg command for cutting + subtitles + BGM + watermark.
+        if filler_cut_ranges:
+            return self._build_trim_concat_command(
+                input_path, start, duration, srt_path, bgm_path,
+                output_path, filler_cut_ranges,
+                subtitle_position, subtitle_template, custom_position_y,
+                video_speed=video_speed,
+            )
 
-        Uses libx264 re-encoding (NOT -c copy) for frame-accurate cuts.
-        All processing via filter_complex in a single command.
-        """
         video_chain = "[0:v]setpts=PTS-STARTPTS"
         if srt_path:
             video_chain += "," + self._build_subtitle_filter(
@@ -106,10 +253,20 @@ class FFmpegBuilder:
             video_chain += ",copy"
         video_chain += "[v_sub]"
 
+        speed_video_suffix = ""
+        speed_audio_filter = "[0:a]volume=1.0[orig]"
+        effective_duration = duration
+
+        if video_speed != 1.0:
+            speed_video_suffix = f",setpts=PTS/{video_speed}"
+            atempo_chain = self._build_atempo_chain(video_speed)
+            speed_audio_filter = f"[0:a]{atempo_chain}[orig]"
+            effective_duration = duration / video_speed
+
         filter_complex = (
             f"{video_chain};"
-            f"[v_sub]copy[v_out];"
-            f"[0:a]volume=1.0[orig];"
+            f"[v_sub]copy{speed_video_suffix}[v_out];"
+            f"{speed_audio_filter};"
             f"[1:a]volume=0.25,aloop=loop=-1:size=2e+09[bgm];"
             f"[orig][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]"
         )
@@ -129,13 +286,21 @@ class FFmpegBuilder:
             "-map",
             "[aout]",
             "-t",
-            str(duration),
+            str(effective_duration),
             "-c:v",
             "libx264",
             "-preset",
             "fast",
             "-crf",
             "23",
+            "-x264opts",
+            "rc-lookahead=5:bframes=1:ref=1",
+            "-threads",
+            "4",
+            "-filter_threads",
+            "2",
+            "-movflags",
+            "+faststart",
             "-c:a",
             "aac",
             "-b:a",
@@ -175,12 +340,10 @@ class FFmpegBuilder:
         subtitle_position: str = "bottom",
         subtitle_template: str = "clean",
         custom_position_y: int | None = None,
+        filler_cut_ranges: list[dict] | None = None,
+        cover_timestamp: float | None = None,
+        video_speed: float = 1.0,
     ) -> dict[str, Any]:
-        """Execute the full clip processing pipeline.
-
-        Returns:
-            {"output_path": str, "thumbnail_path": str, "duration": float}
-        """
         start = float(segment.get("start_time", 0.0))
         end = float(segment.get("end_time", 0.0))
         duration = end - start
@@ -199,6 +362,8 @@ class FFmpegBuilder:
             subtitle_position=subtitle_position,
             subtitle_template=subtitle_template,
             custom_position_y=custom_position_y,
+            filler_cut_ranges=filler_cut_ranges,
+            video_speed=video_speed,
         )
 
         logger.info("Processing clip: %s → %s", input_path, output_path)
@@ -213,6 +378,8 @@ class FFmpegBuilder:
                 bgm_path=bgm_path,
                 watermark_path=watermark_path,
                 output_path=output_path,
+                filler_cut_ranges=filler_cut_ranges,
+                video_speed=video_speed,
             )
             result = subprocess.run(
                 cut_cmd, capture_output=True, text=True, timeout=600
@@ -224,7 +391,7 @@ class FFmpegBuilder:
             )
             raise RuntimeError(f"FFmpeg cut failed: {result.returncode}")
 
-        thumb_timestamp = start + duration / 2
+        thumb_timestamp = cover_timestamp if cover_timestamp is not None else start + duration / 2
         thumb_cmd = self.build_thumbnail_command(
             input_path, thumb_timestamp, thumbnail_path
         )

@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, cast
 from collections.abc import Sequence
@@ -17,20 +18,33 @@ from app.services.error_handler import PipelineErrorHandler
 from app.services.ffmpeg_builder import FFmpegBuilder
 from app.services.dashscope_asr_client import DashScopeASRClient
 from app.services.volcengine_asr_client import VolcengineASRClient
+from app.services.volcengine_vc_client import VolcengineVCClient
 from app.services.product_matcher import ProductNameMatcher
 from app.services.segment_validator import SegmentValidator
 from app.services.srt_generator import SRTGenerator
 from app.services.state_machine import TaskStateMachine
 from app.services.vlm_client import VLMClient
 from app.services.vlm_confirmor import VLMConfirmor
+from app.services.filler_filter import filter_subtitle_words, compute_filler_cut_ranges
+from app.services.cover_selector import select_cover_frame
+from app.services.resource_detector import calculate_parallelism
 
 logger = logging.getLogger(__name__)
 
 
-def _create_asr_client(settings: SettingsRequest) -> DashScopeASRClient | VolcengineASRClient:
+def _create_asr_client(settings: SettingsRequest) -> DashScopeASRClient | VolcengineASRClient | VolcengineVCClient:
     """Create ASR client based on settings.asr_provider."""
     if settings.asr_provider.value == "volcengine":
         return VolcengineASRClient(
+            api_key=settings.asr_api_key,
+            tos_ak=settings.tos_ak,
+            tos_sk=settings.tos_sk,
+            tos_bucket=settings.tos_bucket,
+            tos_region=settings.tos_region,
+            tos_endpoint=settings.tos_endpoint,
+        )
+    if settings.asr_provider.value == "volcengine_vc":
+        return VolcengineVCClient(
             api_key=settings.asr_api_key,
             tos_ak=settings.tos_ak,
             tos_sk=settings.tos_sk,
@@ -46,6 +60,13 @@ celery_app = Celery(
     "clipper",
     broker=REDIS_URL,
     backend=REDIS_URL,
+)
+celery_app.conf.update(
+    task_acks_late=True,
+    task_reject_on_worker_lost=True,
+    task_soft_time_limit=1800,
+    task_time_limit=3600,
+    worker_disable_rate_limits=True,
 )
 
 
@@ -627,6 +648,117 @@ def _collect_clip_subtitle_segments(
     return subtitle_segments
 
 
+def _process_single_clip(
+    idx: int,
+    seg: dict[str, Any],
+    video_path: Path,
+    clips_dir: Path,
+    srt_dir: Path,
+    covers_dir: Path,
+    transcript: list[dict[str, Any]],
+    settings: SettingsRequest,
+) -> dict[str, Any] | None:
+    """Process a single clip — designed for ProcessPoolExecutor (module-level for pickling)."""
+    try:
+        seg_label = seg.get("product_name", f"segment_{idx}")
+        safe_label = build_clip_basename(idx, seg_label)
+
+        output_path = str((clips_dir / f"{safe_label}.mp4").resolve())
+        thumbnail_path = str((covers_dir / f"{safe_label}.jpg").resolve())
+
+        sub_segments = _collect_clip_subtitle_segments(seg, transcript)
+        if not sub_segments:
+            seg_text = seg.get("text", "")
+            sub_segments = (
+                [
+                    {
+                        "text": seg_text,
+                        "start_time": 0.0,
+                        "end_time": seg.get("end_time", 0.0)
+                        - seg.get("start_time", 0.0),
+                    }
+                ]
+                if seg_text
+                else []
+            )
+
+        filler_mode = getattr(settings, "filter_filler_mode", "off")
+        if filler_mode in ("subtitle", "video"):
+            sub_segments = filter_subtitle_words(sub_segments)
+
+        filler_cut_ranges: list = []
+        if filler_mode == "video":
+            filler_cut_ranges = compute_filler_cut_ranges(sub_segments)
+
+        srt_gen = SRTGenerator()
+        has_word_timing = any(bool(item.get("words")) for item in sub_segments)
+        effective_subtitle_mode = srt_gen.resolve_phase1_export_mode(
+            settings.subtitle_mode.value,
+            has_text=bool(sub_segments),
+            has_word_timing=has_word_timing,
+        )
+        clip_srt_path: str | None = None
+        if effective_subtitle_mode != "off":
+            try:
+                subtitle_ext = (
+                    ".ass" if effective_subtitle_mode == "karaoke" else ".srt"
+                )
+                subtitle_path = str(
+                    (srt_dir / f"{safe_label}{subtitle_ext}").resolve()
+                )
+                clip_srt_path = srt_gen.generate(
+                    sub_segments,
+                    subtitle_path,
+                    mode=effective_subtitle_mode,
+                )
+            except Exception:
+                logger.warning(
+                    "Subtitle asset generation failed for %s, exporting without subtitles",
+                    safe_label,
+                    exc_info=True,
+                )
+                effective_subtitle_mode = "off"
+
+        cover_strategy = getattr(settings, "cover_strategy", "content_first")
+        video_speed = getattr(settings, "video_speed", 1.0)
+        cover_ts = select_cover_frame(
+            video_path=str(video_path),
+            clip_start=float(seg.get("start_time", 0.0)),
+            clip_end=float(seg.get("end_time", 0.0)),
+            strategy=cover_strategy,
+        )
+
+        ffmpeg = FFmpegBuilder()
+        result = ffmpeg.process_clip(
+            input_path=str(video_path),
+            segment=seg,
+            srt_path=clip_srt_path,
+            bgm_path=DEFAULT_BGM,
+            watermark_path=DEFAULT_WATERMARK,
+            output_path=output_path,
+            thumbnail_path=thumbnail_path,
+            subtitle_mode=effective_subtitle_mode,
+            subtitle_position=settings.subtitle_position.value,
+            subtitle_template=settings.subtitle_template.value,
+            custom_position_y=settings.custom_position_y,
+            filler_cut_ranges=filler_cut_ranges or None,
+            cover_timestamp=cover_ts,
+            video_speed=video_speed,
+        )
+
+        meta_path = clips_dir / f"{safe_label}_meta.json"
+        meta_path.write_text(
+            json.dumps(
+                build_clip_metadata(seg, result), ensure_ascii=False, indent=2
+            )
+        )
+
+        return result
+    except Exception:
+        logger.exception("Failed to process clip %d: %s", idx, build_clip_basename(idx, ""))
+        return None
+
+
 @celery_app.task(
     bind=True,
     max_retries=3,
@@ -669,95 +801,54 @@ def process_clips(self, task_id: str, task_dir: str) -> dict[str, Any]:
         clips_dir.mkdir(parents=True, exist_ok=True)
         srt_dir = task_path / "srt"
         srt_dir.mkdir(parents=True, exist_ok=True)
-        thumbs_dir = task_path / "thumbnails"
-        thumbs_dir.mkdir(parents=True, exist_ok=True)
+        covers_dir = task_path / "covers"
+        covers_dir.mkdir(parents=True, exist_ok=True)
 
-        srt_gen = SRTGenerator()
-        ffmpeg = FFmpegBuilder()
         transcript_file = task_path / "transcript.json"
         transcript = []
         if transcript_file.exists():
             transcript = json.loads(transcript_file.read_text())
 
-        processed = []
-        for idx, seg in enumerate(segments):
-            seg_label = seg.get("product_name", f"segment_{idx}")
-            safe_label = build_clip_basename(idx, seg_label)
+        parallelism = calculate_parallelism()
+        clip_workers = min(parallelism["clip_workers"], len(segments))
 
-            output_path = str((clips_dir / f"{safe_label}.mp4").resolve())
-            thumbnail_path = str((thumbs_dir / f"{safe_label}.jpg").resolve())
+        processed: list[dict[str, Any]] = []
+        if clip_workers > 1 and len(segments) > 1:
+            logger.info("Processing %d clips with %d workers", len(segments), clip_workers)
+            with ThreadPoolExecutor(max_workers=clip_workers) as executor:
+                futures = {}
+                for idx, seg in enumerate(segments):
+                    future = executor.submit(
+                        _process_single_clip,
+                        idx, seg, video_path, clips_dir, srt_dir, covers_dir,
+                        transcript, settings,
+                    )
+                    futures[future] = idx
 
-            sub_segments = _collect_clip_subtitle_segments(seg, transcript)
-            if not sub_segments:
-                seg_text = seg.get("text", "")
-                sub_segments = (
-                    [
-                        {
-                            "text": seg_text,
-                            "start_time": 0.0,
-                            "end_time": seg.get("end_time", 0.0)
-                            - seg.get("start_time", 0.0),
-                        }
-                    ]
-                    if seg_text
-                    else []
+                for future in as_completed(futures):
+                    idx = futures[future]
+                    try:
+                        result = future.result()
+                        if result is not None:
+                            processed.append(result)
+                            logger.info(
+                                "Processed clip %d/%d: %s",
+                                idx + 1, len(segments), build_clip_basename(idx, ""),
+                            )
+                    except Exception:
+                        logger.exception("Failed to process clip %d", idx)
+        else:
+            for idx, seg in enumerate(segments):
+                result = _process_single_clip(
+                    idx, seg, video_path, clips_dir, srt_dir, covers_dir,
+                    transcript, settings,
                 )
-            has_word_timing = any(bool(item.get("words")) for item in sub_segments)
-            effective_subtitle_mode = srt_gen.resolve_phase1_export_mode(
-                settings.subtitle_mode.value,
-                has_text=bool(sub_segments),
-                has_word_timing=has_word_timing,
-            )
-            clip_srt_path: str | None = None
-            if effective_subtitle_mode != "off":
-                try:
-                    subtitle_ext = (
-                        ".ass" if effective_subtitle_mode == "karaoke" else ".srt"
+                if result is not None:
+                    processed.append(result)
+                    logger.info(
+                        "Processed clip %d/%d: %s",
+                        idx + 1, len(segments), build_clip_basename(idx, ""),
                     )
-                    subtitle_path = str(
-                        (srt_dir / f"{safe_label}{subtitle_ext}").resolve()
-                    )
-                    clip_srt_path = srt_gen.generate(
-                        sub_segments,
-                        subtitle_path,
-                        mode=effective_subtitle_mode,
-                    )
-                except Exception:
-                    logger.warning(
-                        "Subtitle asset generation failed for %s, exporting without subtitles",
-                        safe_label,
-                        exc_info=True,
-                    )
-                    effective_subtitle_mode = "off"
-
-            try:
-                result = ffmpeg.process_clip(
-                    input_path=str(video_path),
-                    segment=seg,
-                    srt_path=clip_srt_path,
-                    bgm_path=DEFAULT_BGM,
-                    watermark_path=DEFAULT_WATERMARK,
-                    output_path=output_path,
-                    thumbnail_path=thumbnail_path,
-                    subtitle_mode=effective_subtitle_mode,
-                    subtitle_position=settings.subtitle_position.value,
-                    subtitle_template=settings.subtitle_template.value,
-                    custom_position_y=settings.custom_position_y,
-                )
-                meta_path = clips_dir / f"{safe_label}_meta.json"
-                meta_path.write_text(
-                    json.dumps(
-                        build_clip_metadata(seg, result), ensure_ascii=False, indent=2
-                    )
-                )
-                processed.append(result)
-                logger.info(
-                    "Processed clip %d/%d: %s", idx + 1, len(segments), safe_label
-                )
-            except Exception:
-                logger.exception("Failed to process clip %d: %s", idx, safe_label)
-
-        cleaner.cleanup_srt(task_dir)
 
         sm.transition("PROCESSING", "COMPLETED", step="completed")
 

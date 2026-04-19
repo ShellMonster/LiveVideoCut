@@ -121,22 +121,29 @@ class SRTGenerator:
 
         lines = [KARAOKE_ASS_HEADER.rstrip("\n")]
         for seg in non_overlapping:
+            is_truncated = seg.pop("_truncated", False)
             for sub in self._split_into_line_segments(seg):
                 base = self._build_base_dialogue(sub)
                 if base:
+                    base_text = base["text"]
+                    if is_truncated:
+                        base_text = "{\\fad(0,200)}" + base_text
                     lines.append(
                         "Dialogue: 0,{start},{end},Default,,0,0,0,,{text}".format(
                             start=self._format_ass_timestamp(base["start_time"]),
                             end=self._format_ass_timestamp(base["end_time"]),
-                            text=base["text"],
+                            text=base_text,
                         )
                     )
                 for overlay in self._build_highlight_overlays(sub):
+                    overlay_text = overlay["text"]
+                    if is_truncated:
+                        overlay_text = "{\\fad(0,200)}" + overlay_text
                     lines.append(
                         "Dialogue: 1,{start},{end},Default,,0,0,0,,{text}".format(
                             start=self._format_ass_timestamp(overlay["start_time"]),
                             end=self._format_ass_timestamp(overlay["end_time"]),
-                            text=overlay["text"],
+                            text=overlay_text,
                         )
                     )
 
@@ -183,7 +190,9 @@ class SRTGenerator:
     @staticmethod
     def _ensure_non_overlapping(
         segments: list[dict[str, Any]],
+        min_gap: float = 0.08,
     ) -> list[dict[str, Any]]:
+        """Add min_gap between segments AND trim words that fall outside truncated bounds."""
         if not segments:
             return segments
         sorted_segs = sorted(segments, key=lambda s: float(s.get("start_time", 0.0)))
@@ -191,10 +200,31 @@ class SRTGenerator:
         for i, seg in enumerate(sorted_segs):
             seg = dict(seg)
             end = float(seg.get("end_time", 0.0))
+            seg["_truncated"] = False
+
             if i < len(sorted_segs) - 1:
                 next_start = float(sorted_segs[i + 1].get("start_time", 0.0))
-                if end > next_start:
-                    seg["end_time"] = next_start
+                max_end = next_start - min_gap
+                if end > max_end:
+                    seg["end_time"] = max(max_end, float(seg.get("start_time", 0.0)) + 0.1)
+                    seg["_truncated"] = True
+                if float(seg.get("end_time", 0.0)) > next_start:
+                    seg["end_time"] = max(
+                        next_start - min_gap,
+                        float(seg.get("start_time", 0.0)) + 0.05,
+                    )
+                    seg["_truncated"] = True
+
+            # Trim words to fit within (possibly truncated) segment bounds
+            new_end = float(seg.get("end_time", 0.0))
+            if "words" in seg and seg["words"]:
+                trimmed = [w for w in seg["words"] if float(w.get("start_time", 0.0)) < new_end]
+                if trimmed != seg["words"]:
+                    seg["words"] = trimmed
+                    seg["_truncated"] = True
+                    if trimmed:
+                        seg["text"] = "".join(w.get("text", "") for w in trimmed)
+
             result.append(seg)
         return result
 
@@ -279,8 +309,10 @@ class SRTGenerator:
                 parts.append("{\\alpha&HFF&}" + separator)
             if idx == active_index:
                 parts.append(
-                    "{\\alpha&H00&\\rHighlight\\t(0,80,\\fscx135\\fscy135)"
-                    "\\t(80,180,\\fscx100\\fscy100)}"
+                    "{\\alpha&H00&\\rHighlight"
+                    "\\t(0,60,\\fscx130\\fscy130)"
+                    "\\t(60,120,\\fscx105\\fscy105)"
+                    "\\t(120,200,\\fscx100\\fscy100)}"
                     + token
                     + "{\\rDefault\\alpha&HFF&}"
                 )
@@ -319,13 +351,21 @@ class SRTGenerator:
         if not chars:
             return []
         duration = end_time - start_time
-        step = duration / len(chars)
+        if len(chars) == 1:
+            return [{"text": chars[0], "start_time": start_time, "end_time": end_time}]
+        weights = [1.0] * len(chars)
+        weights[0] = 1.3
+        weights[-1] = 0.7
+        total_weight = sum(weights)
         pieces = []
         cursor = start_time
         for idx, char in enumerate(chars):
-            next_cursor = end_time if idx == len(chars) - 1 else cursor + step
-            pieces.append({"text": char, "start_time": cursor, "end_time": next_cursor})
-            cursor = next_cursor
+            if idx == len(chars) - 1:
+                char_end = end_time
+            else:
+                char_end = cursor + duration * (weights[idx] / total_weight)
+            pieces.append({"text": char, "start_time": cursor, "end_time": char_end})
+            cursor = char_end
         return pieces
 
     def _should_split_to_chars(self, text: str) -> bool:

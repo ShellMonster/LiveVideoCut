@@ -1,83 +1,153 @@
 # 直播视频 AI 智能剪辑
 
-一键将直播录像自动拆分为商品讲解短视频片段。上传 MP4 → AI 自动分析 → 预览下载。
+一键将直播录像自动拆分为商品讲解短视频片段，支持烧录字幕、karaoke 逐字高亮、语气词过滤、智能封面选择和视频变速。上传 MP4，AI 自动识别换衣节点、转写语音、匹配商品名、导出短视频。
 
-## 架构
+## 系统架构
 
+```mermaid
+graph TB
+    subgraph 用户侧
+        Browser["浏览器"]
+    end
+
+    subgraph Docker Compose
+        subgraph frontend["frontend (React + Nginx)"]
+            Nginx["Nginx :80"]
+            SPA["React SPA"]
+        end
+
+        subgraph api["api (FastAPI + Uvicorn)"]
+            UploadAPI["POST /api/upload"]
+            TasksAPI["GET /api/tasks"]
+            ClipsAPI["GET /api/tasks/:id/clips"]
+            WSEndpoint["WS /ws/tasks/:id"]
+        end
+
+        subgraph redis["redis (Redis 7)"]
+            Broker["Celery Broker"]
+        end
+
+        subgraph worker["worker (Celery)"]
+            Stage1["1. visual_prescreen"]
+            Stage2["2. vlm_confirm"]
+            Stage3["3. enrich_segments"]
+            Stage4["4. process_clips"]
+            Stage1 --> Stage2 --> Stage3 --> Stage4
+        end
+
+        subgraph 本地模型
+            YOLO["YOLOv8 (ONNX)<br/>46类服装检测"]
+            MediaPipe["MediaPipe Selfie (TFLite)<br/>6类像素分割"]
+            HSV["HSV 直方图"]
+        end
+
+        FFmpeg["FFmpeg 视频处理"]
+    end
+
+    subgraph 外部服务
+        ASR1["火山引擎 VC 字幕"]
+        ASR2["火山引擎 BigModel"]
+        ASR3["阿里云 DashScope"]
+        VLM["Qwen / GLM<br/>(OpenAI 兼容 API)"]
+        TOS["火山 TOS 存储"]
+    end
+
+    Browser -->|"HTTP :5537"| Nginx
+    Browser -->|"WebSocket"| WSEndpoint
+    Nginx --> SPA
+    Nginx -->|"反向代理 /api"| UploadAPI
+    Nginx -->|"反向代理 /ws"| WSEndpoint
+    UploadAPI -->|"提交任务"| Broker
+    WSEndpoint -->|"读取 state.json"| api
+    worker -->|"消费任务"| Broker
+    Stage1 --> YOLO
+    Stage1 --> MediaPipe
+    Stage1 --> HSV
+    Stage2 --> VLM
+    Stage3 --> ASR1
+    Stage3 --> ASR2
+    Stage3 --> ASR3
+    ASR2 --> TOS
+    ASR1 --> TOS
+    Stage4 --> FFmpeg
 ```
-上传视频 → [视觉预筛] → [VLM 确认] → [转写+商品匹配] → [FFmpeg 导出 clips]
-  │           │              │                │                    │
-  │      FashionSigLIP   Qwen/GLM        faster-whisper       FFmpeg
-  │      ONNX Runtime   OpenAI 兼容 API   transcript.json      字幕烧录
-  │           │              │                │                    │
-  └───────────┴──────────────┴────────────────┴────────────────────┘
-                             四段流水线架构
-```
 
-## 业务流程图
+## 处理流程
 
 ```mermaid
 graph TD
-    A["先在前端选好处理方式<br/>比如是否开 VLM、怎么导出、要不要字幕"] --> B["上传直播视频<br/>把视频和设置一起交给后端"]
-    B --> C["后端先把任务保存下来<br/>视频、元数据、设置各存一份"]
-    C --> D["后台开始自动处理<br/>并持续记录当前进度"]
+    A["前端设置参数<br/>VLM开关 / ASR选择 / 字幕模式 / 导出模式"] --> B["上传视频 + settings_json"]
+    B --> C["后端校验<br/>格式 / 大小 / 编码 / 音频流"]
+    C --> D["保存到 uploads/task_id/<br/>启动 Celery 管线"]
 
-    D --> E["先粗筛一遍视频<br/>找出可能适合切片的片段"]
-    E --> E1["这里会做场景检测、抽帧、画面相似度分析"]
-    E --> F["得到一批候选片段"]
+    D --> E["阶段1: visual_prescreen"]
+    E --> E1["FFmpeg 抽帧 (0.5fps)"]
+    E1 --> E2["换衣检测<br/>YOLO 46类 + MediaPipe 像素分割 + HSV 直方图"]
+    E2 --> E3["产出 candidates.json + scenes.json"]
 
-    F --> G{"当前模式要不要再用大模型复核?"}
-    G -->|"smart"| H["再让 VLM 看一遍<br/>判断是不是商品讲解场景"]
-    G -->|"no_vlm / all_candidates / all_scenes"| I["跳过或放宽这一步"]
+    E3 --> F["阶段2: vlm_confirm"]
+    F --> F1{"export_mode?"}
+    F1 -->|"smart"| F2["VLM 确认 (Qwen/GLM)"]
+    F1 -->|"no_vlm"| F3["跳过 VLM"]
+    F1 -->|"all_candidates"| F4["导出全部候选"]
+    F1 -->|"all_scenes"| F5["导出全部场景"]
 
-    H --> J["进入下一步整理"]
-    I --> J
+    F2 --> G["阶段3: enrich_segments"]
+    F3 --> G
+    F4 --> G
+    F5 --> G
 
-    J --> K["把整段视频转成文字<br/>顺便补商品名、清理不合格片段"]
-    K --> K1["这里实际用的是 faster-whisper<br/>还能保留逐词时间"]
-    K --> L["得到可导出的片段和完整转写结果"]
+    G --> G1["ASR 整体转写<br/>volcengine_vc / volcengine / dashscope"]
+    G1 --> G2["商品名匹配"]
+    G2 --> G3["分段合法性校验"]
+    G3 --> G4["产出 enriched_segments.json + transcript.json"]
 
-    L --> M["开始正式导出短视频<br/>每个 clip 单独裁字幕、导视频"]
-    M --> M1["先生成字幕文件<br/>普通字幕用 SRT，karaoke 用 ASS"]
-    M --> M2["再用 FFmpeg 烧录字幕、导出 mp4 和缩略图"]
-    M --> N["最终得到一组 clips 结果"]
+    G4 --> H["阶段4: process_clips"]
+    H --> H1["裁切字幕 SRT / ASS"]
+    H1 --> H2["语气词过滤 (可选)<br/>subtitle: 仅删字幕 / video: 裁剪视频段"]
+    H2 --> H3["FFmpeg 并行烧录字幕 + 导出 mp4"]
+    H3 --> H4["智能封面选择<br/>content_first / person_first"]
+    H4 --> H5["产出 clips/ + covers/ 目录"]
 
-    N --> O["前端可以实时看到处理进度<br/>通过 WebSocket 更新"]
-    N --> P["任务完成后拉取 clips 列表"]
-    P --> Q["最后预览、筛选、下载短视频片段"]
+    D -->|"WebSocket 推送进度"| W["前端实时显示进度"]
+    H5 --> R["前端展示结果<br/>预览视频 / 下载片段"]
 ```
 
 ## 功能特性
 
-- **上传** — 支持 20GB 以内 MP4 文件上传，自动校验编码格式
-- **视觉预筛** — FashionSigLIP (ONNX) 提取帧特征，自适应相似度分析筛选候选片段
-- **VLM 确认** — 支持 Qwen / GLM 两种 Provider，按导出模式决定是否参与确认
-- **语音转写** — 当前主链路使用 `faster-whisper`，输出整段转写和逐词时间戳
-- **商品匹配** — 自动关联商品名称与讲解片段
-- **视频输出** — FFmpeg 硬编码剪辑，支持普通字幕与 karaoke 字幕烧录
-- **实时进度** — WebSocket 推送处理进度，前端实时展示
-- **导出模式** — 支持 `smart` / `no_vlm` / `all_candidates` / `all_scenes`
-- **字幕模式** — 支持 `off` / `basic` / `styled` / `karaoke`
+- **上传** -- 支持 20GB 以内 MP4，自动校验编码格式和音频流
+- **换衣检测** -- 三信号联合：YOLO 46类服装检测 + MediaPipe 像素分割 + HSV 直方图兜底
+- **VLM 确认** -- 支持 Qwen / GLM 两种 Provider，按导出模式决定是否参与
+- **多 ASR 支持** -- 火山 VC 字幕（推荐）、火山 BigModel、阿里 DashScope，三选一
+- **商品匹配** -- 自动关联商品名称与讲解片段
+- **字幕烧录** -- 支持四种模式：off / basic / styled / karaoke（逐字高亮+弹跳动画）
+- **导出模式** -- smart / no_vlm / all_candidates / all_scenes
+- **实时进度** -- WebSocket 推送处理进度，前端实时展示
+- **语气词过滤** -- 三级词表（38词），支持仅过滤字幕或同时裁剪视频片段，默认关闭
+- **智能封面** -- content_first（商品优先）/ person_first（主播优先），30帧评分选最佳
+- **视频变速** -- 0.5x~3x 倍速，先烧字幕再变速，默认 1.25x
+- **并发处理** -- cgroup-aware 资源检测，ThreadPoolExecutor 并行处理多 clip，4GB 容器默认 2 workers
 
 ## 技术栈
 
 | 层级 | 技术 |
 |------|------|
-| 前端 | React + TypeScript + Vite + Tailwind CSS |
-| 后端 | FastAPI + Celery + Redis |
-| 视觉模型 | FashionSigLIP (ONNX Runtime CPU) |
-| 场景检测 | PySceneDetect + OpenCV |
-| 多模态 VLM | Qwen / GLM（OpenAI 兼容 API） |
-| 语音识别 | faster-whisper |
-| 视频处理 | FFmpeg (系统级安装) |
+| 前端 | React 19 + TypeScript 6 + Vite 8 + Tailwind CSS 4 + Zustand 5 |
+| 后端 API | FastAPI + Uvicorn |
+| 异步任务 | Celery + Redis |
+| 换衣检测 | YOLOv8 (ONNX, 46类) + MediaPipe Selfie (TFLite, 6类) + HSV 直方图 |
+| VLM | Qwen / GLM (OpenAI 兼容 API) |
+| ASR | 火山 VC 字幕 (推荐) / 火山大模型 / 阿里 DashScope |
+| 视频处理 | FFmpeg |
+| 容器化 | Docker Compose (4 services) |
 
 ## 快速开始
 
 ### 前置条件
 
 - Docker Desktop / Docker + Docker Compose
-- 16GB 内存 + 8 核 CPU
-- 无需 GPU（ONNX Runtime CPU 模式）
+- 16GB 内存 + 8 核 CPU（Worker 限制 4GB）
+- 无需 GPU（CPU 模式运行）
 
 ### 部署步骤
 
@@ -88,43 +158,213 @@ cd 直播视频剪辑_GLM
 
 # 2. 配置环境变量
 cp .env.example .env
-# 编辑 .env，填入你的 VLM API Key
-# VLM_API_KEY=sk-xxxxxxxxxxxxxxxx
+# 编辑 .env，填入 VLM API Key 和 ASR 相关配置
 
 # 3. 一键启动
 docker compose up -d
 
 # 4. 访问应用
 # 前端：http://127.0.0.1:5537
-# 后端 API：http://127.0.0.1:5538/docs
+# 后端 API 文档：http://127.0.0.1:5538/docs
 ```
 
-### 获取 VLM API Key
+### 获取 API Key
 
-1. 如果你使用 Qwen，访问 [阿里云 DashScope 控制台](https://dashscope.console.aliyun.com/)
-2. 如果你使用 GLM，访问智谱开放平台并创建对应 API Key
-3. 把 API Key 填入 `.env` 的 `VLM_API_KEY`
+| 服务 | 用途 | 获取地址 |
+|------|------|----------|
+| 阿里云 DashScope | VLM (Qwen) / ASR | [DashScope 控制台](https://dashscope.console.aliyun.com/) |
+| 智谱开放平台 | VLM (GLM) | [智谱开放平台](https://open.bigmodel.cn/) |
+| 火山引擎 | ASR (BigModel / VC) | [火山引擎控制台](https://console.volcengine.com/) |
 
 ## 配置说明
 
-编辑 `.env` 文件进行配置：
+编辑 `.env` 文件进行配置。只列出 Docker Compose 实际使用的变量：
+
+### VLM 配置
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `VLM_API_KEY` | Qwen-VL-Plus API Key（必填） | — |
+| `VLM_API_KEY` | VLM API Key | 空 |
 | `VLM_BASE_URL` | VLM API 地址 | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
 | `VLM_MODEL` | VLM 模型名称 | `qwen-vl-plus` |
+
+### 基础设施
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
 | `REDIS_URL` | Redis 连接地址 | `redis://redis:6379/0` |
-| `FASTER_WHISPER_MODEL` | whisper 模型名 | `small` |
-| `FASTER_WHISPER_DEVICE` | whisper 设备 | `cpu` |
-| `FASTER_WHISPER_COMPUTE_TYPE` | whisper 精度 | `int8` |
-| `HF_ENDPOINT` | Hugging Face 镜像 | `https://hf-mirror.com` |
+| `HF_ENDPOINT` | Hugging Face 镜像（下载模型用） | `https://hf-mirror.com` |
+
+### 国内镜像加速（可选）
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `DOCKER_REGISTRY` | Docker 基础镜像前缀 | 空 |
+| `APT_MIRROR` | Debian APT 镜像源 | 空 |
+| `PYPI_INDEX_URL` | Python PyPI 镜像源 | 空 |
+| `NPM_REGISTRY` | Node.js NPM 镜像源 | 空 |
+
+### ASR 配置
+
+ASR 相关配置（火山引擎、DashScope 的 API Key 等）在 **前端设置页面** 中配置，保存在浏览器 localStorage，随上传任务一起提交到后端。
+
+## 项目结构
+
+```
+直播视频剪辑_GLM/
+├── docker-compose.yml            # Docker 编排 (4 services)
+├── .env.example                  # 环境变量模板
+├── CLAUDE.md                     # 项目真实状态文档
+├── backend/
+│   ├── Dockerfile                # Python 3.11 + FFmpeg, 多阶段构建
+│   ├── requirements.txt          # Python 依赖
+│   ├── assets/
+│   │   ├── fonts/                # 字幕字体
+│   │   ├── models/               # 本地模型文件
+│   │   │   ├── selfie_multiclass_256x256.tflite  # MediaPipe 6类像素分割
+│   │   │   └── yolov8n-fashionpedia.onnx          # YOLO 46类服装检测
+│   │   ├── default_bgm.mp3       # 默认背景音乐
+│   │   └── watermark.png         # 水印图片
+│   ├── app/
+│   │   ├── main.py               # FastAPI 入口
+│   │   ├── api/                  # API 路由
+│   │   │   ├── health.py         # 健康检查
+│   │   │   ├── upload.py         # 视频上传
+│   │   │   ├── tasks.py          # 任务状态 + WebSocket
+│   │   │   ├── clips.py          # 片段列表 / 下载
+│   │   │   └── settings.py       # 设置模型与校验
+│   │   ├── services/             # 业务逻辑
+│   │   │   ├── clothing_change_detector.py   # 换衣检测 (主链路)
+│   │   │   ├── clothing_segmenter.py         # 服装分段 (主链路)
+│   │   │   ├── frame_extractor.py            # FFmpeg 抽帧
+│   │   │   ├── scene_detector.py             # 场景检测
+│   │   │   ├── vlm_confirmor.py              # VLM 二次确认
+│   │   │   ├── vlm_client.py                 # VLM API 客户端
+│   │   │   ├── vlm_parser.py                 # VLM 结果解析
+│   │   │   ├── dashscope_asr_client.py       # DashScope ASR
+│   │   │   ├── volcengine_asr_client.py      # 火山 BigModel ASR
+│   │   │   ├── volcengine_vc_client.py       # 火山 VC 字幕 ASR
+│   │   │   ├── transcript_merger.py          # 转写结果合并
+│   │   │   ├── product_matcher.py            # 商品名匹配
+│   │   │   ├── segment_validator.py          # 分段合法性校验
+│   │   │   ├── srt_generator.py              # SRT/ASS 字幕生成
+│   │   │   ├── ffmpeg_builder.py             # FFmpeg 命令构建
+│   │   │   ├── state_machine.py              # 任务状态机
+│   │   │   ├── validator.py                  # 通用校验
+│   │   │   ├── error_handler.py              # 错误处理
+│   │   │   ├── cleanup.py                    # 清理工具
+│   │   │   ├── filler_filter.py              # 语气词过滤
+│   │   │   ├── cover_selector.py             # 智能封面选择
+│   │   │   ├── resource_detector.py          # 容器资源检测
+│   │   │   ├── siglip_encoder.py             # [legacy] FashionSigLIP 编码
+│   │   │   └── adaptive_similarity.py        # [legacy] 自适应相似度
+│   │   └── tasks/
+│   │       └── pipeline.py        # Celery 四阶段管线
+│   └── tests/                     # 测试
+└── frontend/
+    ├── Dockerfile                 # Node 构建 + Nginx 运行
+    ├── nginx.conf                 # Nginx (20G 上传 + WebSocket)
+    ├── src/
+    │   ├── App.tsx
+    │   ├── components/
+    │   │   ├── UploadZone.tsx     # 上传区域
+    │   │   ├── SettingsPage.tsx  # 独立设置页面
+    │   │   ├── ProgressBar.tsx    # 进度条
+    │   │   ├── ResultGrid.tsx     # 结果网格
+    │   │   ├── VideoPreview.tsx   # 视频预览
+    │   │   ├── ErrorCard.tsx      # 错误卡片
+    │   │   ├── ToastViewport.tsx  # Toast 通知
+    │   │   └── ui/                # 基础 UI 组件
+    │   ├── hooks/
+    │   │   └── useWebSocket.ts    # WebSocket 连接
+    │   ├── stores/
+    │   │   ├── settingsStore.ts   # 设置状态
+    │   │   ├── taskStore.ts       # 任务状态
+    │   │   └── toastStore.ts      # 通知状态
+    │   └── lib/
+    │       └── utils.ts           # 工具函数
+    └── package.json
+```
+
+## 服务说明
+
+| 服务 | 端口 | 说明 | 内存限制 |
+|------|------|------|----------|
+| frontend | 5537 | React SPA + Nginx 反向代理 | 默认 |
+| api | 5538 | FastAPI + Uvicorn | 2G |
+| worker | -- | Celery 异步任务 (concurrency=1, 并行 clip 处理) | 4G |
+| redis | 6379 | 消息队列 + 结果存储 | 默认 |
+
+## ASR 对比
+
+三款 ASR 实测对比（同一段 20 分钟直播视频，karaoke 字幕模式）：
+
+| ASR Provider | 分句数 | 平均句长 | Karaoke 效果 | 价格 |
+|---|---|---|---|---|
+| `volcengine_vc` (推荐) | 796 | 1.5s | 最好，剪映引擎智能分句 + 真实语音节奏时间戳 | 6.5 元/小时 |
+| `volcengine` (BigModel) | 403 | 2.7s | 还行，真实时间戳同步好，但中文无词边界会拆词 | 2.3 元/小时 |
+| `dashscope` (paraformer-v2) | 267 | 4.5s | 差，逐字时间戳是匀速伪时间戳 (0.272s/字)，跳字不同步 | 0.29 元/小时 |
+
+**推荐 `volcengine_vc`**。它使用剪映引擎分句，句尾字自然拖长，karaoke 逐字高亮效果最好。DashScope 的逐字时间戳是 API 层面均匀分配的，不是真实语音节奏，不适合 karaoke。
+
+## 字幕模式
+
+| 模式 | 格式 | 说明 |
+|------|------|------|
+| `off` | -- | 不生成字幕 |
+| `basic` | SRT | 普通字幕烧录 |
+| `styled` | SRT | 带样式的字幕烧录 |
+| `karaoke` | ASS | 逐词/逐字高亮，当前词带三段弹跳动画 (130% -> 105% -> 100%) |
+
+karaoke 模式的实现要点：
+- base 层用 `\kf` 逐字高亮，overlay 层逐字跳动叠加
+- 80ms 最小视觉间隙，避免字幕跳句
+- 被截断的 segment 自动加淡出效果
+- 多字 word 用加权分字（首字 1.3x、末字 0.7x）模拟自然语音
+
+## 输出目录
+
+每个任务产出文件：
+
+```
+uploads/<task_id>/
+├── original.mp4                  # 原始上传视频
+├── meta.json                     # 视频元数据
+├── settings.json                 # 任务设置
+├── state.json                    # 任务状态 (前端轮询)
+├── candidates.json               # 候选片段
+├── scenes.json                   # 场景检测结果
+├── transcript.json               # 完整转写 (含 words 时间戳)
+├── enriched_segments.json        # 校验后的片段
+├── clips/
+│   ├── clip_001.mp4              # 导出的短视频
+│   ├── clip_001_meta.json        # 片段元数据
+│   └── clip_001.ass              # ASS 字幕文件 (karaoke 模式)
+└── covers/
+    └── clip_001.jpg              # 智能封面缩略图
+```
+
+## 性能优化
+
+| 优化项 | 说明 |
+|--------|------|
+| 并行 clip 处理 | ThreadPoolExecutor 并行处理多 clip，4GB 容器 2 workers |
+| FFmpeg x264 优化 | `rc-lookahead=5:bframes=1:ref=1` 降低每实例 ~100MB 内存 |
+| FFmpeg 线程限制 | `-threads 4 -filter_threads 2` 避免内存膨胀 |
+| Celery 资源回收 | `--max-tasks-per-child=10 --max-memory-per-child=3GB` |
+| 任务超时保护 | 软超时 30min / 硬超时 60min |
+
+实测数据（20 分钟直播视频，9 clips）：
+
+| 阶段 | 串行 | 并行 2w + 优化 | 改善 |
+|------|------|---------------|------|
+| process_clips | 276s | 195s | -29% |
 
 ## 常见问题
 
-### Q: 首次转写为什么比较慢？
+### Q: ASR 怎么选？
 
-`faster-whisper` 首次运行需要下载模型或预热缓存，第一次任务通常会比后续任务更慢。
+对字幕质量有要求（特别是 karaoke 模式），选 `volcengine_vc`。只做 basic 字幕、想省钱，选 `dashscope`。不要选 `volcengine`（BigModel 标准版）做 karaoke，中文无词边界会导致拆词折行。
 
 ### Q: 上传大文件失败？
 
@@ -132,100 +372,23 @@ docker compose up -d
 
 ### Q: Worker 内存不足？
 
-Worker 默认内存限制 4GB。处理超长视频时可在 `docker-compose.yml` 中调大 `deploy.resources.limits.memory`。
+Worker 默认内存限制 4GB，配置了 --max-memory-per-child=3GB 自动回收。并发数由 resource_detector.py 根据 cgroup 资源动态计算（4GB 容器默认 2 workers）。处理超长视频时可在 `docker-compose.yml` 中调大 `deploy.resources.limits.memory`。
 
 ### Q: 如何查看处理日志？
 
 ```bash
-# 查看所有服务日志
-docker compose logs -f
-
-# 只看 worker 日志
-docker compose logs -f worker
-
-# 只看 API 日志
-docker compose logs -f api
+docker compose logs -f worker     # 查看任务处理日志
+docker compose logs -f api        # 查看 API 日志
+docker compose logs -f            # 查看全部日志
 ```
 
 ### Q: 支持哪些视频格式？
 
 目前仅支持 MP4 (H.264 编码)，文件需包含音频流。
 
-## 项目结构
+### Q: 首次构建为什么慢？
 
-```
-直播视频剪辑_GLM/
-├── docker-compose.yml          # Docker 编排（frontend/api/worker/redis）
-├── .env.example                # 环境变量模板
-├── CLAUDE.md                   # 当前真实实现与协作说明
-├── backend/
-│   ├── Dockerfile              # Python 3.11 + FFmpeg + whisper 运行环境
-│   ├── requirements.txt        # Python 依赖
-│   ├── assets/                 # 静态资源（背景音乐、字体等）
-│   ├── app/
-│   │   ├── main.py             # FastAPI 入口
-│   │   ├── api/                # API 路由
-│   │   │   ├── health.py       # 健康检查
-│   │   │   ├── upload.py       # 视频上传
-│   │   │   ├── tasks.py        # 任务状态 + WebSocket
-│   │   │   ├── clips.py        # 片段列表/下载
-│   │   │   └── settings.py     # 设置模型与校验
-│   │   ├── services/           # 业务逻辑
-│   │   │   ├── scene_detector.py       # 场景检测
-│   │   │   ├── frame_extractor.py      # 帧提取
-│   │   │   ├── siglip_encoder.py       # FashionSigLIP 编码
-│   │   │   ├── adaptive_similarity.py  # 自适应相似度
-│   │   │   ├── vlm_confirmor.py        # VLM 二次确认
-│   │   │   ├── faster_whisper_client.py # whisper 转写
-│   │   │   ├── product_matcher.py      # 商品名称匹配
-│   │   │   ├── ffmpeg_builder.py       # FFmpeg 剪辑
-│   │   │   ├── srt_generator.py        # 字幕生成
-│   │   │   └── ...
-│   │   └── tasks/
-│   │       └── pipeline.py     # Celery 三级管线任务
-│   └── tests/                  # 测试
-└── frontend/
-    ├── Dockerfile              # Node 20 构建 + Nginx
-    ├── nginx.conf              # Nginx 配置（20G 上传 + WebSocket）
-    ├── src/
-    │   ├── App.tsx
-    │   ├── components/         # UI 组件
-    │   ├── hooks/              # 自定义 Hooks
-    │   ├── stores/             # 状态管理
-    │   └── lib/                # 工具函数
-    └── package.json
-```
-
-## 服务说明
-
-| 服务 | 端口 | 说明 |
-|------|------|------|
-| frontend | 5537 | Nginx 静态文件 + 反向代理 |
-| api | 5538 | FastAPI 后端 API |
-| worker | — | Celery 异步任务处理 |
-| redis | 6379 | 消息队列 + 任务结果存储 |
-
-## 当前真实处理流程
-
-1. 前端在设置弹窗里选择 `enable_vlm`、`export_mode`、字幕模式、provider 等参数
-2. 上传时把视频文件和 `settings_json` 一起提交到 `/api/upload`
-3. 后端把文件写入 `uploads/<task_id>/`，再启动 Celery 流水线
-4. 流水线依次执行：
-   - `visual_prescreen`
-   - `vlm_confirm`
-   - `enrich_segments`
-   - `process_clips`
-5. 前端通过 `/ws/tasks/{task_id}` 获取进度更新
-6. 任务完成后，前端通过 `/api/tasks/{task_id}/clips` 展示结果并支持下载
-
-## 字幕说明
-
-- `basic`：普通 SRT 烧录
-- `karaoke`：ASS 字幕烧录，支持逐词/逐字高亮
-- 当前主链路已保留 `word_timestamps`
-- 当前已验证的较大字号为：
-  - 普通字幕：`60`
-  - 当前高亮字幕：`72`
+Docker 构建时需要安装 Python 依赖和 FFmpeg。Worker 首次运行时会下载两个本地模型（YOLO ONNX 12MB + MediaPipe TFLite 16MB），通过 `HF_ENDPOINT` 配置镜像源可加速。
 
 ## License
 

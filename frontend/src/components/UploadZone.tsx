@@ -35,6 +35,9 @@ interface UploadSettingsPayload {
   tos_bucket: string;
   tos_region: string;
   tos_endpoint: string;
+  filler_filter_mode: Settings["fillerFilterMode"];
+  cover_strategy: Settings["coverStrategy"];
+  video_speed: number;
 }
 
 interface UploadContext {
@@ -98,6 +101,9 @@ function buildUploadSettingsPayload(settings: Settings): UploadSettingsPayload {
     tos_bucket: settings.tosBucket,
     tos_region: settings.tosRegion,
     tos_endpoint: settings.tosEndpoint,
+    filler_filter_mode: settings.fillerFilterMode,
+    cover_strategy: settings.coverStrategy,
+    video_speed: settings.videoSpeed,
   };
 }
 
