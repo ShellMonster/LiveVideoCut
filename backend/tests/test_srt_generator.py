@@ -148,8 +148,8 @@ class TestKaraokeGenerate:
         content = Path(result).read_text(encoding="utf-8")
         assert "[Script Info]" in content
         assert "Dialogue: 0,0:00:00.00,0:00:01.00" in content
-        assert "{\\kf20}直{\\kf20}男" in content
-        assert "{\\kf15}怎{\\kf15}么" in content
+        assert "{\\kf26}直{\\kf14}男" in content
+        assert "{\\kf19}怎{\\kf10}么" in content
         assert "{\\kf30}穿" in content
 
     def test_generates_prominent_karaoke_styles_and_word_bounce_overlays(
@@ -174,16 +174,16 @@ class TestKaraokeGenerate:
         assert "Style: Default,Noto Sans CJK SC,60" in content
         assert "Style: Highlight,Noto Sans CJK SC,72" in content
         assert ",30,30,120,1" in content
-        assert "Dialogue: 1,0:00:00.00,0:00:00.20,Default" in content
-        assert "Dialogue: 1,0:00:00.65,0:00:00.90,Default" in content
+        assert "Dialogue: 1,0:00:00.00,0:00:00.26,Default" in content
+        assert "Dialogue: 1,0:00:00.73,0:00:00.90,Default" in content
         assert (
-            "{\\alpha&H00&\\rHighlight\\t(0,80,\\fscx135\\fscy135)"
-            "\\t(80,180,\\fscx100\\fscy100)}今{\\rDefault\\alpha&HFF&}"
+            "{\\alpha&H00&\\rHighlight\\t(0,60,\\fscx130\\fscy130)"
+            "\\t(60,120,\\fscx105\\fscy105)\\t(120,200,\\fscx100\\fscy100)}今{\\rDefault\\alpha&HFF&}"
             in content
         )
         assert (
-            "{\\alpha&H00&\\rHighlight\\t(0,80,\\fscx135\\fscy135)"
-            "\\t(80,180,\\fscx100\\fscy100)}教{\\rDefault\\alpha&HFF&}"
+            "{\\alpha&H00&\\rHighlight\\t(0,60,\\fscx130\\fscy130)"
+            "\\t(60,120,\\fscx105\\fscy105)\\t(120,200,\\fscx100\\fscy100)}教{\\rDefault\\alpha&HFF&}"
             in content
         )
 
