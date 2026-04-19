@@ -73,6 +73,7 @@ def _sample_frames(
             "-i", video_path,
             "-vframes", "1",
             "-q:v", "2",
+            "-an",
             "-y", out_path,
         ]
         try:

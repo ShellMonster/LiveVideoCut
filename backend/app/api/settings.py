@@ -85,6 +85,11 @@ class ExportMode(str, Enum):
     all_scenes = "all_scenes"
 
 
+class LLMType(str, Enum):
+    openai = "openai"
+    gemini = "gemini"
+
+
 def _validate_api_base(provider: str, api_base: str) -> str:
     parsed = urlparse(api_base)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -146,6 +151,13 @@ class SettingsRequest(BaseModel):
     tos_bucket: str = "mp3-srt"
     tos_region: str = "cn-beijing"
     tos_endpoint: str = "tos-cn-beijing.volces.com"
+
+    # --- LLM 文本分析设置（独立于 VLM） ---
+    enable_llm_analysis: bool = False
+    llm_type: LLMType = LLMType.openai
+    llm_api_key: str = ""
+    llm_api_base: str = ""
+    llm_model: str = ""
 
     @model_validator(mode="after")
     def apply_provider_defaults_and_validate(self):

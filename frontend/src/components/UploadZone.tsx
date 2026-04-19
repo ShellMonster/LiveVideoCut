@@ -38,6 +38,11 @@ interface UploadSettingsPayload {
   filler_filter_mode: Settings["fillerFilterMode"];
   cover_strategy: Settings["coverStrategy"];
   video_speed: number;
+  enable_llm_analysis: boolean;
+  llm_api_key: string;
+  llm_api_base: string;
+  llm_model: string;
+  llm_type: Settings["llmType"];
 }
 
 interface UploadContext {
@@ -104,6 +109,11 @@ function buildUploadSettingsPayload(settings: Settings): UploadSettingsPayload {
     filler_filter_mode: settings.fillerFilterMode,
     cover_strategy: settings.coverStrategy,
     video_speed: settings.videoSpeed,
+    enable_llm_analysis: settings.enableLlmAnalysis,
+    llm_api_key: settings.llmApiKey,
+    llm_api_base: settings.llmApiBase,
+    llm_model: settings.llmModel,
+    llm_type: settings.llmType,
   };
 }
 

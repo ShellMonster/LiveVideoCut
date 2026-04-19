@@ -28,6 +28,8 @@ from app.services.vlm_confirmor import VLMConfirmor
 from app.services.filler_filter import filter_subtitle_words, compute_filler_cut_ranges
 from app.services.cover_selector import select_cover_frame
 from app.services.resource_detector import calculate_parallelism
+from app.services.text_segment_analyzer import TextSegmentAnalyzer
+from app.services.segment_fusion import fuse_candidates
 
 logger = logging.getLogger(__name__)
 
@@ -494,6 +496,37 @@ def enrich_segments(
         transcript_file.write_text(json.dumps(transcript, ensure_ascii=False, indent=2))
 
         cleaner.cleanup_chunks(task_dir)
+
+        if settings.enable_llm_analysis and settings.llm_api_key and settings.llm_api_base and settings.llm_model:
+            try:
+                sm.transition("TRANSCRIBING", "LLM_ANALYZING", step="llm_analysis")
+                analyzer = TextSegmentAnalyzer(
+                    api_key=settings.llm_api_key,
+                    api_base=settings.llm_api_base,
+                    model=settings.llm_model,
+                    llm_type=settings.llm_type.value,
+                )
+                text_boundaries = analyzer.analyze(transcript)
+                logger.info("LLM text analysis found %d boundaries", len(text_boundaries))
+
+                text_boundaries_file = task_path / "text_boundaries.json"
+                text_boundaries_file.write_text(
+                    json.dumps(text_boundaries, ensure_ascii=False, indent=2)
+                )
+
+                candidates_file = task_path / "candidates.json"
+                visual_candidates = json.loads(candidates_file.read_text()) if candidates_file.exists() else []
+                video_duration = _get_video_duration(str(video_path))
+
+                fused = fuse_candidates(visual_candidates, text_boundaries, video_duration)
+                fused_file = task_path / "fused_candidates.json"
+                fused_file.write_text(json.dumps(fused, ensure_ascii=False, indent=2))
+
+                logger.info("Fused %d visual + %d text → %d candidates", len(visual_candidates), len(text_boundaries), len(fused))
+
+                sm.transition("LLM_ANALYZING", "TRANSCRIBING", step="transcribing")
+            except Exception as e:
+                logger.warning("LLM text analysis failed, continuing without it: %s", str(e))
 
         matcher = ProductNameMatcher()
         enriched = matcher.match(segments, transcript)

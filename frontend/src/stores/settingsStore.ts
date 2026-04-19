@@ -11,6 +11,7 @@ export type AsrProvider = "dashscope" | "volcengine" | "volcengine_vc";
 export type FillerFilterMode = "off" | "subtitle" | "video";
 export type CoverStrategy = "content_first" | "person_first";
 export type VideoSpeed = 0.5 | 0.75 | 1.0 | 1.25 | 1.5 | 1.75 | 2.0 | 3.0;
+export type LlmType = "openai" | "gemini";
 
 export interface Settings {
   enableVlm: boolean;
@@ -44,6 +45,11 @@ export interface Settings {
   tosBucket: string;
   tosRegion: string;
   tosEndpoint: string;
+  enableLlmAnalysis: boolean;
+  llmApiKey: string;
+  llmApiBase: string;
+  llmModel: string;
+  llmType: LlmType;
 }
 
 const STORAGE_KEY = "clipper-settings";
@@ -90,6 +96,11 @@ const defaultSettings: Settings = {
   tosBucket: "mp3-srt",
   tosRegion: "cn-beijing",
   tosEndpoint: "tos-cn-beijing.volces.com",
+  enableLlmAnalysis: false,
+  llmApiKey: "",
+  llmApiBase: "",
+  llmModel: "",
+  llmType: "openai",
 };
 
 function loadSettings(): Settings {

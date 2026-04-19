@@ -65,6 +65,10 @@
 - 视频倍速：`video_speed`：0.5 / 0.75 / 1.25（默认）/ 1.5 / 1.75 / 2 / 3
   - FFmpeg 滤镜顺序：先烧录字幕再变速，字幕与语音时序保持一致
   - 视频：`setpts=PTS/{speed}`，音频：`atempo` 链（>2x 时链式拼接）
+- LLM 文本分析：`enable_llm_analysis`：是否开启（默认关闭）
+  - `llm_type`：API 类型 `openai`（默认）/ `gemini`（预留）
+  - `llm_api_key` / `llm_api_base` / `llm_model`：独立的 LLM 配置（不与 VLM 共用）
+  - 在 ASR 转写完成后，用 LLM 分析 transcript 文本识别换品边界，与视觉检测信号融合
 
 这些设置保存在前端 Zustand store + localStorage 中，只影响之后新上传的任务。
 
@@ -140,6 +144,8 @@
 做这些事：
 
 - 整体转写，写出 `transcript.json`
+- LLM 文本分析（如果 `enable_llm_analysis` 开启）：用 LLM 分析 transcript 识别换品边界，产出 `text_boundaries.json`
+- 信号融合：视觉 candidates + 文本 boundaries → `fused_candidates.json`
 - 商品名匹配
 - 分段合法性校验
 - 产出 `enriched_segments.json`
@@ -295,6 +301,8 @@ docker-compose.yml 中 worker 启动参数：
 - `backend/app/services/filler_filter.py`
 - `backend/app/services/cover_selector.py`
 - `backend/app/services/resource_detector.py`
+- `backend/app/services/text_segment_analyzer.py`
+- `backend/app/services/segment_fusion.py`
 
 ### 前端
 

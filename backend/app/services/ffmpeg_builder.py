@@ -36,6 +36,7 @@ class FFmpegBuilder:
         )
         subtitle_filter = (
             f"subtitles=filename={escaped_subtitle_path}:fontsdir={escaped_fonts_dir}"
+            f":shaping=simple"
         )
         if not subtitle_path.lower().endswith(".ass"):
             style = self._build_force_style(
@@ -88,6 +89,7 @@ class FFmpegBuilder:
             remaining /= 2.0
         if remaining != 1.0:
             filters.append(f"atempo={remaining:.4f}")
+        filters.append("aresample=async=1")
         return ",".join(filters)
 
     def _build_trim_concat_command(
@@ -129,15 +131,13 @@ class FFmpegBuilder:
         # 2. Build filter_complex
         filters: list[str] = []
 
-        # trim/atrim for each keep range
+        # trim/atrim for each keep range (timestamps relative to -ss offset)
         for i, (ks, ke) in enumerate(keep_ranges):
-            abs_start = start + ks
-            abs_end = start + ke
             filters.append(
-                f"[0:v]trim=start={abs_start:.6f}:end={abs_end:.6f},setpts=PTS-STARTPTS[v{i}]"
+                f"[0:v]trim=start={ks:.6f}:end={ke:.6f},setpts=PTS-STARTPTS[v{i}]"
             )
             filters.append(
-                f"[0:a]atrim=start={abs_start:.6f}:end={abs_end:.6f},asetpts=PTS-STARTPTS[a{i}]"
+                f"[0:a]atrim=start={ks:.6f}:end={ke:.6f},asetpts=PTS-STARTPTS[a{i}]"
             )
 
         # concat all trimmed segments (video + audio interleaved)
@@ -184,6 +184,8 @@ class FFmpegBuilder:
 
         return [
             "ffmpeg",
+            "-ss",
+            str(start),
             "-i",
             input_path,
             "-i",
@@ -210,6 +212,8 @@ class FFmpegBuilder:
             "2",
             "-movflags",
             "+faststart",
+            "-fflags",
+            "+genpts",
             "-c:a",
             "aac",
             "-b:a",
@@ -301,6 +305,8 @@ class FFmpegBuilder:
             "2",
             "-movflags",
             "+faststart",
+            "-fflags",
+            "+genpts",
             "-c:a",
             "aac",
             "-b:a",
@@ -323,6 +329,7 @@ class FFmpegBuilder:
             "1",
             "-q:v",
             "2",
+            "-an",
             "-y",
             output_path,
         ]
