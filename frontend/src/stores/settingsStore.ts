@@ -84,7 +84,7 @@ const defaultSettings: Settings = {
   mergeCount: 1,
   allowReturnedProduct: true,
   maxCandidateCount: 20,
-  subtitleMode: "basic",
+  subtitleMode: "karaoke",
   subtitlePosition: "bottom",
   subtitleTemplate: "clean",
   fillerFilterMode: "off",

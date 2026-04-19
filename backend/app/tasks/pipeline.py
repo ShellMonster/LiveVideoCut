@@ -29,7 +29,7 @@ from app.services.filler_filter import filter_subtitle_words, compute_filler_cut
 from app.services.cover_selector import select_cover_frame
 from app.services.resource_detector import calculate_parallelism
 from app.services.text_segment_analyzer import TextSegmentAnalyzer
-from app.services.segment_fusion import fuse_candidates
+from app.services.segment_fusion import fuse_candidates, fused_to_segments
 
 logger = logging.getLogger(__name__)
 
@@ -523,6 +523,10 @@ def enrich_segments(
                 fused_file.write_text(json.dumps(fused, ensure_ascii=False, indent=2))
 
                 logger.info("Fused %d visual + %d text → %d candidates", len(visual_candidates), len(text_boundaries), len(fused))
+
+                if fused:
+                    segments = fused_to_segments(fused, video_duration)
+                    logger.info("Using %d fused segments (replacing VLM segments)", len(segments))
 
                 sm.transition("LLM_ANALYZING", "TRANSCRIBING", step="transcribing")
             except Exception as e:

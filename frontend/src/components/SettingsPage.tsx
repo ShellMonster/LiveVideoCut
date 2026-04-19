@@ -654,6 +654,24 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
               </label>
             </div>
 
+            <div>
+              <label htmlFor="llm-type" className="mb-1 block text-sm font-medium text-slate-700">
+                LLM 类型
+              </label>
+              <select
+                id="llm-type"
+                className={inputClassName}
+                value={draft.llmType}
+                onChange={(e) =>
+                  setDraft({ ...draft, llmType: e.target.value as LlmType })
+                }
+                disabled={!draft.enableLlmAnalysis}
+              >
+                <option value="openai">OpenAI 兼容</option>
+                <option value="gemini">Gemini</option>
+              </select>
+            </div>
+
             <div className="md:col-span-2">
               <label htmlFor="llm-api-key" className="mb-1 block text-sm font-medium text-slate-700">
                 LLM API 密钥
@@ -758,89 +776,6 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 <option value="bold">加粗</option>
                 <option value="karaoke">卡拉 OK</option>
               </select>
-            </div>
-          </div>
-        </Section>
-
-        <Section
-          title="LLM 分析设置"
-          description="配置用于商品分析的大语言模型（LLM）API。"
-        >
-          <div className="grid gap-4 md:grid-cols-2">
-            <div>
-              <label htmlFor="llm-type" className="mb-1 block text-sm font-medium text-slate-700">
-                LLM 类型
-              </label>
-              <select
-                id="llm-type"
-                className={inputClassName}
-                value={draft.llmType}
-                onChange={(e) =>
-                  setDraft({ ...draft, llmType: e.target.value as LlmType })
-                }
-              >
-                <option value="openai">OpenAI 兼容</option>
-                <option value="gemini">Gemini</option>
-              </select>
-            </div>
-
-            <div>
-              <label htmlFor="enable-llm-analysis" className="mb-1 block text-sm font-medium text-slate-700">
-                启用 LLM 分析
-              </label>
-              <select
-                id="enable-llm-analysis"
-                className={inputClassName}
-                value={draft.enableLlmAnalysis ? "true" : "false"}
-                onChange={(e) =>
-                  setDraft({ ...draft, enableLlmAnalysis: e.target.value === "true" })
-                }
-              >
-                <option value="false">关闭</option>
-                <option value="true">开启</option>
-              </select>
-            </div>
-
-            <div className="md:col-span-2">
-              <label htmlFor="llm-api-key" className="mb-1 block text-sm font-medium text-slate-700">
-                LLM API 密钥
-              </label>
-              <input
-                id="llm-api-key"
-                type="password"
-                className={inputClassName}
-                value={draft.llmApiKey}
-                onChange={(e) => setDraft({ ...draft, llmApiKey: e.target.value })}
-                placeholder="sk-..."
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label htmlFor="llm-api-base" className="mb-1 block text-sm font-medium text-slate-700">
-                LLM API 基础地址
-              </label>
-              <input
-                id="llm-api-base"
-                type="text"
-                className={inputClassName}
-                value={draft.llmApiBase}
-                onChange={(e) => setDraft({ ...draft, llmApiBase: e.target.value })}
-                placeholder="https://api.openai.com/v1"
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label htmlFor="llm-model" className="mb-1 block text-sm font-medium text-slate-700">
-                LLM 模型
-              </label>
-              <input
-                id="llm-model"
-                type="text"
-                className={inputClassName}
-                value={draft.llmModel}
-                onChange={(e) => setDraft({ ...draft, llmModel: e.target.value })}
-                placeholder="gpt-4o-mini"
-              />
             </div>
           </div>
         </Section>

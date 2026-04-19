@@ -145,7 +145,11 @@
 
 - 整体转写，写出 `transcript.json`
 - LLM 文本分析（如果 `enable_llm_analysis` 开启）：用 LLM 分析 transcript 识别换品边界，产出 `text_boundaries.json`
-- 信号融合：视觉 candidates + 文本 boundaries → `fused_candidates.json`
+- 信号融合（`segment_fusion.py`）：视觉 candidates + 文本 boundaries → `fused_candidates.json`
+  - 区间匹配：visual candidate 的 timestamp 落在 text boundary 的 `[start_time, end_time]` 内即为匹配
+  - 透传 `end_time`、`product_description`、`product_type` 等元数据
+- 融合后分段重建（如果融合成功）：`fused_to_segments()` 将融合边界点转为 segments，替换 VLM segments
+  - 未开启 LLM 或融合失败时退回用原始 VLM segments（行为不变）
 - 商品名匹配
 - 分段合法性校验
 - 产出 `enriched_segments.json`
