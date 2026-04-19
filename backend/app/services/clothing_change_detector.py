@@ -64,12 +64,18 @@ class ClothingChangeDetector:
         segmenter = self._get_segmenter()
 
         hsv_hists: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
+        upper_hists: list[tuple[np.ndarray, np.ndarray, np.ndarray] | None] = []
+        lower_hists: list[tuple[np.ndarray, np.ndarray, np.ndarray] | None] = []
+        orb_descs: list[np.ndarray | None] = []
         garment_sets: list[set[int]] = []
 
         for rec in frame_records:
             try:
                 analysis = segmenter.analyze_frame(rec["path"])
                 hsv_hists.append(analysis["hsv_hist"])
+                upper_hists.append(analysis.get("upper_hsv_hist"))
+                lower_hists.append(analysis.get("lower_hsv_hist"))
+                orb_descs.append(analysis.get("orb_descriptors"))
                 garment_sets.append(
                     ClothingSegmenter.get_main_garment_set(analysis["items"])
                 )
@@ -83,18 +89,33 @@ class ClothingChangeDetector:
                         np.ones(256, dtype=np.float32) / 256,
                     )
                 )
+                upper_hists.append(None)
+                lower_hists.append(None)
+                orb_descs.append(None)
                 garment_sets.append(set())
 
         # Compare consecutive frames
         correlations: list[float] = []
+        upper_correlations: list[float | None] = []
+        lower_correlations: list[float | None] = []
         category_changes: list[bool] = []
+        texture_similarities: list[float | None] = []
 
         for i in range(len(hsv_hists) - 1):
             hsv_corr = self._compare_hists(hsv_hists[i], hsv_hists[i + 1])
             correlations.append(hsv_corr)
 
+            upper_corr = self._compare_optional_hists(upper_hists[i], upper_hists[i + 1])
+            upper_correlations.append(upper_corr)
+
+            lower_corr = self._compare_optional_hists(lower_hists[i], lower_hists[i + 1])
+            lower_correlations.append(lower_corr)
+
             cat_changed = self._detect_category_change(garment_sets[i], garment_sets[i + 1])
             category_changes.append(cat_changed)
+
+            tex_sim = self._compare_orb(orb_descs[i], orb_descs[i + 1])
+            texture_similarities.append(tex_sim)
 
         if not correlations:
             return []
@@ -104,9 +125,28 @@ class ClothingChangeDetector:
         for i in range(len(correlations)):
             corr = correlations[i]
             cat_change = category_changes[i]
-            combined_score = self._combined_score(corr, cat_change)
+            upper_corr = upper_correlations[i]
+            lower_corr = lower_correlations[i]
+            tex_sim = texture_similarities[i]
 
-            if cat_change or corr < self.hist_threshold:
+            # Per-region HSV: if either region changed significantly
+            region_change = False
+            region_min_corr = corr
+            if upper_corr is not None and upper_corr < self.hist_threshold:
+                region_change = True
+                region_min_corr = min(region_min_corr, upper_corr)
+            if lower_corr is not None and lower_corr < self.hist_threshold:
+                region_change = True
+                region_min_corr = min(region_min_corr, lower_corr)
+
+            # ORB texture change
+            texture_change = tex_sim is not None and tex_sim < 0.4
+
+            combined_score = self._combined_score_v2(
+                corr, cat_change, region_change, region_min_corr, texture_change, tex_sim,
+            )
+
+            if cat_change or corr < self.hist_threshold or region_change or texture_change:
                 raw_points.append(
                     {
                         "frame_idx": i + 1,
@@ -118,11 +158,14 @@ class ClothingChangeDetector:
                 )
 
         logger.info(
-            "Combined analysis: %d frames, %d raw signals (HSV threshold=%.2f), "
-            "YOLO available=%s, MediaPipe available=%s",
+            "Combined analysis: %d frames, %d raw signals "
+            "(global HSV=%.2f, upper=%d, lower=%d, ORB=%d, YOLO=%s, MP=%s)",
             len(frame_records),
             len(raw_points),
             self.hist_threshold,
+            sum(1 for c in upper_correlations if c is not None),
+            sum(1 for c in lower_correlations if c is not None),
+            sum(1 for s in texture_similarities if s is not None),
             segmenter.yolo_available,
             segmenter.mediapipe_available,
         )
@@ -150,6 +193,9 @@ class ClothingChangeDetector:
             out.mkdir(parents=True, exist_ok=True)
             debug_data = {
                 "correlations": correlations,
+                "upper_correlations": [c if c is not None else "N/A" for c in upper_correlations],
+                "lower_correlations": [c if c is not None else "N/A" for c in lower_correlations],
+                "texture_similarities": [s if s is not None else "N/A" for s in texture_similarities],
                 "category_changes": category_changes,
                 "raw_points": [
                     {k: v for k, v in p.items() if k != "combined_score"}
@@ -164,6 +210,7 @@ class ClothingChangeDetector:
                     "hist_threshold": self.hist_threshold,
                     "min_scene_gap": self.min_scene_gap,
                     "merge_window": self.merge_window,
+                    "orb_texture_threshold": 0.4,
                 },
                 "models": {
                     "mediapipe_available": segmenter.mediapipe_available,
@@ -185,6 +232,48 @@ class ClothingChangeDetector:
         s_corr = cv2.compareHist(pair1[1], pair2[1], cv2.HISTCMP_CORREL)
         v_corr = cv2.compareHist(pair1[2], pair2[2], cv2.HISTCMP_CORREL)
         return float(0.3 * h_corr + 0.35 * s_corr + 0.35 * v_corr)
+
+    @staticmethod
+    def _compare_optional_hists(
+        pair1: tuple[np.ndarray, np.ndarray, np.ndarray] | None,
+        pair2: tuple[np.ndarray, np.ndarray, np.ndarray] | None,
+    ) -> float | None:
+        if pair1 is None or pair2 is None:
+            return None
+        return ClothingChangeDetector._compare_hists(pair1, pair2)
+
+    @staticmethod
+    def _compare_orb(
+        desc1: np.ndarray | None,
+        desc2: np.ndarray | None,
+    ) -> float | None:
+        if desc1 is None or desc2 is None or len(desc1) < 5 or len(desc2) < 5:
+            return None
+        try:
+            bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+            matches = bf.match(desc1, desc2)
+            good = [m for m in matches if m.distance < 50]
+            return len(good) / max(len(desc1), len(desc2))
+        except Exception:
+            return None
+
+    @staticmethod
+    def _combined_score_v2(
+        global_corr: float,
+        category_change: bool,
+        region_change: bool,
+        region_min_corr: float,
+        texture_change: bool,
+        texture_sim: float | None,
+    ) -> float:
+        base = max(1.0 - global_corr, 0.0)
+        if category_change:
+            base = max(base, 0.3)
+        if region_change:
+            base = max(base, 1.0 - region_min_corr) * 1.2
+        if texture_change and texture_sim is not None:
+            base = max(base, (1.0 - texture_sim) * 0.8)
+        return min(base, 1.0)
 
     @staticmethod
     def _detect_category_change(

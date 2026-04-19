@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 # Main garment classes — used for category-change detection
 # Indices into FASHPEDIA_CLASSES that represent whole garments
 MAIN_GARMENT_INDICES = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
+UPPER_BODY_CLASSES = {0, 1, 2, 3, 4, 5, 9, 10, 11}
+LOWER_BODY_CLASSES = {6, 7, 8}
 
 FASHPEDIA_CLASSES = [
     "shirt, blouse",       # 0
@@ -82,6 +84,8 @@ class ClothingSegmenter:
         self._yolo_session = None
         self._mp_available: bool | None = None
         self._yolo_available: bool | None = None
+        self._orb = cv2.ORB_create(nfeatures=128)
+        self._bf_matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
 
     # ------------------------------------------------------------------
     # Lazy initialization
@@ -212,24 +216,79 @@ class ClothingSegmenter:
 
         hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
         mask_uint8 = mask.astype(np.uint8) * 255
+
+        # Global HSV (full MediaPipe clothes mask)
+        hsv_hist = self._calc_hsv_hist(hsv, mask_uint8)
+
+        # Per-region HSV (YOLO bbox ∩ MediaPipe mask)
+        upper_mask = np.zeros(img_bgr.shape[:2], dtype=np.uint8)
+        lower_mask = np.zeros(img_bgr.shape[:2], dtype=np.uint8)
+        for item in items:
+            if item["class_id"] not in UPPER_BODY_CLASSES | LOWER_BODY_CLASSES:
+                continue
+            x1, y1, x2, y2 = (int(v) for v in item["bbox"])
+            x1, y1 = max(0, x1), max(0, y1)
+            x2, y2 = min(w, x2), min(h, y2)
+            if x2 <= x1 or y2 <= y1:
+                continue
+            region_mask = mask[y1:y2, x1:x2].astype(np.uint8) * 255
+            if item["class_id"] in UPPER_BODY_CLASSES:
+                upper_mask[y1:y2, x1:x2] = np.maximum(upper_mask[y1:y2, x1:x2], region_mask)
+            else:
+                lower_mask[y1:y2, x1:x2] = np.maximum(lower_mask[y1:y2, x1:x2], region_mask)
+
+        upper_hist = self._calc_hsv_hist(hsv, upper_mask) if np.any(upper_mask) else None
+        lower_hist = self._calc_hsv_hist(hsv, lower_mask) if np.any(lower_mask) else None
+
+        # ORB texture features on upper body crop
+        orb_desc = self._extract_orb_features(img_bgr, items)
+
+        return {
+            "mask": mask,
+            "items": items,
+            "hsv_hist": hsv_hist,
+            "upper_hsv_hist": upper_hist,
+            "lower_hsv_hist": lower_hist,
+            "orb_descriptors": orb_desc,
+        }
+
+    @staticmethod
+    def _calc_hsv_hist(
+        hsv: np.ndarray, mask_uint8: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         h_hist = cv2.calcHist([hsv], [0], mask_uint8, [180], [0, 180])
         s_hist = cv2.calcHist([hsv], [1], mask_uint8, [256], [0, 256])
         v_hist = cv2.calcHist([hsv], [2], mask_uint8, [256], [0, 256])
         cv2.normalize(h_hist, h_hist)
         cv2.normalize(s_hist, s_hist)
         cv2.normalize(v_hist, v_hist)
-
-        hsv_hist = (
+        return (
             h_hist.flatten().astype(np.float32),
             s_hist.flatten().astype(np.float32),
             v_hist.flatten().astype(np.float32),
         )
 
-        return {
-            "mask": mask,
-            "items": items,
-            "hsv_hist": hsv_hist,
-        }
+    def _extract_orb_features(
+        self, img_bgr: np.ndarray, items: list[dict],
+    ) -> np.ndarray | None:
+        upper_item = None
+        for item in items:
+            if item["class_id"] in UPPER_BODY_CLASSES:
+                if upper_item is None or item["confidence"] > upper_item["confidence"]:
+                    upper_item = item
+        if upper_item is None:
+            return None
+
+        x1, y1, x2, y2 = (int(v) for v in upper_item["bbox"])
+        h, w = img_bgr.shape[:2]
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(w, x2), min(h, y2)
+        if x2 <= x1 or y2 <= y1:
+            return None
+
+        crop_gray = cv2.cvtColor(img_bgr[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY)
+        _, descriptors = self._orb.detectAndCompute(crop_gray, None)
+        return descriptors
 
     # ------------------------------------------------------------------
     # YOLO inference internals
