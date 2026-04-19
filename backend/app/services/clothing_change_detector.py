@@ -142,11 +142,19 @@ class ClothingChangeDetector:
             # ORB texture change
             texture_change = tex_sim is not None and tex_sim < 0.4
 
-            combined_score = self._combined_score_v2(
-                corr, cat_change, region_change, region_min_corr, texture_change, tex_sim,
+            # 是否有视觉佐证（HSV / 分区域HSV / 纹理）
+            has_visual_evidence = (
+                corr < self.hist_threshold or region_change or texture_change
             )
 
-            if cat_change or corr < self.hist_threshold or region_change or texture_change:
+            combined_score = self._combined_score_v2(
+                corr, cat_change, region_change, region_min_corr,
+                texture_change, tex_sim, has_visual_evidence,
+            )
+
+            # 触发条件：非品类变化信号直接触发；品类变化需视觉佐证
+            # （孤立品类变化通常是主播拿放物品，不应触发候选）
+            if has_visual_evidence or (cat_change and has_visual_evidence):
                 raw_points.append(
                     {
                         "frame_idx": i + 1,
@@ -168,6 +176,20 @@ class ClothingChangeDetector:
             sum(1 for s in texture_similarities if s is not None),
             segmenter.yolo_available,
             segmenter.mediapipe_available,
+        )
+        logger.info(
+            "Category change filter: %d total, %d isolated (no visual evidence) → suppressed",
+            sum(category_changes),
+            sum(
+                1 for i in range(len(category_changes))
+                if category_changes[i]
+                and correlations[i] >= self.hist_threshold
+                and not (
+                    (upper_correlations[i] is not None and upper_correlations[i] < self.hist_threshold)
+                    or (lower_correlations[i] is not None and lower_correlations[i] < self.hist_threshold)
+                    or (texture_similarities[i] is not None and texture_similarities[i] < 0.4)
+                )
+            ),
         )
 
         merged = self._merge_events(raw_points)
@@ -265,9 +287,10 @@ class ClothingChangeDetector:
         region_min_corr: float,
         texture_change: bool,
         texture_sim: float | None,
+        has_visual_evidence: bool = True,
     ) -> float:
         base = max(1.0 - global_corr, 0.0)
-        if category_change:
+        if category_change and has_visual_evidence:
             base = max(base, 0.3)
         if region_change:
             base = max(base, 1.0 - region_min_corr) * 1.2
