@@ -7,6 +7,11 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+RESOLUTION_SCALE = {
+    "1080p": "scale=min(1920\\,iw):-2",
+    "4k": "scale=min(3840\\,iw):-2",
+}
+
 ASSETS_DIR = Path(__file__).resolve().parent.parent.parent / "assets"
 SUBTITLE_FONTS_DIR = ASSETS_DIR / "fonts"
 SUBTITLE_FONT_FAMILY = "Noto Sans CJK SC"
@@ -105,6 +110,7 @@ class FFmpegBuilder:
         subtitle_template: str = "clean",
         custom_position_y: int | None = None,
         video_speed: float = 1.0,
+        export_resolution: str = "1080p",
     ) -> list[str]:
         # 1. filler_cut_ranges → keep_ranges (segments to KEEP)
         keep_ranges: list[tuple[float, float]] = []
@@ -147,6 +153,13 @@ class FFmpegBuilder:
             f"{concat_inputs}concat=n={n}:v=1:a=1[v_cat][a_cat]"
         )
 
+        # optional resolution scale
+        scale_filter = RESOLUTION_SCALE.get(export_resolution)
+        if scale_filter:
+            filters.append(f"[v_cat]{scale_filter}[v_scaled]")
+        else:
+            filters.append("[v_cat]copy[v_scaled]")
+
         # optional subtitle burn
         if srt_path:
             sub_filter = self._build_subtitle_filter(
@@ -155,9 +168,9 @@ class FFmpegBuilder:
                 subtitle_template=subtitle_template,
                 custom_position_y=custom_position_y,
             )
-            filters.append(f"[v_cat]{sub_filter}[v_sub]")
+            filters.append(f"[v_scaled]{sub_filter}[v_sub]")
         else:
-            filters.append("[v_cat]copy[v_sub]")
+            filters.append("[v_scaled]copy[v_sub]")
 
         # optional speed change
         if video_speed != 1.0:
@@ -236,6 +249,7 @@ class FFmpegBuilder:
         custom_position_y: int | None = None,
         filler_cut_ranges: list[dict] | None = None,
         video_speed: float = 1.0,
+        export_resolution: str = "1080p",
     ) -> list[str]:
         if filler_cut_ranges:
             return self._build_trim_concat_command(
@@ -243,9 +257,15 @@ class FFmpegBuilder:
                 output_path, filler_cut_ranges,
                 subtitle_position, subtitle_template, custom_position_y,
                 video_speed=video_speed,
+                export_resolution=export_resolution,
             )
 
         video_chain = "[0:v]setpts=PTS-STARTPTS"
+
+        scale_filter = RESOLUTION_SCALE.get(export_resolution)
+        if scale_filter:
+            video_chain += f",{scale_filter}"
+
         if srt_path:
             video_chain += "," + self._build_subtitle_filter(
                 subtitle_path=srt_path,
@@ -350,6 +370,7 @@ class FFmpegBuilder:
         filler_cut_ranges: list[dict] | None = None,
         cover_timestamp: float | None = None,
         video_speed: float = 1.0,
+        export_resolution: str = "1080p",
     ) -> dict[str, Any]:
         start = float(segment.get("start_time", 0.0))
         end = float(segment.get("end_time", 0.0))
@@ -371,6 +392,7 @@ class FFmpegBuilder:
             custom_position_y=custom_position_y,
             filler_cut_ranges=filler_cut_ranges,
             video_speed=video_speed,
+            export_resolution=export_resolution,
         )
 
         logger.info("Processing clip: %s → %s", input_path, output_path)
@@ -387,6 +409,7 @@ class FFmpegBuilder:
                 output_path=output_path,
                 filler_cut_ranges=filler_cut_ranges,
                 video_speed=video_speed,
+                export_resolution=export_resolution,
             )
             result = subprocess.run(
                 cut_cmd, capture_output=True, text=True, timeout=600

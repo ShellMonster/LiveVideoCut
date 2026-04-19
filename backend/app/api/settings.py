@@ -90,6 +90,12 @@ class LLMType(str, Enum):
     gemini = "gemini"
 
 
+class ExportResolution(str, Enum):
+    original = "original"
+    r1080p = "1080p"
+    r4k = "4k"
+
+
 def _validate_api_base(provider: str, api_base: str) -> str:
     parsed = urlparse(api_base)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -142,6 +148,7 @@ class SettingsRequest(BaseModel):
     filter_filler_mode: str = "off"
     cover_strategy: str = "content_first"
     video_speed: float = Field(default=1.25, ge=0.5, le=3.0)
+    export_resolution: ExportResolution = ExportResolution.r1080p
 
     asr_provider: AsrProvider = AsrProvider.volcengine_vc
     asr_api_key: str = ""

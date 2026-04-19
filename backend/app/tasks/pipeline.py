@@ -754,6 +754,7 @@ def _process_single_clip(
 
         cover_strategy = getattr(settings, "cover_strategy", "content_first")
         video_speed = getattr(settings, "video_speed", 1.0)
+        export_resolution = getattr(settings, "export_resolution", "1080p")
         cover_ts = select_cover_frame(
             video_path=str(video_path),
             clip_start=float(seg.get("start_time", 0.0)),
@@ -777,6 +778,7 @@ def _process_single_clip(
             filler_cut_ranges=filler_cut_ranges or None,
             cover_timestamp=cover_ts,
             video_speed=video_speed,
+            export_resolution=export_resolution,
         )
 
         meta_path = clips_dir / f"{safe_label}_meta.json"

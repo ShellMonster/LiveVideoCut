@@ -17,6 +17,7 @@ import {
   type CoverStrategy,
   type VideoSpeed,
   type LlmType,
+  type ExportResolution,
 } from "@/stores/settingsStore";
 import { useToastStore } from "@/stores/toastStore";
 
@@ -97,6 +98,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     llmApiBase,
     llmModel,
     llmType,
+    exportResolution,
     setSettings,
   } = useSettingsStore();
 
@@ -137,6 +139,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     llmApiBase,
     llmModel,
     llmType,
+    exportResolution,
   });
 
   const showToast = useToastStore((state) => state.showToast);
@@ -346,6 +349,22 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 <option value="1.75">1.75x</option>
                 <option value="2">2x</option>
                 <option value="3">3x</option>
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="export-resolution" className="mb-1 block text-sm font-medium text-slate-700">
+                导出分辨率
+              </label>
+              <select
+                id="export-resolution"
+                className={inputClassName}
+                value={draft.exportResolution}
+                onChange={(e) => setDraft({ ...draft, exportResolution: e.target.value as ExportResolution })}
+              >
+                <option value="1080p">1080P（默认）</option>
+                <option value="4k">4K</option>
+                <option value="original">保持原始</option>
               </select>
             </div>
           </div>

@@ -43,6 +43,7 @@ interface UploadSettingsPayload {
   llm_api_base: string;
   llm_model: string;
   llm_type: Settings["llmType"];
+  export_resolution: Settings["exportResolution"];
 }
 
 interface UploadContext {
@@ -114,6 +115,7 @@ function buildUploadSettingsPayload(settings: Settings): UploadSettingsPayload {
     llm_api_base: settings.llmApiBase,
     llm_model: settings.llmModel,
     llm_type: settings.llmType,
+    export_resolution: settings.exportResolution,
   };
 }
 

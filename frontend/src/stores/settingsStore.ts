@@ -12,6 +12,7 @@ export type FillerFilterMode = "off" | "subtitle" | "video";
 export type CoverStrategy = "content_first" | "person_first";
 export type VideoSpeed = 0.5 | 0.75 | 1.0 | 1.25 | 1.5 | 1.75 | 2.0 | 3.0;
 export type LlmType = "openai" | "gemini";
+export type ExportResolution = "original" | "1080p" | "4k";
 
 export interface Settings {
   enableVlm: boolean;
@@ -50,6 +51,7 @@ export interface Settings {
   llmApiBase: string;
   llmModel: string;
   llmType: LlmType;
+  exportResolution: ExportResolution;
 }
 
 const STORAGE_KEY = "clipper-settings";
@@ -101,6 +103,7 @@ const defaultSettings: Settings = {
   llmApiBase: "",
   llmModel: "",
   llmType: "openai",
+  exportResolution: "1080p" as ExportResolution,
 };
 
 function loadSettings(): Settings {
