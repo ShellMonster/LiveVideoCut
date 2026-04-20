@@ -35,25 +35,40 @@ from app.services.bgm_selector import BGMSelector, DEFAULT_BGM
 logger = logging.getLogger(__name__)
 
 
+def _need_asr(settings: SettingsRequest) -> bool:
+    """ASR is needed when subtitle burning is on OR LLM text analysis is enabled."""
+    subtitle_on = settings.subtitle_mode.value != "off"
+    llm_on = settings.enable_llm_analysis
+    return subtitle_on or llm_on
+
+
 def _create_asr_client(settings: SettingsRequest) -> DashScopeASRClient | VolcengineASRClient | VolcengineVCClient:
-    """Create ASR client based on settings.asr_provider."""
+    """Create ASR client based on settings.asr_provider.
+    
+    Credentials are read from env vars (VOLCENGINE_ASR_API_KEY, TOS_AK etc.)
+    via each client's __init__ fallback. We only pass non-empty values from
+    settings so that empty strings from the frontend don't override env vars.
+    """
+    def _opt(val: str | None) -> str | None:
+        return val if val else None
+
     if settings.asr_provider.value == "volcengine":
         return VolcengineASRClient(
-            api_key=settings.asr_api_key,
-            tos_ak=settings.tos_ak,
-            tos_sk=settings.tos_sk,
-            tos_bucket=settings.tos_bucket,
-            tos_region=settings.tos_region,
-            tos_endpoint=settings.tos_endpoint,
+            api_key=_opt(settings.asr_api_key),
+            tos_ak=_opt(settings.tos_ak),
+            tos_sk=_opt(settings.tos_sk),
+            tos_bucket=_opt(settings.tos_bucket),
+            tos_region=_opt(settings.tos_region),
+            tos_endpoint=_opt(settings.tos_endpoint),
         )
     if settings.asr_provider.value == "volcengine_vc":
         return VolcengineVCClient(
-            api_key=settings.asr_api_key,
-            tos_ak=settings.tos_ak,
-            tos_sk=settings.tos_sk,
-            tos_bucket=settings.tos_bucket,
-            tos_region=settings.tos_region,
-            tos_endpoint=settings.tos_endpoint,
+            api_key=_opt(settings.asr_api_key),
+            tos_ak=_opt(settings.tos_ak),
+            tos_sk=_opt(settings.tos_sk),
+            tos_bucket=_opt(settings.tos_bucket),
+            tos_region=_opt(settings.tos_region),
+            tos_endpoint=_opt(settings.tos_endpoint),
         )
     return DashScopeASRClient()
 
@@ -458,10 +473,10 @@ def enrich_segments(
                 return {"segments_count": len(scenes), "validated_count": 0}
 
             asr_client = _create_asr_client(settings)
-            if getattr(settings, "asr_enabled", True):
+            if _need_asr(settings):
                 transcript = asr_client.transcribe(str(video_path))
             else:
-                logger.info("ASR disabled, skipping transcription (all_scenes path)")
+                logger.info("ASR skipped (subtitles off, LLM off, all_scenes path)")
                 transcript = []
 
             transcript_file = task_path / "transcript.json"
@@ -495,10 +510,10 @@ def enrich_segments(
             return {"segments_count": len(segments), "validated_count": 0}
 
         asr_client = _create_asr_client(settings)
-        if getattr(settings, "asr_enabled", True):
+        if _need_asr(settings):
             transcript = asr_client.transcribe(str(video_path))
         else:
-            logger.info("ASR disabled, skipping transcription")
+            logger.info("ASR skipped (subtitles off, LLM off)")
             transcript = []
 
         transcript_file = task_path / "transcript.json"
@@ -506,42 +521,47 @@ def enrich_segments(
 
         cleaner.cleanup_chunks(task_dir)
 
-        if getattr(settings, "asr_enabled", True) and settings.enable_llm_analysis and settings.llm_api_key and settings.llm_api_base and settings.llm_model:
-            try:
-                sm.transition("TRANSCRIBING", "LLM_ANALYZING", step="llm_analysis")
-                analyzer = TextSegmentAnalyzer(
-                    api_key=settings.llm_api_key,
-                    api_base=settings.llm_api_base,
-                    model=settings.llm_model,
-                    llm_type=settings.llm_type.value,
-                )
-                granularity = getattr(settings, "segment_granularity", "single_item")
-                granularity = granularity.value if hasattr(granularity, "value") else granularity
-                text_boundaries = analyzer.analyze(transcript, segment_granularity=granularity)
-                logger.info("LLM text analysis found %d boundaries", len(text_boundaries))
+        if _need_asr(settings) and settings.enable_llm_analysis:
+            llm_key = settings.llm_api_key or os.getenv("LLM_API_KEY", "")
+            llm_base = settings.llm_api_base or os.getenv("LLM_API_BASE", "")
+            llm_model = settings.llm_model or os.getenv("LLM_MODEL", "")
+            llm_type = (settings.llm_type.value if hasattr(settings.llm_type, "value") else settings.llm_type) or os.getenv("LLM_TYPE", "openai")
+            if llm_key and llm_base and llm_model:
+                try:
+                    sm.transition("TRANSCRIBING", "LLM_ANALYZING", step="llm_analysis")
+                    analyzer = TextSegmentAnalyzer(
+                        api_key=llm_key,
+                        api_base=llm_base,
+                        model=llm_model,
+                        llm_type=llm_type,
+                    )
+                    granularity = getattr(settings, "segment_granularity", "single_item")
+                    granularity = granularity.value if hasattr(granularity, "value") else granularity
+                    text_boundaries = analyzer.analyze(transcript, segment_granularity=granularity)
+                    logger.info("LLM text analysis found %d boundaries", len(text_boundaries))
 
-                text_boundaries_file = task_path / "text_boundaries.json"
-                text_boundaries_file.write_text(
-                    json.dumps(text_boundaries, ensure_ascii=False, indent=2)
-                )
+                    text_boundaries_file = task_path / "text_boundaries.json"
+                    text_boundaries_file.write_text(
+                        json.dumps(text_boundaries, ensure_ascii=False, indent=2)
+                    )
 
-                candidates_file = task_path / "candidates.json"
-                visual_candidates = json.loads(candidates_file.read_text()) if candidates_file.exists() else []
-                video_duration = _get_video_duration(str(video_path))
+                    candidates_file = task_path / "candidates.json"
+                    visual_candidates = json.loads(candidates_file.read_text()) if candidates_file.exists() else []
+                    video_duration = _get_video_duration(str(video_path))
 
-                fused = fuse_candidates(visual_candidates, text_boundaries, video_duration, segment_granularity=granularity)
-                fused_file = task_path / "fused_candidates.json"
-                fused_file.write_text(json.dumps(fused, ensure_ascii=False, indent=2))
+                    fused = fuse_candidates(visual_candidates, text_boundaries, video_duration, segment_granularity=granularity)
+                    fused_file = task_path / "fused_candidates.json"
+                    fused_file.write_text(json.dumps(fused, ensure_ascii=False, indent=2))
 
-                logger.info("Fused %d visual + %d text → %d candidates", len(visual_candidates), len(text_boundaries), len(fused))
+                    logger.info("Fused %d visual + %d text → %d candidates", len(visual_candidates), len(text_boundaries), len(fused))
 
-                if fused:
-                    segments = fused_to_segments(fused, video_duration)
-                    logger.info("Using %d fused segments (replacing VLM segments)", len(segments))
+                    if fused:
+                        segments = fused_to_segments(fused, video_duration)
+                        logger.info("Using %d fused segments (replacing VLM segments)", len(segments))
 
-                sm.transition("LLM_ANALYZING", "TRANSCRIBING", step="transcribing")
-            except Exception as e:
-                logger.warning("LLM text analysis failed, continuing without it: %s", str(e))
+                    sm.transition("LLM_ANALYZING", "TRANSCRIBING", step="transcribing")
+                except Exception as e:
+                    logger.warning("LLM text analysis failed, continuing without it: %s", str(e))
 
         # Snap segment boundaries to transcript sentence boundaries
         if transcript and getattr(settings, "boundary_snap", True):

@@ -62,7 +62,7 @@ class VolcengineVCClient:
         tos_region: str | None = None,
         tos_endpoint: str | None = None,
     ) -> None:
-        self._api_key = api_key or os.getenv("VOLCENGINE_VC_API_KEY", "")
+        self._api_key = api_key or os.getenv("VOLCENGINE_ASR_API_KEY", "")
         self._tos_ak = tos_ak or os.getenv("TOS_AK", "")
         self._tos_sk = tos_sk or os.getenv("TOS_SK", "")
         self._tos_bucket = tos_bucket or os.getenv("TOS_BUCKET", "mp3-srt")

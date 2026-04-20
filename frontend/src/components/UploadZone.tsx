@@ -29,7 +29,6 @@ interface UploadSettingsPayload {
   subtitle_template: Settings["subtitleTemplate"];
   boundary_snap: boolean;
   custom_position_y: number | null;
-  asr_enabled: boolean;
   asr_provider: Settings["asrProvider"];
   asr_api_key: Settings["asrApiKey"];
   tos_ak: string;
@@ -107,7 +106,6 @@ function buildUploadSettingsPayload(settings: Settings): UploadSettingsPayload {
     subtitle_template: settings.subtitleTemplate,
     boundary_snap: settings.boundarySnap,
     custom_position_y: settings.customPositionY,
-    asr_enabled: settings.asrEnabled,
     asr_provider: settings.asrProvider,
     asr_api_key: settings.asrApiKey,
     tos_ak: settings.tosAk,

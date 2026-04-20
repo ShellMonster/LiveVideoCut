@@ -41,7 +41,6 @@ export interface Settings {
   videoSpeed: VideoSpeed;
   boundarySnap: boolean;
   customPositionY: number | null;
-  asrEnabled: boolean;
   asrProvider: AsrProvider;
   asrApiKey: string;
   tosAk: string;
@@ -99,7 +98,6 @@ const defaultSettings: Settings = {
   videoSpeed: 1.25 as VideoSpeed,
   boundarySnap: true,
   customPositionY: null,
-  asrEnabled: false,
   asrProvider: "volcengine_vc",
   asrApiKey: "",
   tosAk: "",

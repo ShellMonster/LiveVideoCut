@@ -145,7 +145,7 @@ class SettingsRequest(BaseModel):
     review_mode: ReviewMode = ReviewMode.segment_multiframe
     max_candidate_count: int = Field(default=20, ge=1, le=100)
 
-    subtitle_mode: SubtitleMode = SubtitleMode.basic
+    subtitle_mode: SubtitleMode = SubtitleMode.karaoke
     subtitle_position: SubtitlePosition = SubtitlePosition.bottom
     subtitle_template: SubtitleTemplate = SubtitleTemplate.clean
     custom_position_y: int | None = Field(default=None, ge=0, le=100)
@@ -155,7 +155,6 @@ class SettingsRequest(BaseModel):
     video_speed: float = Field(default=1.25, ge=0.5, le=3.0)
     export_resolution: ExportResolution = ExportResolution.r1080p
 
-    asr_enabled: bool = False
     asr_provider: AsrProvider = AsrProvider.volcengine_vc
     asr_api_key: str = ""
 

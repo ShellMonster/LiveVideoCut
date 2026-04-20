@@ -63,6 +63,10 @@ services:
       - TOS_ENDPOINT=${TOS_ENDPOINT:-tos-cn-beijing.volces.com}
       - HF_ENDPOINT=${HF_ENDPOINT:-https://hf-mirror.com}
       - APT_MIRROR=${APT_MIRROR:-}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_API_BASE=${LLM_API_BASE:-}
+      - LLM_MODEL=${LLM_MODEL:-}
+      - LLM_TYPE=${LLM_TYPE:-openai}
     healthcheck:
       test: ["CMD", "python", "-c", "from celery import Celery; app = Celery('clipper', broker='${REDIS_URL:-redis://redis:6379/0}'); app.connection().ensure_connection(max_retries=2)"]
       interval: 30s

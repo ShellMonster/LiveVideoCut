@@ -84,17 +84,16 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     subtitleTemplate,
     boundarySnap,
     customPositionY,
-    asrEnabled,
     asrProvider,
-    fillerFilterMode,
-    coverStrategy,
-    videoSpeed,
     asrApiKey,
     tosAk,
     tosSk,
     tosBucket,
     tosRegion,
     tosEndpoint,
+    fillerFilterMode,
+    coverStrategy,
+    videoSpeed,
     enableLlmAnalysis,
     llmApiKey,
     llmApiBase,
@@ -131,17 +130,16 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     subtitleTemplate,
     boundarySnap,
     customPositionY,
-    asrEnabled,
     asrProvider,
-    fillerFilterMode,
-    coverStrategy,
-    videoSpeed,
     asrApiKey,
     tosAk,
     tosSk,
     tosBucket,
     tosRegion,
     tosEndpoint,
+    fillerFilterMode,
+    coverStrategy,
+    videoSpeed,
     enableLlmAnalysis,
     llmApiKey,
     llmApiBase,
@@ -631,9 +629,18 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         </Section>
 
         <Section
-          title="语音识别设置"
-          description="选择语音转写（ASR）的服务提供方。关闭后跳过 ASR 转写，不做字幕烧录，适合快速验证分段效果。"
+          title="语音识别（ASR）"
+          description={
+            draft.subtitleMode === "off" && !draft.enableLlmAnalysis
+              ? "当前无需 ASR（字幕烧录和 LLM 文本分析均未开启）。开启字幕烧录或 LLM 分析后，ASR 将自动启用。"
+              : "选择语音转写服务提供方。ASR 在需要时自动启用（字幕烧录或 LLM 文本分析开启时）。凭据留空则自动使用服务器 .env 中的配置。"
+          }
         >
+          {draft.subtitleMode === "off" && !draft.enableLlmAnalysis ? (
+            <div className="rounded-md border border-slate-200 bg-slate-100 px-4 py-3 text-center text-sm text-slate-500">
+              当前无需 ASR · 开启「字幕烧录」或「LLM 文本分析」后自动启用
+            </div>
+          ) : (
           <div className="grid gap-4 md:grid-cols-2">
             <div>
               <label htmlFor="asr-provider" className="mb-1 block text-sm font-medium text-slate-700">
@@ -642,24 +649,16 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
               <select
                 id="asr-provider"
                 className={inputClassName}
-                value={draft.asrEnabled ? draft.asrProvider : "off"}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  if (v === "off") {
-                    setDraft({ ...draft, asrEnabled: false });
-                  } else {
-                    setDraft({ ...draft, asrEnabled: true, asrProvider: v as AsrProvider });
-                  }
-                }}
+                value={draft.asrProvider}
+                onChange={(e) => setDraft({ ...draft, asrProvider: e.target.value as AsrProvider })}
               >
-                <option value="off">关闭（不进行语音转写）</option>
                 <option value="volcengine_vc">火山 VC 字幕（推荐 · 剪映分句+逐字同步最佳）</option>
                 <option value="volcengine">火山豆包大模型（真实时间戳，分句偏长）</option>
                 <option value="dashscope">阿里云 DashScope（最便宜，逐字匀速不适合跳字）</option>
               </select>
             </div>
 
-            {draft.asrEnabled && (draft.asrProvider === "volcengine" || draft.asrProvider === "volcengine_vc") && (
+            {(draft.asrProvider === "volcengine" || draft.asrProvider === "volcengine_vc") && (
               <>
                 <div className="md:col-span-2">
                   <label htmlFor="asr-api-key" className="mb-1 block text-sm font-medium text-slate-700">
@@ -671,11 +670,11 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                     className={inputClassName}
                     value={draft.asrApiKey}
                     onChange={(e) => setDraft({ ...draft, asrApiKey: e.target.value })}
-                    placeholder="火山引擎控制台获取的 API Key"
+                    placeholder="留空使用服务器 .env 配置"
                   />
                 </div>
                 <div className="md:col-span-2 mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
-                  <p className="text-xs font-medium text-amber-800">TOS 对象存储配置（bigmodel / VC 字幕均需通过 TOS 传音频）</p>
+                  <p className="text-xs font-medium text-amber-800">TOS 对象存储配置（bigmodel / VC 字幕均需通过 TOS 传音频），留空使用服务器 .env 配置</p>
                 </div>
                 <div className="md:col-span-2">
                   <label htmlFor="tos-ak" className="mb-1 block text-sm font-medium text-slate-700">
@@ -687,7 +686,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                     className={inputClassName}
                     value={draft.tosAk}
                     onChange={(e) => setDraft({ ...draft, tosAk: e.target.value })}
-                    placeholder="火山引擎 TOS 的 AK"
+                    placeholder="留空使用服务器 .env 配置"
                   />
                 </div>
                 <div className="md:col-span-2">
@@ -700,7 +699,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                     className={inputClassName}
                     value={draft.tosSk}
                     onChange={(e) => setDraft({ ...draft, tosSk: e.target.value })}
-                    placeholder="火山引擎 TOS 的 SK"
+                    placeholder="留空使用服务器 .env 配置"
                   />
                 </div>
                 <div>
@@ -742,9 +741,10 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                     placeholder="tos-cn-beijing.volces.com"
                   />
                 </div>
-              </>
+               </>
             )}
           </div>
+          )}
         </Section>
 
         <Section
