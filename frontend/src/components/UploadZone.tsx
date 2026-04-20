@@ -27,7 +27,8 @@ interface UploadSettingsPayload {
   subtitle_mode: Settings["subtitleMode"];
   subtitle_position: Settings["subtitlePosition"];
   subtitle_template: Settings["subtitleTemplate"];
-  funasr_mode: Settings["funasrMode"];
+  boundary_snap: boolean;
+  custom_position_y: number | null;
   asr_enabled: boolean;
   asr_provider: Settings["asrProvider"];
   asr_api_key: Settings["asrApiKey"];
@@ -46,6 +47,9 @@ interface UploadSettingsPayload {
   llm_type: Settings["llmType"];
   export_resolution: Settings["exportResolution"];
   segment_granularity: Settings["segmentGranularity"];
+  bgm_enabled: boolean;
+  bgm_volume: number;
+  original_volume: number;
 }
 
 interface UploadContext {
@@ -101,7 +105,8 @@ function buildUploadSettingsPayload(settings: Settings): UploadSettingsPayload {
     subtitle_mode: settings.subtitleMode,
     subtitle_position: settings.subtitlePosition,
     subtitle_template: settings.subtitleTemplate,
-    funasr_mode: settings.funasrMode,
+    boundary_snap: settings.boundarySnap,
+    custom_position_y: settings.customPositionY,
     asr_enabled: settings.asrEnabled,
     asr_provider: settings.asrProvider,
     asr_api_key: settings.asrApiKey,
@@ -120,6 +125,9 @@ function buildUploadSettingsPayload(settings: Settings): UploadSettingsPayload {
     llm_type: settings.llmType,
     export_resolution: settings.exportResolution,
     segment_granularity: settings.segmentGranularity,
+    bgm_enabled: settings.bgmEnabled,
+    bgm_volume: settings.bgmVolume,
+    original_volume: settings.originalVolume,
   };
 }
 

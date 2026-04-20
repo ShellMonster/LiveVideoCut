@@ -1,0 +1,27 @@
+{
+  "_comment": "音乐库索引 — 添加新曲目只需在 tracks 数组中追加条目，并把 MP3 文件放到 bgm/ 目录",
+  "tracks": [
+    {
+      "id": "light_upbeat_01",
+      "file": "light_upbeat_01.mp3",
+      "title": "轻快氛围 #1",
+      "mood": ["happy", "uplifting", "bright"],
+      "genre": "pop",
+      "tempo": "medium",
+      "energy": "medium",
+      "categories": ["上衣", "裙装", "日常穿搭", "女装"],
+      "duration_s": 10.0
+    }
+  ],
+  "category_defaults": {
+    "上衣": ["happy", "uplifting"],
+    "裙装": ["calm", "romantic", "elegant"],
+    "外套": ["energetic", "confident"],
+    "裤子": ["energetic", "trendy"],
+    "背心": ["chill", "casual"],
+    "套装": ["elegant", "confident"],
+    "美妆": ["calm", "gentle"],
+    "配饰": ["bright", "uplifting"],
+    "default": ["happy", "uplifting"]
+  }
+}

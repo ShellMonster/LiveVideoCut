@@ -39,7 +39,8 @@ export interface Settings {
   fillerFilterMode: FillerFilterMode;
   coverStrategy: CoverStrategy;
   videoSpeed: VideoSpeed;
-  funasrMode: "local" | "remote";
+  boundarySnap: boolean;
+  customPositionY: number | null;
   asrEnabled: boolean;
   asrProvider: AsrProvider;
   asrApiKey: string;
@@ -55,6 +56,9 @@ export interface Settings {
   llmType: LlmType;
   exportResolution: ExportResolution;
   segmentGranularity: SegmentGranularity;
+  bgmEnabled: boolean;
+  bgmVolume: number;
+  originalVolume: number;
 }
 
 const STORAGE_KEY = "clipper-settings";
@@ -93,7 +97,8 @@ const defaultSettings: Settings = {
   fillerFilterMode: "off",
   coverStrategy: "content_first" as CoverStrategy,
   videoSpeed: 1.25 as VideoSpeed,
-  funasrMode: "local",
+  boundarySnap: true,
+  customPositionY: null,
   asrEnabled: false,
   asrProvider: "volcengine_vc",
   asrApiKey: "",
@@ -109,6 +114,9 @@ const defaultSettings: Settings = {
   llmType: "openai",
   exportResolution: "1080p" as ExportResolution,
   segmentGranularity: "single_item" as SegmentGranularity,
+  bgmEnabled: true,
+  bgmVolume: 0.25,
+  originalVolume: 1.0,
 };
 
 function loadSettings(): Settings {

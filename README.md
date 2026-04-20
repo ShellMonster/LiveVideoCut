@@ -1,6 +1,6 @@
 # 直播视频 AI 智能剪辑
 
-一键将直播录像自动拆分为商品讲解短视频片段，支持烧录字幕、karaoke 逐字高亮、语气词过滤、智能封面选择和视频变速。上传 MP4，AI 自动识别换衣节点、转写语音、匹配商品名、导出短视频。
+一键将直播录像自动拆分为商品讲解短视频片段，支持烧录字幕、karaoke 逐字高亮、语气词过滤、智能封面选择、BGM 自动选曲和视频变速。上传 MP4，AI 自动识别换衣节点、转写语音、匹配商品名、导出短视频。
 
 ## 系统架构
 
@@ -105,7 +105,7 @@ graph TD
     G4 --> H["阶段4: process_clips"]
     H --> H1["裁切字幕 SRT / ASS"]
     H1 --> H2["语气词过滤 (可选)<br/>subtitle: 仅删字幕 / video: 裁剪视频段"]
-    H2 --> H3["FFmpeg 并行烧录字幕 + 导出 mp4"]
+    H2 --> H3["FFmpeg 并行烧录字幕 + BGM 混音 + 导出 mp4"]
     H3 --> H4["智能封面选择<br/>content_first / person_first"]
     H4 --> H5["产出 clips/ + covers/ 目录"]
 
@@ -121,13 +121,16 @@ graph TD
 - **多 ASR 支持** -- 火山 VC 字幕（推荐）、火山 BigModel、阿里 DashScope，三选一
 - **商品匹配** -- 自动关联商品名称与讲解片段
 - **LLM 文本分析** -- 可选开启，用 LLM 分析字幕文本识别换品边界，与视觉检测信号两层树融合（Level 0 换装区间 + Level 1 商品讨论段），按切分粒度（单品/搭配）导出
-- **字幕烧录** -- 支持四种模式：off / basic / styled / karaoke（逐字高亮+弹跳动画）
+- **句边界对齐** -- 将片段起止时间对齐到 ASR 句子边界，避免截断半句话，默认开启
+- **字幕烧录** -- 支持四种模式：off / basic / styled / karaoke（逐字高亮+弹跳动画），支持自定义位置
 - **导出模式** -- smart / no_vlm / all_candidates / all_scenes
 - **实时进度** -- WebSocket 推送处理进度，前端实时展示
+- **历史记录** -- 分页列表查看所有历史任务，支持状态筛选、展开查看片段、删除
 - **语气词过滤** -- 三级词表（38词），支持仅过滤字幕或同时裁剪视频片段，默认关闭
 - **智能封面** -- content_first（商品优先）/ person_first（主播优先），30帧评分选最佳
 - **视频变速** -- 0.5x~3x 倍速，先烧字幕再变速，默认 1.25x
 - **并发处理** -- cgroup-aware 资源检测，ThreadPoolExecutor 并行处理多 clip，4GB 容器默认 2 workers
+- **BGM 自动选曲** -- 基于本地预分类音乐库，按商品类型自动匹配背景音乐，跨 clip 去重，支持前端音乐库浏览
 
 ## 技术栈
 
@@ -225,15 +228,19 @@ ASR 相关配置（火山引擎、DashScope 的 API Key 等）在 **前端设置
 │   │   │   ├── selfie_multiclass_256x256.tflite  # MediaPipe 6类像素分割
 │   │   │   └── yolov8n-fashionpedia.onnx          # YOLO 46类服装检测
 │   │   ├── default_bgm.mp3       # 默认背景音乐
+│   │   ├── bgm/                  # 音乐库
+│   │   │   ├── bgm_library.json  # 音乐库索引 (mood/category 映射)
+│   │   │   └── *.mp3             # 音乐文件
 │   │   └── watermark.png         # 水印图片
 │   ├── app/
 │   │   ├── main.py               # FastAPI 入口
 │   │   ├── api/                  # API 路由
 │   │   │   ├── health.py         # 健康检查
 │   │   │   ├── upload.py         # 视频上传
-│   │   │   ├── tasks.py          # 任务状态 + WebSocket
+│   │   │   ├── tasks.py          # 任务状态 + WebSocket + 历史列表 + 删除
 │   │   │   ├── clips.py          # 片段列表 / 下载
-│   │   │   └── settings.py       # 设置模型与校验
+│   │   │   ├── settings.py       # 设置模型与校验
+│   │   │   └── music.py          # 音乐库 API
 │   │   ├── services/             # 业务逻辑
 │   │   │   ├── clothing_change_detector.py   # 换衣检测 (主链路)
 │   │   │   ├── clothing_segmenter.py         # 服装分段 (主链路)
@@ -256,6 +263,7 @@ ASR 相关配置（火山引擎、DashScope 的 API Key 等）在 **前端设置
 │   │   │   ├── cleanup.py                    # 清理工具
 │   │   │   ├── filler_filter.py              # 语气词过滤
 │   │   │   ├── cover_selector.py             # 智能封面选择
+│   │   │   ├── bgm_selector.py              # BGM 自动选曲
 │   │   │   ├── resource_detector.py          # 容器资源检测
 │   │   │   ├── siglip_encoder.py             # [legacy] FashionSigLIP 编码
 │   │   │   └── adaptive_similarity.py        # [legacy] 自适应相似度
@@ -270,6 +278,8 @@ ASR 相关配置（火山引擎、DashScope 的 API Key 等）在 **前端设置
     │   ├── components/
     │   │   ├── UploadZone.tsx     # 上传区域
     │   │   ├── SettingsPage.tsx  # 独立设置页面
+│   │   ├── MusicPage.tsx    # 音乐库浏览页面
+│   │   ├── HistoryPage.tsx   # 历史记录列表页面
     │   │   ├── ProgressBar.tsx    # 进度条
     │   │   ├── ResultGrid.tsx     # 结果网格
     │   │   ├── VideoPreview.tsx   # 视频预览
@@ -370,6 +380,46 @@ karaoke 模式的实现要点：
 - 80ms 最小视觉间隙，避免字幕跳句
 - 被截断的 segment 自动加淡出效果
 - 多字 word 用加权分字（首字 1.3x、末字 0.7x）模拟自然语音
+
+## BGM 自动选曲
+
+基于本地预分类音乐库，根据商品类型自动为每个 clip 选择最合适的背景音乐。
+
+### 选曲逻辑
+
+1. 从 segment 的 `product_type` 或 `product_name` 推断商品类型（上衣、裙装、外套等）
+2. 通过 `category_defaults` 映射获取首选 mood 列表（如上衣→happy/uplifting，裙装→calm/romantic）
+3. 在音乐库中筛选 category 或 mood 匹配的曲目
+4. 跨 clip 去重（`used_bgm_ids`），优先选未使用的曲目
+5. 无匹配时 fallback 到全曲库；曲库为空时 fallback 到 `default_bgm.mp3`
+
+### 用户可控设置
+
+| 设置 | 说明 | 默认值 |
+|------|------|--------|
+| `bgm_enabled` | 是否开启背景音乐 | `true` |
+| `bgm_volume` | BGM 音量（0-1） | 0.3 |
+| `original_volume` | 原声音量（0-2） | 1.0 |
+
+### 扩充音乐库
+
+将 MP3 文件放入 `backend/assets/bgm/`，在 `bgm_library.json` 的 `tracks` 数组中追加条目：
+
+```json
+{
+  "id": "unique_id",
+  "file": "filename.mp3",
+  "title": "曲目名称",
+  "mood": ["happy", "uplifting"],
+  "genre": "pop",
+  "tempo": "medium",
+  "energy": "medium",
+  "categories": ["上衣", "日常穿搭"],
+  "duration_s": 180.0
+}
+```
+
+Docker 重建后生效。前端提供音乐库浏览页（点击导航栏「音乐库」按钮）。
 
 ## 输出目录
 

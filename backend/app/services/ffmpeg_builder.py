@@ -110,6 +110,9 @@ class FFmpegBuilder:
         custom_position_y: int | None = None,
         video_speed: float = 1.0,
         export_resolution: str = "1080p",
+        bgm_enabled: bool = True,
+        bgm_volume: float = 0.25,
+        original_volume: float = 1.0,
     ) -> list[str]:
         # 1. filler_cut_ranges → keep_ranges (segments to KEEP)
         keep_ranges: list[tuple[float, float]] = []
@@ -175,18 +178,21 @@ class FFmpegBuilder:
         if video_speed != 1.0:
             filters.append(f"[v_sub]setpts=PTS/{video_speed}[v_out]")
             atempo_chain = self._build_atempo_chain(video_speed)
-            filters.append(f"[a_cat]{atempo_chain}[a_speed]")
+            filters.append(f"[a_cat]volume={original_volume},{atempo_chain}[a_speed]")
         else:
             filters.append("[v_sub]copy[v_out]")
-            filters.append("[a_cat]copy[a_speed]")
+            filters.append(f"[a_cat]volume={original_volume}[a_speed]")
 
         # BGM mix
-        filters.append(
-            "[1:a]volume=0.25,aloop=loop=-1:size=2e+09[bgm]"
-        )
-        filters.append(
-            "[a_speed][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]"
-        )
+        if bgm_enabled:
+            filters.append(
+                f"[1:a]volume={bgm_volume},aloop=loop=-1:size=2e+09[bgm]"
+            )
+            filters.append(
+                f"[a_speed][bgm]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]"
+            )
+        else:
+            filters.append("[a_speed]acopy[aout]")
 
         filter_complex = ";".join(filters)
 
@@ -194,14 +200,16 @@ class FFmpegBuilder:
         total_keep = sum(ke - ks for ks, ke in keep_ranges)
         effective_duration = total_keep / video_speed
 
-        return [
+        cmd = [
             "ffmpeg",
             "-ss",
             str(start),
             "-i",
             input_path,
-            "-i",
-            bgm_path,
+        ]
+        if bgm_enabled:
+            cmd.extend(["-i", bgm_path])
+        cmd.extend([
             "-filter_complex",
             filter_complex,
             "-map",
@@ -232,7 +240,8 @@ class FFmpegBuilder:
             "128k",
             "-y",
             output_path,
-        ]
+        ])
+        return cmd
 
     def build_cut_command(
         self,
@@ -249,6 +258,9 @@ class FFmpegBuilder:
         filler_cut_ranges: list[dict] | None = None,
         video_speed: float = 1.0,
         export_resolution: str = "1080p",
+        bgm_enabled: bool = True,
+        bgm_volume: float = 0.25,
+        original_volume: float = 1.0,
     ) -> list[str]:
         if filler_cut_ranges:
             return self._build_trim_concat_command(
@@ -257,6 +269,9 @@ class FFmpegBuilder:
                 subtitle_position, subtitle_template, custom_position_y,
                 video_speed=video_speed,
                 export_resolution=export_resolution,
+                bgm_enabled=bgm_enabled,
+                bgm_volume=bgm_volume,
+                original_volume=original_volume,
             )
 
         video_chain = "[0:v]setpts=PTS-STARTPTS"
@@ -277,31 +292,38 @@ class FFmpegBuilder:
         video_chain += "[v_sub]"
 
         speed_video_suffix = ""
-        speed_audio_filter = "[0:a]volume=1.0[orig]"
+        speed_audio_filter = f"[0:a]volume={original_volume}[orig]"
         effective_duration = duration
 
         if video_speed != 1.0:
             speed_video_suffix = f",setpts=PTS/{video_speed}"
             atempo_chain = self._build_atempo_chain(video_speed)
-            speed_audio_filter = f"[0:a]{atempo_chain}[orig]"
+            speed_audio_filter = f"[0:a]volume={original_volume},{atempo_chain}[orig]"
             effective_duration = duration / video_speed
 
-        filter_complex = (
-            f"{video_chain};"
-            f"[v_sub]copy{speed_video_suffix}[v_out];"
-            f"{speed_audio_filter};"
-            f"[1:a]volume=0.25,aloop=loop=-1:size=2e+09[bgm];"
-            f"[orig][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]"
-        )
+        filter_parts = [
+            f"{video_chain}",
+            f"[v_sub]copy{speed_video_suffix}[v_out]",
+            f"{speed_audio_filter}",
+        ]
+        if bgm_enabled:
+            filter_parts.append(f"[1:a]volume={bgm_volume},aloop=loop=-1:size=2e+09[bgm]")
+            filter_parts.append(f"[orig][bgm]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]")
+        else:
+            filter_parts.append("[orig]acopy[aout]")
 
-        return [
+        filter_complex = ";".join(filter_parts)
+
+        cmd = [
             "ffmpeg",
             "-ss",
             str(start),
             "-i",
             input_path,
-            "-i",
-            bgm_path,
+        ]
+        if bgm_enabled:
+            cmd.extend(["-i", bgm_path])
+        cmd.extend([
             "-filter_complex",
             filter_complex,
             "-map",
@@ -332,7 +354,8 @@ class FFmpegBuilder:
             "128k",
             "-y",
             output_path,
-        ]
+        ])
+        return cmd
 
     def build_thumbnail_command(
         self, input_path: str, timestamp: float, output_path: str
@@ -370,6 +393,9 @@ class FFmpegBuilder:
         cover_timestamp: float | None = None,
         video_speed: float = 1.0,
         export_resolution: str = "1080p",
+        bgm_enabled: bool = True,
+        bgm_volume: float = 0.25,
+        original_volume: float = 1.0,
     ) -> dict[str, Any]:
         start = float(segment.get("start_time", 0.0))
         end = float(segment.get("end_time", 0.0))
@@ -392,6 +418,9 @@ class FFmpegBuilder:
             filler_cut_ranges=filler_cut_ranges,
             video_speed=video_speed,
             export_resolution=export_resolution,
+            bgm_enabled=bgm_enabled,
+            bgm_volume=bgm_volume,
+            original_volume=original_volume,
         )
 
         logger.info("Processing clip: %s → %s", input_path, output_path)
@@ -412,6 +441,9 @@ class FFmpegBuilder:
                 filler_cut_ranges=filler_cut_ranges,
                 video_speed=video_speed,
                 export_resolution=export_resolution,
+                bgm_enabled=bgm_enabled,
+                bgm_volume=bgm_volume,
+                original_volume=original_volume,
             )
             result = subprocess.run(
                 cut_cmd, capture_output=True, text=True, timeout=600

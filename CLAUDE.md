@@ -73,6 +73,13 @@
   - `single_item`：把搭配中的每件单品（毛衣、裙子、背心等）各切成一段
   - `outfit`：整套搭配合为一段
 - 导出分辨率：`export_resolution`：`1080p`（默认）/ `4k` / `original`
+- 句边界对齐：`boundary_snap`：`true`（默认）/ `false`
+  - 将 clip 起止时间对齐到 ASR 句子边界，避免截断半句话
+  - 对齐后自动裁剪首尾孤立单字（如"的"、"了"），确保片段时长 ≥ min_duration
+- BGM 设置：
+  - `bgm_enabled`：是否开启背景音乐（默认 `true`）
+  - `bgm_volume`：BGM 音量（0-1，默认 0.3）
+  - `original_volume`：原声音量（0-2，默认 1.0）
 
 这些设置保存在前端 Zustand store + localStorage 中，只影响之后新上传的任务。
 
@@ -113,6 +120,16 @@
 - 时长
 - 商品名
 - 下载入口
+
+### 5. 历史记录
+
+用户可以点击导航栏的"历史记录"按钮查看所有历史任务。
+
+- 后端：`GET /api/tasks` 分页接口（offset/limit + 状态过滤）
+- 后端：`DELETE /api/tasks/{task_id}` 删除任务
+- 前端：`HistoryPage.tsx` 紧凑列表视图，支持状态筛选、展开查看片段、删除
+- 上传时 `meta.json` 记录 `created_at`（ISO 时间戳）和 `original_filename`
+- 老任务这两个字段为空，前端用"—"显示
 
 
 ## 后端流水线真实顺序
@@ -160,6 +177,11 @@
 - 融合后分段重建（如果融合成功）：`fused_to_segments()` 将融合结果转为 segments，替换 VLM segments
   - 融合 candidates 带 `region_start_time`（LLM 区间起点），避免片段起点被视觉候选点 timestamp 截短
   - 未开启 LLM 或融合失败时退回用原始 VLM segments（行为不变）
+- 句边界对齐（`boundary_snapper.py`，默认开启）：将 segment 起止时间 snap 到 ASR 句子边界
+  - 起点对齐到第一个 `start_time >= segment.start` 的句子
+  - 终点对齐到最后一个 `end_time <= segment.end` 的句子
+  - 自动裁剪首尾孤立单字（确保时长 ≥ min_duration）
+  - snap 后时长不足时回退到原始边界
 - 换衣检测增强：品类变化（YOLO 46类）不再单独触发候选，必须同时有至少一个视觉佐证信号（HSV 下降 / 分区域 HSV 下降 / 纹理变化），过滤主播拿放物品误触
 - 商品名匹配
 - 分段合法性校验
@@ -172,6 +194,7 @@
 - 为每个 clip 重新从 `transcript.json` 裁对应字幕
 - 生成 `.srt` 或 `.ass`
 - 调用 FFmpeg 烧录字幕并导出 mp4
+- BGM 自动选曲（`bgm_selector.py`）：基于商品类型和 mood 从本地音乐库匹配，跨 clip 去重避免重复
 - 封面选择：根据 `cover_strategy` 从 clip 中均匀采样最多 30 帧，评分选出最佳封面
 - 生成缩略图（保存到 `covers/clip_xxx.jpg`）
 - 写 `clip_xxx_meta.json`
@@ -241,6 +264,34 @@ docker-compose.yml 中 worker 启动参数：
 5. 整个过程单条 FFmpeg 命令，无中间临时文件
 
 
+## BGM 自动选曲（bgm_selector.py）
+
+基于本地预分类音乐库自动为每个 clip 选择背景音乐。
+
+### 音乐库结构
+
+- 索引文件：`backend/assets/bgm/bgm_library.json`
+- 音频文件：`backend/assets/bgm/*.mp3`
+- 前端浏览页：`/music` 路由 → `MusicPage.tsx`
+
+### 选曲逻辑
+
+1. 从 segment 的 `product_type` 或 `product_name` 推断商品类型
+2. 从 `category_defaults` 映射获取首选 mood 列表
+3. 在音乐库中筛选 category 或 mood 匹配的曲目
+4. 跨 clip 去重（`used_bgm_ids`），优先选未使用的
+5. 无匹配时 fallback 到全曲库；曲库为空时 fallback 到 `default_bgm.mp3`
+
+### 音乐库 API
+
+- `GET /api/music/library` — 返回曲目列表（id, title, mood, genre, tempo, energy, categories, duration_s）
+- `GET /api/music/{track_id}/audio` — 返回 MP3 音频文件
+
+### 扩充音乐库
+
+将 MP3 文件放入 `backend/assets/bgm/`，在 `bgm_library.json` 的 `tracks` 数组中追加条目即可。
+
+
 ## 封面选择策略（cover_selector.py）
 
 从 clip 中均匀采样最多 30 帧进行评分，选最佳帧作为缩略图。
@@ -301,6 +352,7 @@ docker-compose.yml 中 worker 启动参数：
 - `backend/app/api/upload.py`
 - `backend/app/api/tasks.py`
 - `backend/app/api/clips.py`
+- `backend/app/api/clips.py`
 - `backend/app/api/settings.py`
 - `backend/app/tasks/pipeline.py`
 - `backend/app/services/dashscope_asr_client.py`
@@ -318,12 +370,17 @@ docker-compose.yml 中 worker 启动参数：
 - `backend/app/services/resource_detector.py`
 - `backend/app/services/text_segment_analyzer.py`
 - `backend/app/services/segment_fusion.py`
+- `backend/app/services/boundary_snapper.py`
+- `backend/app/services/bgm_selector.py`
+- `backend/app/api/music.py`
 
 ### 前端
 
 - `frontend/src/App.tsx`
 - `frontend/src/components/UploadZone.tsx`
 - `frontend/src/components/SettingsPage.tsx`
+- `frontend/src/components/MusicPage.tsx`
+- `frontend/src/components/HistoryPage.tsx`
 - `frontend/src/components/ToastViewport.tsx`
 - `frontend/src/hooks/useWebSocket.ts`
 - `frontend/src/stores/settingsStore.ts`
@@ -451,3 +508,7 @@ VC 贵 3 倍但效果最好，适合对字幕质量有要求的场景。
 - `analyze_frame()` 返回值已扩展：`{mask, items, hsv_hist, upper_hsv_hist, lower_hsv_hist, orb_descriptors}`
 - 融合修复：fused candidates 带 `region_start_time` 字段，`fused_to_segments()` 优先用 LLM 区间起点避免片段被截短
 - 前端设置页面：ASR/LLM 关闭时折叠子配置，VLM 导出模式非 smart 时折叠 VLM 子配置
+- BGM 自动选曲基于本地音乐库（`backend/assets/bgm/`），商品类型→mood 映射在 `bgm_library.json` 的 `category_defaults` 中配置
+- 音乐库扩充：MP3 放入 `backend/assets/bgm/`，在 `bgm_library.json` 的 `tracks` 追加条目，Docker 重建后生效
+- FFmpeg `amix` 滤镜已加 `normalize=0:dropout_transition=0`，修复语音被自动降低音量的 bug
+- `bgm_enabled=False` 时跳过 BGM 输入和 amix 混音，FFmpeg 命令不含 bgm 相关参数

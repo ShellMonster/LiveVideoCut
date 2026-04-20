@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.api import clips, health, settings, tasks, upload
+from app.api import clips, health, music, settings, tasks, upload
 
 app = FastAPI(
     title="Live Stream AI Clipper",
@@ -12,3 +12,4 @@ app.include_router(settings.router)
 app.include_router(upload.router)
 app.include_router(tasks.router)
 app.include_router(clips.router)
+app.include_router(music.router)

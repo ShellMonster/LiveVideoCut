@@ -55,6 +55,12 @@ services:
       - VLM_API_KEY=${VLM_API_KEY:-}
       - VLM_BASE_URL=${VLM_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       - VLM_MODEL=${VLM_MODEL:-qwen-vl-plus}
+      - VOLCENGINE_ASR_API_KEY=${VOLCENGINE_ASR_API_KEY:-}
+      - TOS_AK=${TOS_AK:-}
+      - TOS_SK=${TOS_SK:-}
+      - TOS_BUCKET=${TOS_BUCKET:-mp3-srt}
+      - TOS_REGION=${TOS_REGION:-cn-beijing}
+      - TOS_ENDPOINT=${TOS_ENDPOINT:-tos-cn-beijing.volces.com}
       - HF_ENDPOINT=${HF_ENDPOINT:-https://hf-mirror.com}
       - APT_MIRROR=${APT_MIRROR:-}
     healthcheck:

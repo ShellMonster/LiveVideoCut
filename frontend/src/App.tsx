@@ -1,16 +1,18 @@
 import { useState } from "react";
-import { Settings as SettingsIcon } from "lucide-react";
+import { Music, Settings as SettingsIcon, Clock } from "lucide-react";
 import { ErrorCard } from "@/components/ErrorCard";
 import { ProgressBar } from "@/components/ProgressBar";
 import { ResultGrid } from "@/components/ResultGrid";
+import { MusicPage } from "@/components/MusicPage";
 import { SettingsPage } from "@/components/SettingsPage";
+import { HistoryPage } from "@/components/HistoryPage";
 import { ToastViewport } from "@/components/ToastViewport";
 import { UploadZone } from "@/components/UploadZone";
 import { useTaskProgress } from "@/hooks/useWebSocket";
 import { useTaskStore } from "@/stores/taskStore";
 
 function App() {
-  const [page, setPage] = useState<"main" | "settings">("main");
+  const [page, setPage] = useState<"main" | "settings" | "music" | "history">("main");
   const { taskId, status, error, currentState, clips } = useTaskStore();
   const { connected } = useTaskProgress(taskId);
 
@@ -20,17 +22,41 @@ function App() {
     return <SettingsPage onBack={() => setPage("main")} />;
   }
 
+  if (page === "music") {
+    return <MusicPage onBack={() => setPage("main")} />;
+  }
+
+  if (page === "history") {
+    return <HistoryPage onBack={() => setPage("main")} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <ToastViewport />
 
-      <button
-        className="fixed right-4 top-4 rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-        onClick={() => setPage("settings")}
-        aria-label="设置"
-      >
-        <SettingsIcon size={20} />
-      </button>
+      <div className="fixed right-4 top-4 flex gap-2">
+        <button
+          className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+          onClick={() => setPage("music")}
+          aria-label="音乐库"
+        >
+          <Music size={20} />
+        </button>
+        <button
+          className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+          onClick={() => setPage("history")}
+          aria-label="历史记录"
+        >
+          <Clock size={20} />
+        </button>
+        <button
+          className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+          onClick={() => setPage("settings")}
+          aria-label="设置"
+        >
+          <SettingsIcon size={20} />
+        </button>
+      </div>
 
       <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-8 px-4 py-10 sm:px-6 lg:px-8">
         <section className="space-y-3">

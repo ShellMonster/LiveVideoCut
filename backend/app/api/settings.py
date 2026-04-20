@@ -172,6 +172,12 @@ class SettingsRequest(BaseModel):
     llm_api_base: str = ""
     llm_model: str = ""
     segment_granularity: SegmentGranularity = SegmentGranularity.single_item
+    boundary_snap: bool = True  # Snap clip boundaries to sentence edges
+
+    # --- BGM 设置 ---
+    bgm_enabled: bool = True
+    bgm_volume: float = Field(default=0.25, ge=0.0, le=1.0)
+    original_volume: float = Field(default=1.0, ge=0.0, le=2.0)
 
     @model_validator(mode="after")
     def apply_provider_defaults_and_validate(self):

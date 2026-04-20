@@ -30,6 +30,7 @@ from app.services.cover_selector import select_cover_frame
 from app.services.resource_detector import calculate_parallelism
 from app.services.text_segment_analyzer import TextSegmentAnalyzer
 from app.services.segment_fusion import fuse_candidates, fused_to_segments
+from app.services.bgm_selector import BGMSelector, DEFAULT_BGM
 
 logger = logging.getLogger(__name__)
 
@@ -542,6 +543,14 @@ def enrich_segments(
             except Exception as e:
                 logger.warning("LLM text analysis failed, continuing without it: %s", str(e))
 
+        # Snap segment boundaries to transcript sentence boundaries
+        if transcript and getattr(settings, "boundary_snap", True):
+            from app.services.boundary_snapper import snap_to_sentence_boundaries
+            segments = snap_to_sentence_boundaries(
+                segments, transcript,
+                min_duration=float(settings.min_segment_duration_seconds),
+            )
+
         matcher = ProductNameMatcher()
         enriched = matcher.match(segments, transcript)
 
@@ -602,7 +611,6 @@ def _get_video_duration(video_path: str) -> float:
 
 
 ASSETS_DIR = Path(__file__).resolve().parent.parent.parent / "assets"
-DEFAULT_BGM = str(ASSETS_DIR / "default_bgm.mp3")
 DEFAULT_WATERMARK = str(ASSETS_DIR / "watermark.png")
 
 
@@ -666,8 +674,8 @@ def _collect_clip_subtitle_segments(
         relative_start = max(transcript_start, clip_start) - clip_start
         relative_end = min(transcript_end, clip_end) - clip_start
 
-        subtitle_segment = {
-            "text": transcript_segment.get("text", ""),
+        subtitle_segment: dict[str, Any] = {
+            "text": "",
             "start_time": relative_start,
             "end_time": relative_end,
         }
@@ -678,17 +686,31 @@ def _collect_clip_subtitle_segments(
             word_end = float(word.get("end_time", transcript_end))
             if word_start > clip_end or word_end < clip_start:
                 continue
+            rel_start = max(word_start, clip_start) - clip_start
+            rel_end = min(word_end, clip_end) - clip_start
+            if rel_end <= rel_start:
+                continue
             words.append(
                 {
                     "text": word.get("text", ""),
-                    "start_time": max(word_start, clip_start) - clip_start,
-                    "end_time": min(word_end, clip_end) - clip_start,
+                    "start_time": rel_start,
+                    "end_time": rel_end,
                     "probability": word.get("probability", 0.0),
                 }
             )
 
+        subtitle_segment["text"] = (
+            "".join(w["text"] for w in words) if words else transcript_segment.get("text", "")
+        )
+
         if words:
             subtitle_segment["words"] = words
+
+        # 过滤零时长幽灵片段：边界对齐可能产生 start==end 的单字残留，
+        # 会在 ASS Layer 0 产生与下一段重叠的 dialogue，导致字幕和跳动分两行
+        seg_duration = subtitle_segment["end_time"] - subtitle_segment["start_time"]
+        if seg_duration < 0.05 and not words:
+            continue
 
         subtitle_segments.append(subtitle_segment)
 
@@ -704,6 +726,8 @@ def _process_single_clip(
     covers_dir: Path,
     transcript: list[dict[str, Any]],
     settings: SettingsRequest,
+    bgm_selector: BGMSelector | None = None,
+    used_bgm_ids: set[str] | None = None,
 ) -> dict[str, Any] | None:
     """Process a single clip — designed for ProcessPoolExecutor (module-level for pickling)."""
     try:
@@ -777,11 +801,15 @@ def _process_single_clip(
         )
 
         ffmpeg = FFmpegBuilder()
+        if bgm_selector and getattr(settings, "bgm_enabled", True):
+            selected_bgm = bgm_selector.select_for_segment(seg, used_bgm_ids)
+        else:
+            selected_bgm = DEFAULT_BGM
         result = ffmpeg.process_clip(
             input_path=str(video_path),
             segment=seg,
             srt_path=clip_srt_path,
-            bgm_path=DEFAULT_BGM,
+            bgm_path=selected_bgm,
             watermark_path=DEFAULT_WATERMARK,
             output_path=output_path,
             thumbnail_path=thumbnail_path,
@@ -793,6 +821,9 @@ def _process_single_clip(
             cover_timestamp=cover_ts,
             video_speed=video_speed,
             export_resolution=export_resolution,
+            bgm_enabled=getattr(settings, "bgm_enabled", True),
+            bgm_volume=getattr(settings, "bgm_volume", 0.25),
+            original_volume=getattr(settings, "original_volume", 1.0),
         )
 
         meta_path = clips_dir / f"{safe_label}_meta.json"
@@ -861,6 +892,9 @@ def process_clips(self, task_id: str, task_dir: str) -> dict[str, Any]:
         parallelism = calculate_parallelism()
         clip_workers = min(parallelism["clip_workers"], len(segments))
 
+        bgm_selector = BGMSelector(ASSETS_DIR / "bgm" / "bgm_library.json")
+        used_bgm_ids: set[str] = set()
+
         processed: list[dict[str, Any]] = []
         if clip_workers > 1 and len(segments) > 1:
             logger.info("Processing %d clips with %d workers", len(segments), clip_workers)
@@ -870,7 +904,7 @@ def process_clips(self, task_id: str, task_dir: str) -> dict[str, Any]:
                     future = executor.submit(
                         _process_single_clip,
                         idx, seg, video_path, clips_dir, srt_dir, covers_dir,
-                        transcript, settings,
+                        transcript, settings, bgm_selector, used_bgm_ids,
                     )
                     futures[future] = idx
 
@@ -890,7 +924,7 @@ def process_clips(self, task_id: str, task_dir: str) -> dict[str, Any]:
             for idx, seg in enumerate(segments):
                 result = _process_single_clip(
                     idx, seg, video_path, clips_dir, srt_dir, covers_dir,
-                    transcript, settings,
+                    transcript, settings, bgm_selector, used_bgm_ids,
                 )
                 if result is not None:
                     processed.append(result)

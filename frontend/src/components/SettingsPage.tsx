@@ -82,7 +82,8 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     subtitleMode,
     subtitlePosition,
     subtitleTemplate,
-    funasrMode,
+    boundarySnap,
+    customPositionY,
     asrEnabled,
     asrProvider,
     fillerFilterMode,
@@ -101,6 +102,9 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     llmType,
     exportResolution,
     segmentGranularity,
+    bgmEnabled,
+    bgmVolume,
+    originalVolume,
     setSettings,
   } = useSettingsStore();
 
@@ -125,7 +129,8 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     subtitleMode,
     subtitlePosition,
     subtitleTemplate,
-    funasrMode,
+    boundarySnap,
+    customPositionY,
     asrEnabled,
     asrProvider,
     fillerFilterMode,
@@ -144,6 +149,9 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     llmType,
     exportResolution,
     segmentGranularity,
+    bgmEnabled,
+    bgmVolume,
+    originalVolume,
   });
 
   const showToast = useToastStore((state) => state.showToast);
@@ -371,6 +379,24 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 <option value="original">保持原始</option>
               </select>
             </div>
+
+            <div>
+              <label htmlFor="boundary-snap" className="mb-1 block text-sm font-medium text-slate-700">
+                句边界对齐
+              </label>
+              <select
+                id="boundary-snap"
+                className={inputClassName}
+                value={draft.boundarySnap ? "true" : "false"}
+                onChange={(e) => setDraft({ ...draft, boundarySnap: e.target.value === "true" })}
+              >
+                <option value="true">开启（默认）</option>
+                <option value="false">关闭</option>
+              </select>
+              <p className="mt-1 text-xs text-slate-500">
+                将片段起止时间对齐到语音句子边界，避免截断半句话
+              </p>
+            </div>
           </div>
         </Section>
 
@@ -509,23 +535,6 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 onChange={(e) => updateNumber("maxCandidateCount", e.target.value)}
               />
             </div>
-
-            <div>
-              <label htmlFor="funasr-mode" className="mb-1 block text-sm font-medium text-slate-700">
-                FunASR 模式
-              </label>
-              <select
-                id="funasr-mode"
-                className={inputClassName}
-                value={draft.funasrMode}
-                onChange={(e) =>
-                  setDraft({ ...draft, funasrMode: e.target.value as "local" | "remote" })
-                }
-              >
-                <option value="local">本地 Docker</option>
-                <option value="remote">远程 API</option>
-              </select>
-            </div>
             </>}
 
             <div>
@@ -617,23 +626,6 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 value={draft.maxCandidateCount}
                 onChange={(e) => updateNumber("maxCandidateCount", e.target.value)}
               />
-            </div>
-
-            <div>
-              <label htmlFor="funasr-mode" className="mb-1 block text-sm font-medium text-slate-700">
-                FunASR 模式
-              </label>
-              <select
-                id="funasr-mode"
-                className={inputClassName}
-                value={draft.funasrMode}
-                onChange={(e) =>
-                  setDraft({ ...draft, funasrMode: e.target.value as "local" | "remote" })
-                }
-              >
-                <option value="local">本地 Docker</option>
-                <option value="remote">远程 API</option>
-              </select>
             </div>
           </div>
         </Section>
@@ -890,6 +882,24 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
               </select>
             </div>
 
+            {draft.subtitlePosition === "custom" && (
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  自定义 Y 位置 (0-100)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={1}
+                  className={inputClassName}
+                  value={draft.customPositionY ?? 80}
+                  onChange={(e) => setDraft({ ...draft, customPositionY: Number(e.target.value) })}
+                />
+                <p className="mt-1 text-xs text-slate-500">0=顶部, 100=底部, 默认80</p>
+              </div>
+            )}
+
             <div>
               <label htmlFor="subtitle-template" className="mb-1 block text-sm font-medium text-slate-700">
                 字幕模板
@@ -908,6 +918,64 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 <option value="karaoke">卡拉 OK</option>
               </select>
             </div>
+          </div>
+        </Section>
+
+        <Section
+          title="BGM 设置"
+          description="控制导出视频的背景音乐。关闭后只保留原声。"
+        >
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label htmlFor="bgm-enabled" className="mb-1 block text-sm font-medium text-slate-700">
+                BGM 开关
+              </label>
+              <select
+                id="bgm-enabled"
+                className={inputClassName}
+                value={draft.bgmEnabled ? "true" : "false"}
+                onChange={(e) => setDraft({ ...draft, bgmEnabled: e.target.value === "true" })}
+              >
+                <option value="true">开启（默认）</option>
+                <option value="false">关闭</option>
+              </select>
+            </div>
+
+            {draft.bgmEnabled && (
+              <>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">
+                    BGM 音量
+                  </label>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    className="w-full"
+                    value={draft.bgmVolume}
+                    onChange={(e) => setDraft({ ...draft, bgmVolume: parseFloat(e.target.value) })}
+                  />
+                  <p className="mt-1 text-xs text-slate-500">{Math.round(draft.bgmVolume * 100)}%</p>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">
+                    原声音量
+                  </label>
+                  <input
+                    type="range"
+                    min={0}
+                    max={2}
+                    step={0.05}
+                    className="w-full"
+                    value={draft.originalVolume}
+                    onChange={(e) => setDraft({ ...draft, originalVolume: parseFloat(e.target.value) })}
+                  />
+                  <p className="mt-1 text-xs text-slate-500">{Math.round(draft.originalVolume * 100)}%</p>
+                </div>
+              </>
+            )}
           </div>
         </Section>
 
