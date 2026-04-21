@@ -3,6 +3,9 @@
 Strategies:
 - content_first (default): prefers frames with clear clothing/product items
 - person_first: prefers frames with visible, centered faces
+
+Both strategies penalize frames with occluders (cell phone, laptop, etc.)
+detected by a COCO YOLOv8n model.
 """
 
 import logging
@@ -18,6 +21,20 @@ logger = logging.getLogger(__name__)
 
 _segmenter_instance = None
 _face_detection_instance = None
+_coco_yolo_session = None
+_coco_yolo_available: bool | None = None
+
+# COCO 80-class IDs for objects that commonly occlude the presenter
+OCCLUDER_CLASS_IDS = {
+    67,  # cell phone
+    63,  # laptop
+    66,  # remote
+    73,  # book
+    74,  # clock
+    75,  # vase
+}
+
+COCO_YOLO_MODEL_PATH = "/app/assets/models/yolov8n.onnx"
 
 
 def _get_segmenter():
@@ -36,6 +53,32 @@ def _get_face_detection():
             model_selection=1,
         )
     return _face_detection_instance
+
+
+def _get_coco_yolo():
+    """Lazy-load COCO YOLOv8n ONNX session for occlusion detection."""
+    global _coco_yolo_session, _coco_yolo_available
+    if _coco_yolo_available is not None:
+        return _coco_yolo_session if _coco_yolo_available else None
+
+    model_path = Path(COCO_YOLO_MODEL_PATH)
+    if not model_path.exists():
+        logger.debug("COCO YOLO model not found at %s, skipping occlusion detection", COCO_YOLO_MODEL_PATH)
+        _coco_yolo_available = False
+        return None
+
+    try:
+        import onnxruntime as ort
+        _coco_yolo_session = ort.InferenceSession(
+            str(model_path),
+            providers=["CPUExecutionProvider"],
+        )
+        _coco_yolo_available = True
+        logger.info("COCO YOLOv8n occlusion model loaded from %s", COCO_YOLO_MODEL_PATH)
+    except Exception as exc:
+        logger.warning("COCO YOLO ONNX session failed to load: %s", exc)
+        _coco_yolo_available = False
+    return _coco_yolo_session if _coco_yolo_available else None
 
 
 def _sample_frames(
@@ -95,6 +138,98 @@ def _sample_frames(
         pass
 
     return frames
+
+
+def _detect_occluders(
+    frame_bgr: np.ndarray,
+    clothing_bboxes: list[list[float]] | None = None,
+) -> bool:
+    """Return True if an occluder overlaps with clothing regions."""
+    session = _get_coco_yolo()
+    if session is None:
+        return False
+
+    orig_h, orig_w = frame_bgr.shape[:2]
+    img_resized = cv2.resize(frame_bgr, (640, 640))
+    img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
+    img_input = img_rgb.astype(np.float32) / 255.0
+    img_input = img_input.transpose(2, 0, 1)[np.newaxis, ...]
+
+    input_name = session.get_inputs()[0].name
+    outputs = session.run(None, {input_name: img_input})
+
+    # COCO YOLO output: [1, 84, 8400] → transpose to [8400, 84]
+    predictions = np.array(outputs[0])[0].T
+    boxes_cxcywh = predictions[:, :4]
+    class_scores = predictions[:, 4:]  # 80 class scores
+
+    best_class_ids = class_scores.argmax(axis=1)
+    confidences = class_scores.max(axis=1)
+
+    keep = confidences > 0.3
+    if not np.any(keep):
+        return False
+
+    boxes_filtered = boxes_cxcywh[keep]
+    classes_filtered = best_class_ids[keep]
+    confs_filtered = confidences[keep]
+
+    # Convert cx,cy,w,h → x1,y1,x2,y2 in 640x640 space, then scale
+    boxes_xyxy = np.zeros_like(boxes_filtered)
+    boxes_xyxy[:, 0] = boxes_filtered[:, 0] - boxes_filtered[:, 2] / 2
+    boxes_xyxy[:, 1] = boxes_filtered[:, 1] - boxes_filtered[:, 3] / 2
+    boxes_xyxy[:, 2] = boxes_filtered[:, 0] + boxes_filtered[:, 2] / 2
+    boxes_xyxy[:, 3] = boxes_filtered[:, 1] + boxes_filtered[:, 3] / 2
+
+    scale_x = orig_w / 640.0
+    scale_y = orig_h / 640.0
+    boxes_xyxy[:, 0] *= scale_x
+    boxes_xyxy[:, 2] *= scale_x
+    boxes_xyxy[:, 1] *= scale_y
+    boxes_xyxy[:, 3] *= scale_y
+
+    # NMS
+    indices = cv2.dnn.NMSBoxes(
+        boxes_xyxy.tolist(),
+        confs_filtered.tolist(),
+        score_threshold=0.3,
+        nms_threshold=0.45,
+    )
+    if len(indices) == 0:
+        return False
+    indices = indices.flatten() if isinstance(indices, np.ndarray) else np.array(indices).flatten()
+
+    occluder_boxes = []
+    for idx in indices:
+        cls_id = int(classes_filtered[idx])
+        if cls_id in OCCLUDER_CLASS_IDS:
+            occluder_boxes.append(boxes_xyxy[idx])
+
+    if not occluder_boxes:
+        return False
+
+    # No clothing bboxes → occluder in frame is enough to penalize
+    if not clothing_bboxes:
+        return True
+
+    # Check overlap: occluder bbox vs any clothing bbox
+    def _iou(box_a, box_b):
+        x1 = max(box_a[0], box_b[0])
+        y1 = max(box_a[1], box_b[1])
+        x2 = min(box_a[2], box_b[2])
+        y2 = min(box_a[3], box_b[3])
+        inter = max(0, x2 - x1) * max(0, y2 - y1)
+        area_a = max(0, box_a[2] - box_a[0]) * max(0, box_a[3] - box_a[1])
+        if area_a <= 0:
+            return 0.0
+        return inter / area_a
+
+    for occ in occluder_boxes:
+        for cloth in clothing_bboxes:
+            if _iou(occ.tolist(), cloth) > 0.3:
+                return True
+
+    return False
 
 
 def _score_quality(frame_bgr: np.ndarray) -> float:
@@ -159,33 +294,37 @@ def _score_person_first(frame_bgr: np.ndarray) -> float:
     return best_score
 
 
-def _score_content_first(frame_bgr: np.ndarray) -> float:
-    """Score frame for content-first strategy using YOLO clothing detection."""
+def _score_content_first(
+    frame_bgr: np.ndarray,
+) -> tuple[float, list[list[float]]]:
+    """Score frame for content-first strategy using YOLO clothing detection.
+
+    Returns (score, clothing_bboxes) so callers can reuse the bboxes
+    for occlusion checking without re-running YOLO.
+    """
     segmenter = _get_segmenter()
     rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
     items = segmenter.detect_clothing_items(rgb)
 
     if not items:
-        # Fallback: use center frame quality
-        return 0.0
+        return 0.0, []
 
     h, w = frame_bgr.shape[:2]
     frame_area = float(h * w)
     diagonal = float(np.sqrt(h * h + w * w))
 
-    # Rule-of-thirds reference points
     third_points = [(w / 3, h / 3), (2 * w / 3, 2 * h / 3)]
 
     best_score = 0.0
+    clothing_bboxes: list[list[float]] = []
     for item in items:
         bbox = item["bbox"]
+        clothing_bboxes.append(bbox)
         x1, y1, x2, y2 = bbox
         bbox_area = max((x2 - x1), 0) * max((y2 - y1), 0)
         area_ratio = bbox_area / frame_area if frame_area > 0 else 0.0
-        # Cap at 0.5 — items filling too much of the frame are too close
         capped_area = min(area_ratio, 0.5) / 0.5
 
-        # Distance to nearest rule-of-thirds point
         item_cx = (x1 + x2) / 2.0
         item_cy = (y1 + y2) / 2.0
         min_dist = min(
@@ -197,7 +336,6 @@ def _score_content_first(frame_bgr: np.ndarray) -> float:
 
         confidence = float(item["confidence"])
 
-        # Local sharpness in the bbox region
         gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
         ix1 = max(0, int(x1))
         iy1 = max(0, int(y1))
@@ -217,7 +355,7 @@ def _score_content_first(frame_bgr: np.ndarray) -> float:
         )
         best_score = max(best_score, score)
 
-    return best_score
+    return best_score, clothing_bboxes
 
 
 def select_cover_frame(
@@ -247,14 +385,18 @@ def select_cover_frame(
 
             if strategy == "person_first":
                 semantic = _score_person_first(bgr)
+                clothing_bboxes: list[list[float]] = []
             else:
-                semantic = _score_content_first(bgr)
+                semantic, clothing_bboxes = _score_content_first(bgr)
 
-            # If no semantic signal, give a neutral baseline so quality still matters
             if semantic <= 0.0:
                 semantic = 0.3
 
-            final_score = semantic * quality
+            occlusion_penalty = 1.0
+            if _detect_occluders(bgr, clothing_bboxes):
+                occlusion_penalty = 0.1
+
+            final_score = semantic * quality * occlusion_penalty
 
             if final_score > best_final_score:
                 best_final_score = final_score

@@ -311,12 +311,21 @@ docker-compose.yml 中 worker 启动参数：
 - `content_first`（默认）：商品 bbox 面积比(cap 0.5) 35% + 置信度 25% + 三分法距离 20% + 局部清晰度 20%
 - `person_first`：人脸面积比 40% + 中心距 25% + 人脸置信度 20% + 清晰度 15%
 
-**最终得分** = 语义分 × 质量分。无信号时 fallback 到 clip 中点。
+**最终得分** = 语义分 × 质量分 × 遮挡惩罚。无信号时 fallback 到 clip 中点。
+
+### 遮挡检测
+
+使用第二个 YOLO 模型（COCO YOLOv8n，80类）检测遮挡物：
+- 检测类别：cell phone (67)、laptop (63)、remote (66)、book (73)、clock (74)、vase (75)
+- 检测到遮挡物 bbox 与服装 bbox 重叠 >30% → 遮挡惩罚 = 0.1（大幅降权但不完全排除）
+- 无服装 bbox 时（person_first 策略），只要画面中有遮挡物即触发惩罚
+- 模型懒加载，缺失时自动跳过（不影响现有流程）
 
 ### 依赖模型
 
 - `content_first` 复用已有 YOLO 46类 ONNX（通过 ClothingSegmenter.detect_clothing_items）
 - `person_first` 用 MediaPipe FaceDetection（已有依赖 mediapipe>=0.10.14）
+- **遮挡检测** 用 COCO YOLOv8n ONNX（`backend/assets/models/yolov8n.onnx`，12.3MB，80类）
 
 
 ## 当前字幕链路（非常重要）
@@ -504,8 +513,9 @@ VC 贵 3 倍但效果最好，适合对字幕质量有要求的场景。
 - 换衣检测依赖两个本地模型文件（位于 `backend/assets/models/`）：
   - `selfie_multiclass_256x256.tflite`（MediaPipe，16MB，6类像素分割，class 4 = clothes）
   - `yolov8n-fashionpedia.onnx`（YOLO，12MB，46类服装检测）
+  - `yolov8n.onnx`（COCO YOLOv8n，12MB，80类，仅封面遮挡检测用）
   - Docker 构建时通过 `COPY assets/` 打包进镜像
-  - 模型来源：MediaPipe 从 Google GCS 下载，YOLO 从 HuggingFace `louisJLN/yolo8-fashionpedia` 下载（国内需代理）
+  - 模型来源：MediaPipe 从 Google GCS 下载，Fashionpedia YOLO 从 HuggingFace 下载（国内需代理），COCO YOLO 从 ultralytics 导出
 - `frame_sample_fps` 默认值已改为 `0.5`（float 类型），原来 `2` 导致帧数过多、处理慢且容易 OOM
 - 换衣检测的帧分析会在处理前 resize 到 640px 以降低内存占用
 - 新增依赖 `mediapipe>=0.10.14`（在 requirements.txt 中）

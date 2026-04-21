@@ -129,7 +129,7 @@ graph TD
 - **实时进度** -- WebSocket 推送处理进度，前端实时展示
 - **历史记录** -- 分页列表查看所有历史任务，支持状态筛选、展开查看片段、删除
 - **语气词过滤** -- 三级词表（38词），支持仅过滤字幕或同时裁剪视频片段，默认关闭
-- **智能封面** -- content_first（商品优先）/ person_first（主播优先），30帧评分选最佳
+- **智能封面** -- content_first（商品优先）/ person_first（主播优先），30帧评分选最佳，COCO YOLO 遮挡检测自动排除手机等遮挡帧
 - **视频变速** -- 0.5x~3x 倍速，先烧字幕再变速，默认 1.25x
 - **并发处理** -- cgroup-aware 资源检测，ThreadPoolExecutor 并行处理多 clip，4GB 容器默认 2 workers
 - **BGM 自动选曲** -- 基于本地预分类音乐库，按商品类型自动匹配背景音乐，跨 clip 去重，支持前端音乐库浏览
@@ -228,7 +228,8 @@ ASR 相关配置（火山引擎、DashScope 的 API Key 等）在 **前端设置
 │   │   ├── fonts/                # 字幕字体
 │   │   ├── models/               # 本地模型文件
 │   │   │   ├── selfie_multiclass_256x256.tflite  # MediaPipe 6类像素分割
-│   │   │   └── yolov8n-fashionpedia.onnx          # YOLO 46类服装检测
+│   │   │   ├── yolov8n-fashionpedia.onnx          # YOLO 46类服装检测
+│   │   │   └── yolov8n.onnx                       # COCO YOLO 80类 (封面遮挡检测)
 │   │   ├── default_bgm.mp3       # 默认背景音乐
 │   │   ├── bgm/                  # 音乐库
 │   │   │   ├── bgm_library.json  # 音乐库索引 (mood/category 映射)
