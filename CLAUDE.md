@@ -18,7 +18,7 @@
 - 异步任务：Celery
 - 队列/状态：Redis
 - 视频处理：FFmpeg
-- 换衣检测：ClothingChangeDetector（五信号联合：YOLO 46类检测 + MediaPipe 像素分割 + 全帧 HSV + 分区域 HSV（上身/下身）+ ORB 纹理）
+- 换衣检测：ClothingChangeDetector（五信号联合：YOLO 46类检测 + MediaPipe 像素分割 + 全帧 HSV + 分区域 HSV（上身/下身）+ ORB 纹理），多信号独立 EMA 触发 + 滞后阈值 + 连续帧确认
 - VLM：Qwen / GLM（二选一）
 - ASR：当前支持四个 ASR provider：
   - `dashscope`：DashScope paraformer-v2（阿里云百炼，直接传 MP4，返回逐字时间戳）
@@ -149,6 +149,8 @@
 
 - FFmpeg 抽帧（默认 0.5fps）
 - 用 ClothingChangeDetector（五信号联合：YOLO 品类变化 + MediaPipe 像素分割 + 全帧 HSV + 分区域 HSV（上身/下身）+ ORB 纹理）检测换衣节点
+- 五信号各自独立走 EMA 平滑，任何一个信号的 EMA 低于阈值即可触发换衣检测
+- 写出 `scenes/person_presence.json`（每帧人物出现标记，用于下游空镜过滤）
 - 产出 `candidates.json` 和 `scenes.json`
 
 ### 2) vlm_confirm
@@ -182,7 +184,10 @@
   - 终点对齐到最后一个 `end_time <= segment.end` 的句子
   - 自动裁剪首尾孤立单字（确保时长 ≥ min_duration）
   - snap 后时长不足时回退到原始边界
-- 换衣检测增强：品类变化（YOLO 46类）不再单独触发候选，必须同时有至少一个视觉佐证信号（HSV 下降 / 分区域 HSV 下降 / 纹理变化），过滤主播拿放物品误触
+- 换衣检测增强：
+  - 多信号独立 EMA：全局 HSV、上身 HSV、下身 HSV、ORB 纹理各自独立走 EMA 平滑，任何一个信号的 EMA 低于进入阈值即触发检测，所有信号恢复到退出阈值以上才结束
+  - 纹理信号取反处理：`(1.0 - tex_sim)`，进入阈值 0.6，退出阈值 0.7
+  - 品类变化（YOLO 46类）不再单独触发候选，必须同时有至少一个视觉佐证信号（HSV 下降 / 分区域 HSV 下降 / 纹理变化），过滤主播拿放物品误触
 - 商品名匹配
 - 分段合法性校验
 - 产出 `enriched_segments.json`
@@ -197,6 +202,7 @@
 - BGM 自动选曲（`bgm_selector.py`）：基于商品类型和 mood 从本地音乐库匹配，跨 clip 去重避免重复
 - 封面选择：根据 `cover_strategy` 从 clip 中均匀采样最多 30 帧，评分选出最佳封面
 - 生成缩略图（保存到 `covers/clip_xxx.jpg`）
+- 空镜过滤：读取 `scenes/person_presence.json`，段内人物出现率 < 30% 则丢弃该段；缺文件时不过滤
 - 写 `clip_xxx_meta.json`
 
 **并发处理**：使用 `ThreadPoolExecutor` 并行处理多个 clip，并发数由 `resource_detector.py` 根据容器 cgroup 资源动态计算（4GB 容器默认 2 workers）
@@ -504,6 +510,8 @@ VC 贵 3 倍但效果最好，适合对字幕质量有要求的场景。
 - 换衣检测的帧分析会在处理前 resize 到 640px 以降低内存占用
 - 新增依赖 `mediapipe>=0.10.14`（在 requirements.txt 中）
 - 换衣检测已从三信号升级到五信号：YOLO 品类变化 + MediaPipe 像素分割 + 全帧 HSV + 分区域 HSV（上身/下身，用 YOLO bbox 区分 UPPER_BODY_CLASSES / LOWER_BODY_CLASSES）+ ORB 纹理（上身 bbox 裁剪后提取描述子）
+- 换衣检测 EMA 已升级为多信号独立触发：全局 HSV、上身 HSV、下身 HSV、纹理各自独立走 EMA 平滑，任何一个信号 EMA 低于阈值即可触发，所有信号恢复才结束。`hist_debug.json` 新增 `ema_global`、`ema_upper`、`ema_lower`、`ema_texture` 字段
+- 空镜过滤：`person_presence.json` 由换衣检测写入 `scenes/` 目录，`process_clips` 从 `scenes/person_presence.json` 读取；人物出现率 < 30% 的段被丢弃
 - `hist_debug.json` 新增 `upper_correlations`、`lower_correlations`、`texture_similarities` 字段
 - `analyze_frame()` 返回值已扩展：`{mask, items, hsv_hist, upper_hsv_hist, lower_hsv_hist, orb_descriptors}`
 - 融合修复：fused candidates 带 `region_start_time` 字段，`fused_to_segments()` 优先用 LLM 区间起点避免片段被截短

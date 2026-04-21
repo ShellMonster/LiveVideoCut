@@ -253,9 +253,9 @@ def test_visual_prescreen_uses_task_snapshot_segmentation_controls(
     result = pipeline.visual_prescreen.run(task_id, str(video_path), str(task_dir))
 
     assert result["candidates_count"] == 1
-    assert captured["hist_threshold"] == 0.90
+    assert captured["hist_threshold"] == 0.85
     assert captured["min_scene_gap"] == 7.0
-    assert captured["merge_window"] == 16.0
+    assert captured["merge_window"] == 25.0
     assert captured["frames_count"] == 3
     assert captured["output_dir"] == str(task_dir / "scenes")
     assert captured["video_duration"] == 120.0

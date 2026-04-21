@@ -1,9 +1,19 @@
-"""Clothing change detector — MediaPipe mask + YOLO categories + HSV histogram.
+"""Clothing change detector — five-signal fusion with multi-signal EMA and hysteresis.
 
-Detects "clothing change" moments in livestream videos using three signals:
+Detects "clothing change" moments in livestream videos using five signals:
 1. YOLO fashionpedia category change (different garment types detected)
 2. MediaPipe clothes-mask HSV histogram correlation drop
-3. Fallback to whole-frame HSV if models unavailable
+3. Whole-frame HSV histogram correlation drop
+4. Per-region HSV (upper/lower body) correlation drop
+5. ORB texture similarity drop
+
+Anti-false-positive improvements:
+- Independent EMA smoothing on ALL signals (global HSV, upper HSV, lower HSV, texture)
+- ANY smoothed signal crossing the enter threshold triggers the "changing" state
+- ALL smoothed signals must recover above the exit threshold to return to "stable"
+- Hysteresis threshold: enter at hist_threshold (0.85), exit at exit_threshold (0.90)
+- Consecutive frame confirmation: a change must persist for confirm_frames frames
+- Person presence tracking: writes person_presence.json for downstream use
 
 The public interface is unchanged: detect_from_frames() and
 detect_scenes_from_candidates() have the same signatures and return formats.
@@ -24,19 +34,25 @@ logger = logging.getLogger(__name__)
 class ClothingChangeDetector:
     """Detects clothing changes via combined MediaPipe mask + YOLO + HSV."""
 
-    DEFAULT_HIST_THRESHOLD: float = 0.90
-    DEFAULT_MIN_SCENE_GAP: float = 15.0
-    DEFAULT_MERGE_WINDOW: float = 16.0
+    DEFAULT_HIST_THRESHOLD: float = 0.85
+    DEFAULT_MIN_SCENE_GAP: float = 20.0
+    DEFAULT_MERGE_WINDOW: float = 25.0
 
     def __init__(
         self,
         hist_threshold: float | None = None,
         min_scene_gap: float | None = None,
         merge_window: float | None = None,
+        ema_alpha: float | None = None,
+        exit_threshold: float | None = None,
+        confirm_frames: int = 2,
     ) -> None:
         self.hist_threshold = hist_threshold or self.DEFAULT_HIST_THRESHOLD
         self.min_scene_gap = min_scene_gap or self.DEFAULT_MIN_SCENE_GAP
         self.merge_window = merge_window or self.DEFAULT_MERGE_WINDOW
+        self.ema_alpha = ema_alpha if ema_alpha is not None else 0.3
+        self.exit_threshold = exit_threshold if exit_threshold is not None else 0.90
+        self.confirm_frames = confirm_frames
         self._segmenter: ClothingSegmenter | None = None
 
     def _get_segmenter(self) -> ClothingSegmenter:
@@ -68,6 +84,7 @@ class ClothingChangeDetector:
         lower_hists: list[tuple[np.ndarray, np.ndarray, np.ndarray] | None] = []
         orb_descs: list[np.ndarray | None] = []
         garment_sets: list[set[int]] = []
+        person_present_flags: list[bool] = []
 
         for rec in frame_records:
             try:
@@ -79,6 +96,7 @@ class ClothingChangeDetector:
                 garment_sets.append(
                     ClothingSegmenter.get_main_garment_set(analysis["items"])
                 )
+                person_present_flags.append(len(analysis["items"]) > 0)
                 del analysis
             except Exception as exc:
                 logger.warning("Frame analysis failed for %s: %s", rec["path"], exc)
@@ -93,6 +111,7 @@ class ClothingChangeDetector:
                 lower_hists.append(None)
                 orb_descs.append(None)
                 garment_sets.append(set())
+                person_present_flags.append(False)
 
         # Compare consecutive frames
         correlations: list[float] = []
@@ -120,76 +139,213 @@ class ClothingChangeDetector:
         if not correlations:
             return []
 
-        # Build raw candidate points from combined signal
-        raw_points = []
-        for i in range(len(correlations)):
-            corr = correlations[i]
+        # --- Multi-signal independent EMA smoothing ---
+        TEX_ENTER_THRESHOLD = 0.6   # inverted texture: 1.0 - 0.4
+        TEX_EXIT_THRESHOLD = 0.7    # inverted texture: 1.0 - 0.3
+
+        def _ema(prev: float | None, raw: float | None) -> float | None:
+            if raw is None:
+                return prev
+            if prev is None:
+                return raw
+            return self.ema_alpha * raw + (1 - self.ema_alpha) * prev
+
+        global_ema: list[float] = [correlations[0]]
+        upper_ema: list[float | None] = [upper_correlations[0]]
+        lower_ema: list[float | None] = [lower_correlations[0]]
+        tex_ema: list[float | None] = [
+            (1.0 - texture_similarities[0]) if texture_similarities[0] is not None else None
+        ]
+
+        for i in range(1, len(correlations)):
+            global_ema.append(
+                self.ema_alpha * correlations[i]
+                + (1 - self.ema_alpha) * global_ema[-1]
+            )
+            upper_ema.append(_ema(upper_ema[-1], upper_correlations[i]))
+            lower_ema.append(_ema(lower_ema[-1], lower_correlations[i]))
+            raw_tex = texture_similarities[i]
+            inverted_tex: float | None = (1.0 - raw_tex) if raw_tex is not None else None
+            tex_ema.append(_ema(tex_ema[-1], inverted_tex))
+
+        # --- State machine: ANY triggers enter, ALL must recover for exit ---
+        raw_points: list[dict] = []
+        state = "stable"
+        change_start: int | None = None
+        change_candidates: list[dict] = []
+
+        global_trigger_count = 0
+        upper_trigger_count = 0
+        lower_trigger_count = 0
+        tex_trigger_count = 0
+
+        for i in range(len(global_ema)):
+            g_ema = global_ema[i]
+            u_ema = upper_ema[i]
+            l_ema = lower_ema[i]
+            t_ema = tex_ema[i]
+
+            any_triggered = (
+                g_ema < self.hist_threshold
+                or (u_ema is not None and u_ema < self.hist_threshold)
+                or (l_ema is not None and l_ema < self.hist_threshold)
+                or (t_ema is not None and t_ema < TEX_ENTER_THRESHOLD)
+            )
+
+            all_recovered = (
+                g_ema >= self.exit_threshold
+                and (u_ema is None or u_ema >= self.exit_threshold)
+                and (l_ema is None or l_ema >= self.exit_threshold)
+                and (t_ema is None or t_ema >= TEX_EXIT_THRESHOLD)
+            )
+
             cat_change = category_changes[i]
-            upper_corr = upper_correlations[i]
-            lower_corr = lower_correlations[i]
-            tex_sim = texture_similarities[i]
 
-            # Per-region HSV: if either region changed significantly
+            # Per-signal trigger bookkeeping for the log
+            if g_ema < self.hist_threshold:
+                global_trigger_count += 1
+            if u_ema is not None and u_ema < self.hist_threshold:
+                upper_trigger_count += 1
+            if l_ema is not None and l_ema < self.hist_threshold:
+                lower_trigger_count += 1
+            if t_ema is not None and t_ema < TEX_ENTER_THRESHOLD:
+                tex_trigger_count += 1
+
+            # Compute best (lowest) EMA across available signals for ranking
+            ema_values = [g_ema]
+            if u_ema is not None:
+                ema_values.append(u_ema)
+            if l_ema is not None:
+                ema_values.append(l_ema)
+            if t_ema is not None:
+                ema_values.append(t_ema)
+            best_ema = min(ema_values)
+
+            if state == "stable":
+                if any_triggered:
+                    state = "changing"
+                    change_start = i
+                    change_candidates = [
+                        {
+                            "frame_idx": i + 1,
+                            "timestamp": float(frame_records[i + 1]["timestamp"]),
+                            "correlation": correlations[i],
+                            "best_ema": best_ema,
+                            "category_change": cat_change,
+                        }
+                    ]
+            elif state == "changing":
+                if all_recovered:
+                    assert change_start is not None
+                    duration_frames = i - change_start
+                    if (
+                        duration_frames >= self.confirm_frames
+                        and change_candidates
+                    ):
+                        best = min(
+                            change_candidates, key=lambda p: p["best_ema"]
+                        )
+                        # Recompute region signals at the winning index for scoring
+                        wi = change_candidates.index(best)
+                        bi = change_start + wi
+                        region_change = False
+                        region_min_corr = correlations[bi]
+                        uc = upper_correlations[bi]
+                        if uc is not None and uc < self.hist_threshold:
+                            region_change = True
+                            region_min_corr = min(region_min_corr, uc)
+                        lc = lower_correlations[bi]
+                        if lc is not None and lc < self.hist_threshold:
+                            region_change = True
+                            region_min_corr = min(region_min_corr, lc)
+                        ts = texture_similarities[bi]
+                        tex_change = ts is not None and ts < 0.4
+
+                        best["combined_score"] = self._combined_score_v2(
+                            correlations[bi],
+                            category_changes[bi],
+                            region_change,
+                            region_min_corr,
+                            tex_change,
+                            ts,
+                            True,
+                        )
+                        raw_points.append(best)
+                    state = "stable"
+                    change_start = None
+                    change_candidates = []
+                else:
+                    change_candidates.append(
+                        {
+                            "frame_idx": i + 1,
+                            "timestamp": float(frame_records[i + 1]["timestamp"]),
+                            "correlation": correlations[i],
+                            "best_ema": best_ema,
+                            "category_change": cat_change,
+                        }
+                    )
+
+        if (
+            state == "changing"
+            and change_candidates
+            and len(change_candidates) >= self.confirm_frames
+        ):
+            best = min(change_candidates, key=lambda p: p["best_ema"])
+            # Recompute region signals at the winning index for scoring
+            wi = change_candidates.index(best)
+            bi = (change_start or 0) + wi
             region_change = False
-            region_min_corr = corr
-            if upper_corr is not None and upper_corr < self.hist_threshold:
+            region_min_corr = correlations[bi]
+            uc = upper_correlations[bi]
+            if uc is not None and uc < self.hist_threshold:
                 region_change = True
-                region_min_corr = min(region_min_corr, upper_corr)
-            if lower_corr is not None and lower_corr < self.hist_threshold:
+                region_min_corr = min(region_min_corr, uc)
+            lc = lower_correlations[bi]
+            if lc is not None and lc < self.hist_threshold:
                 region_change = True
-                region_min_corr = min(region_min_corr, lower_corr)
+                region_min_corr = min(region_min_corr, lc)
+            ts = texture_similarities[bi]
+            tex_change = ts is not None and ts < 0.4
 
-            # ORB texture change
-            texture_change = tex_sim is not None and tex_sim < 0.4
-
-            # 是否有视觉佐证（HSV / 分区域HSV / 纹理）
-            has_visual_evidence = (
-                corr < self.hist_threshold or region_change or texture_change
+            best["combined_score"] = self._combined_score_v2(
+                correlations[bi],
+                category_changes[bi],
+                region_change,
+                region_min_corr,
+                tex_change,
+                ts,
+                True,
             )
-
-            combined_score = self._combined_score_v2(
-                corr, cat_change, region_change, region_min_corr,
-                texture_change, tex_sim, has_visual_evidence,
-            )
-
-            # 触发条件：非品类变化信号直接触发；品类变化需视觉佐证
-            # （孤立品类变化通常是主播拿放物品，不应触发候选）
-            if has_visual_evidence or (cat_change and has_visual_evidence):
-                raw_points.append(
-                    {
-                        "frame_idx": i + 1,
-                        "timestamp": float(frame_records[i + 1]["timestamp"]),
-                        "correlation": corr,
-                        "category_change": cat_change,
-                        "combined_score": combined_score,
-                    }
-                )
+            raw_points.append(best)
 
         logger.info(
-            "Combined analysis: %d frames, %d raw signals "
-            "(global HSV=%.2f, upper=%d, lower=%d, ORB=%d, YOLO=%s, MP=%s)",
+            "Multi-signal EMA analysis: %d frames, %d raw signals "
+            "(EMA triggers: global=%d, upper=%d, lower=%d, tex=%d)",
             len(frame_records),
             len(raw_points),
-            self.hist_threshold,
-            sum(1 for c in upper_correlations if c is not None),
-            sum(1 for c in lower_correlations if c is not None),
-            sum(1 for s in texture_similarities if s is not None),
-            segmenter.yolo_available,
-            segmenter.mediapipe_available,
+            global_trigger_count,
+            upper_trigger_count,
+            lower_trigger_count,
+            tex_trigger_count,
         )
+        isolated_count = 0
+        for i in range(len(category_changes)):
+            if not category_changes[i]:
+                continue
+            u = upper_ema[i]
+            l = lower_ema[i]
+            t = tex_ema[i]
+            if (
+                global_ema[i] >= self.hist_threshold
+                and (u is None or u >= self.hist_threshold)
+                and (l is None or l >= self.hist_threshold)
+                and (t is None or t >= TEX_ENTER_THRESHOLD)
+            ):
+                isolated_count += 1
         logger.info(
-            "Category change filter: %d total, %d isolated (no visual evidence) → suppressed",
+            "Category change filter: %d total, %d isolated (no EMA signal) → suppressed",
             sum(category_changes),
-            sum(
-                1 for i in range(len(category_changes))
-                if category_changes[i]
-                and correlations[i] >= self.hist_threshold
-                and not (
-                    (upper_correlations[i] is not None and upper_correlations[i] < self.hist_threshold)
-                    or (lower_correlations[i] is not None and lower_correlations[i] < self.hist_threshold)
-                    or (texture_similarities[i] is not None and texture_similarities[i] < 0.4)
-                )
-            ),
+            isolated_count,
         )
 
         merged = self._merge_events(raw_points)
@@ -219,20 +375,29 @@ class ClothingChangeDetector:
                 "lower_correlations": [c if c is not None else "N/A" for c in lower_correlations],
                 "texture_similarities": [s if s is not None else "N/A" for s in texture_similarities],
                 "category_changes": category_changes,
+                "ema_global": global_ema,
+                "ema_upper": [v if v is not None else None for v in upper_ema],
+                "ema_lower": [v if v is not None else None for v in lower_ema],
+                "ema_texture": [v if v is not None else None for v in tex_ema],
                 "raw_points": [
-                    {k: v for k, v in p.items() if k != "combined_score"}
+                    {k: v for k, v in p.items() if k not in ("combined_score", "best_ema")}
                     for p in raw_points
                 ],
                 "merged": [
-                    {k: v for k, v in m.items() if k != "combined_score"}
+                    {k: v for k, v in m.items() if k not in ("combined_score", "best_ema")}
                     for m in merged
                 ],
                 "candidates": result,
                 "params": {
                     "hist_threshold": self.hist_threshold,
+                    "exit_threshold": self.exit_threshold,
+                    "ema_alpha": self.ema_alpha,
+                    "confirm_frames": self.confirm_frames,
                     "min_scene_gap": self.min_scene_gap,
                     "merge_window": self.merge_window,
                     "orb_texture_threshold": 0.4,
+                    "tex_enter_threshold": TEX_ENTER_THRESHOLD,
+                    "tex_exit_threshold": TEX_EXIT_THRESHOLD,
                 },
                 "models": {
                     "mediapipe_available": segmenter.mediapipe_available,
@@ -241,6 +406,21 @@ class ClothingChangeDetector:
             }
             (out / "hist_debug.json").write_text(
                 json.dumps(debug_data, ensure_ascii=False, indent=2, default=str),
+            )
+
+            person_presence = [
+                {
+                    "timestamp": rec["timestamp"],
+                    "person_present": (
+                        person_present_flags[i]
+                        if i < len(person_present_flags)
+                        else False
+                    ),
+                }
+                for i, rec in enumerate(frame_records)
+            ]
+            (out / "person_presence.json").write_text(
+                json.dumps(person_presence, ensure_ascii=False, indent=2),
             )
 
         return result

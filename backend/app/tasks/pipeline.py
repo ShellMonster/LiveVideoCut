@@ -281,9 +281,9 @@ def visual_prescreen(
         sm.transition("EXTRACTING_FRAMES", "SCENE_DETECTING", step="scene_detecting")
 
         clothing_detector = ClothingChangeDetector(
-            hist_threshold=0.90,
+            hist_threshold=0.85,
             min_scene_gap=float(settings.recall_cooldown_seconds),
-            merge_window=16.0,
+            merge_window=25.0,
         )
         candidates = clothing_detector.detect_from_frames(
             frames,
@@ -886,6 +886,42 @@ def process_clips(self, task_id: str, task_dir: str) -> dict[str, Any]:
             logger.warning("Empty segments for task %s", task_id)
             sm.transition("PROCESSING", "COMPLETED", step="completed")
             return {"clips_count": 0, "output_dir": str(task_path / "clips")}
+
+        # Filter out segments where person is not present (empty screen)
+        # person_presence.json is written to scenes/ subdir by ClothingChangeDetector
+        person_presence_file = task_path / "scenes" / "person_presence.json"
+        if person_presence_file.exists():
+            person_presence = json.loads(person_presence_file.read_text())
+            if person_presence:
+                filtered_segments = []
+                for seg in segments:
+                    seg_start = seg.get("start_time", 0.0)
+                    seg_end = seg.get("end_time", 0.0)
+                    frames_in_seg = [
+                        p for p in person_presence
+                        if seg_start <= p["timestamp"] <= seg_end
+                    ]
+                    if frames_in_seg:
+                        person_ratio = sum(
+                            1 for p in frames_in_seg if p.get("person_present", True)
+                        ) / len(frames_in_seg)
+                    else:
+                        person_ratio = 1.0  # no frame data → keep
+                    if person_ratio < 0.3:
+                        logger.info(
+                            "Skipping segment '%s' (%.1fs-%.1fs): person present in only %.0f%% of frames",
+                            seg.get("product_name", ""),
+                            seg_start, seg_end, person_ratio * 100,
+                        )
+                        continue
+                    filtered_segments.append(seg)
+                skipped = len(segments) - len(filtered_segments)
+                if skipped > 0:
+                    logger.info("Person presence filter: %d/%d segments kept (%d empty-screen segments dropped)",
+                                len(filtered_segments), len(segments), skipped)
+                segments = filtered_segments
+        else:
+            logger.debug("No person_presence.json found, skipping person presence filter")
 
         merge_count = getattr(settings, "merge_count", 1)
         if merge_count > 1:
