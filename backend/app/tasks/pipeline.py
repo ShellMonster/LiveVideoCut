@@ -888,6 +888,11 @@ def process_clips(self, task_id: str, task_dir: str) -> dict[str, Any]:
             return {"clips_count": 0, "output_dir": str(task_path / "clips")}
 
         # Filter out segments where person is not present (empty screen)
+        # Two-layer filter:
+        #   1. Overall person presence ratio must be >= 60%
+        #   2. No person-absent gap >= 8s at segment start
+        PERSON_OVERALL_THRESHOLD = 0.6
+        PERSON_START_GAP_SECONDS = 8.0
         # person_presence.json is written to scenes/ subdir by ClothingChangeDetector
         person_presence_file = task_path / "scenes" / "person_presence.json"
         if person_presence_file.exists():
@@ -907,13 +912,40 @@ def process_clips(self, task_id: str, task_dir: str) -> dict[str, Any]:
                         ) / len(frames_in_seg)
                     else:
                         person_ratio = 1.0  # no frame data → keep
-                    if person_ratio < 0.3:
+
+                    # Layer 1: overall presence threshold
+                    if person_ratio < PERSON_OVERALL_THRESHOLD:
                         logger.info(
-                            "Skipping segment '%s' (%.1fs-%.1fs): person present in only %.0f%% of frames",
+                            "Skipping segment '%s' (%.1fs-%.1fs): person present in only %.0f%% of frames (threshold %.0f%%)",
                             seg.get("product_name", ""),
                             seg_start, seg_end, person_ratio * 100,
+                            PERSON_OVERALL_THRESHOLD * 100,
                         )
                         continue
+
+                    # Layer 2: check for consecutive person-absent gap at segment start
+                    # Find the first frame with person present
+                    first_present_ts = None
+                    for p in frames_in_seg:
+                        if p.get("person_present", False):
+                            first_present_ts = p["timestamp"]
+                            break
+                    if first_present_ts is not None:
+                        start_gap = first_present_ts - seg_start
+                        if start_gap >= PERSON_START_GAP_SECONDS:
+                            logger.info(
+                                "Skipping segment '%s' (%.1fs-%.1fs): no person for first %.1fs (threshold %.1fs)",
+                                seg.get("product_name", ""),
+                                seg_start, seg_end, start_gap,
+                                PERSON_START_GAP_SECONDS,
+                            )
+                            continue
+                    elif not frames_in_seg:
+                        pass  # no frame data → keep (handled above)
+                    else:
+                        # All frames show no person → already caught by layer 1
+                        continue
+
                     filtered_segments.append(seg)
                 skipped = len(segments) - len(filtered_segments)
                 if skipped > 0:

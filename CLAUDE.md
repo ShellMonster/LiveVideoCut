@@ -202,7 +202,7 @@
 - BGM 自动选曲（`bgm_selector.py`）：基于商品类型和 mood 从本地音乐库匹配，跨 clip 去重避免重复
 - 封面选择：根据 `cover_strategy` 从 clip 中均匀采样最多 30 帧，评分选出最佳封面
 - 生成缩略图（保存到 `covers/clip_xxx.jpg`）
-- 空镜过滤：读取 `scenes/person_presence.json`，段内人物出现率 < 30% 则丢弃该段；缺文件时不过滤
+- 空镜过滤：读取 `scenes/person_presence.json`，两层过滤：(1) 段内人物出现率 < 60% 丢弃；(2) 开头连续无人 ≥ 8 秒丢弃；缺文件时不过滤
 - 写 `clip_xxx_meta.json`
 
 **并发处理**：使用 `ThreadPoolExecutor` 并行处理多个 clip，并发数由 `resource_detector.py` 根据容器 cgroup 资源动态计算（4GB 容器默认 2 workers）
@@ -511,7 +511,7 @@ VC 贵 3 倍但效果最好，适合对字幕质量有要求的场景。
 - 新增依赖 `mediapipe>=0.10.14`（在 requirements.txt 中）
 - 换衣检测已从三信号升级到五信号：YOLO 品类变化 + MediaPipe 像素分割 + 全帧 HSV + 分区域 HSV（上身/下身，用 YOLO bbox 区分 UPPER_BODY_CLASSES / LOWER_BODY_CLASSES）+ ORB 纹理（上身 bbox 裁剪后提取描述子）
 - 换衣检测 EMA 已升级为多信号独立触发：全局 HSV、上身 HSV、下身 HSV、纹理各自独立走 EMA 平滑，任何一个信号 EMA 低于阈值即可触发，所有信号恢复才结束。`hist_debug.json` 新增 `ema_global`、`ema_upper`、`ema_lower`、`ema_texture` 字段
-- 空镜过滤：`person_presence.json` 由换衣检测写入 `scenes/` 目录，`process_clips` 从 `scenes/person_presence.json` 读取；人物出现率 < 30% 的段被丢弃
+- 空镜过滤：`person_presence.json` 由换衣检测写入 `scenes/` 目录，`process_clips` 从 `scenes/person_presence.json` 读取；两层过滤：(1) 整体出现率 < 60% 丢弃；(2) 开头连续无人 ≥ 8 秒丢弃
 - `hist_debug.json` 新增 `upper_correlations`、`lower_correlations`、`texture_similarities` 字段
 - `analyze_frame()` 返回值已扩展：`{mask, items, hsv_hist, upper_hsv_hist, lower_hsv_hist, orb_descriptors}`
 - 融合修复：fused candidates 带 `region_start_time` 字段，`fused_to_segments()` 优先用 LLM 区间起点避免片段被截短
