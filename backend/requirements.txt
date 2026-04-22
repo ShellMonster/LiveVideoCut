@@ -18,3 +18,4 @@ tos>=2.7.0
 packaging==25.0
 opencc-python-reimplemented==0.1.7
 mediapipe>=0.10.14
+mutagen>=1.47

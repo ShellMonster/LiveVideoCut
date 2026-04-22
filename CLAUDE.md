@@ -199,7 +199,7 @@
 - 为每个 clip 重新从 `transcript.json` 裁对应字幕
 - 生成 `.srt` 或 `.ass`
 - 调用 FFmpeg 烧录字幕并导出 mp4
-- BGM 自动选曲（`bgm_selector.py`）：基于商品类型和 mood 从本地音乐库匹配，跨 clip 去重避免重复
+- BGM 自动选曲（`bgm_selector.py`）：双库架构（内置+用户上传），基于商品类型和 mood 匹配，用户曲目优先，跨 clip 去重避免重复
 - 封面选择：根据 `cover_strategy` 从 clip 中均匀采样最多 30 帧，评分选出最佳封面
 - 生成缩略图（保存到 `covers/clip_xxx.jpg`）
 - 空镜过滤：读取 `scenes/person_presence.json`，两层过滤：(1) 段内人物出现率 < 60% 丢弃；(2) 开头连续无人 ≥ 8 秒丢弃；缺文件时不过滤
@@ -272,30 +272,47 @@ docker-compose.yml 中 worker 启动参数：
 
 ## BGM 自动选曲（bgm_selector.py）
 
-基于本地预分类音乐库自动为每个 clip 选择背景音乐。
+双库架构：内置曲库（开发者预置）+ 用户曲库（前端上传），用户曲目优先选曲。
 
 ### 音乐库结构
 
-- 索引文件：`backend/assets/bgm/bgm_library.json`
-- 音频文件：`backend/assets/bgm/*.mp3`
-- 前端浏览页：`/music` 路由 → `MusicPage.tsx`
+- **内置曲库**
+  - 索引文件：`backend/assets/bgm/bgm_library.json`
+  - 音频文件：`backend/assets/bgm/*.mp3`
+- **用户曲库**（前端上传）
+  - 索引文件：`uploads/bgm_library/library.json`（Docker volume）
+  - 音频文件：`uploads/bgm_library/user_xxxxxxxx.mp3`
+- 前端浏览/管理页：`/music` 路由 → `MusicPage.tsx`
 
 ### 选曲逻辑
 
-1. 从 segment 的 `product_type` 或 `product_name` 推断商品类型
-2. 从 `category_defaults` 映射获取首选 mood 列表
-3. 在音乐库中筛选 category 或 mood 匹配的曲目
-4. 跨 clip 去重（`used_bgm_ids`），优先选未使用的
-5. 无匹配时 fallback 到全曲库；曲库为空时 fallback 到 `default_bgm.mp3`
+1. `BGMSelector.with_user_library()` 加载内置库后再加载用户库，用户曲目 prepend 到列表（优先选）
+2. 从 segment 的 `product_type` 或 `product_name` 推断商品类型
+3. 从 `category_defaults` 映射获取首选 mood 列表
+4. 在合并曲库中筛选 category 或 mood 匹配的曲目
+5. 跨 clip 去重（`used_bgm_ids`），优先选未使用的
+6. 无匹配时 fallback 到全曲库；曲库为空时 fallback 到 `default_bgm.mp3`
+7. `_resolve_track_path()` 先查用户目录再查内置目录
 
 ### 音乐库 API
 
-- `GET /api/music/library` — 返回曲目列表（id, title, mood, genre, tempo, energy, categories, duration_s）
-- `GET /api/music/{track_id}/audio` — 返回 MP3 音频文件
+- `GET /api/music/library` — 返回合并曲目列表（含 `source: "user" | "built-in"` 标记）
+- `POST /api/music/upload` — 上传 MP3（mutagen 校验 + 提取时长），返回曲目对象并自动弹出标签编辑
+- `PATCH /api/music/{track_id}` — 编辑用户曲目标签（title/mood/categories/tempo/energy/genre）
+- `DELETE /api/music/{track_id}` — 删除用户曲目（含 MP3 文件），仅限用户曲目
+- `GET /api/music/{track_id}/audio` — 返回 MP3 音频文件（用户目录优先，fallback 到内置目录）
 
-### 扩充音乐库
+### 前端音乐库管理
 
-将 MP3 文件放入 `backend/assets/bgm/`，在 `bgm_library.json` 的 `tracks` 数组中追加条目即可。
+- 拖拽上传（.mp3 only, 20MB limit, XHR progress）
+- 上传后自动弹出标签编辑模态框（title, mood×12, categories×10, tempo, energy）
+- 分段列表："我的音乐" + "内置曲目"
+- 来源标记："我的"(蓝) vs "内置"(灰)
+- 编辑/删除按钮（仅用户曲目可操作）
+
+### 扩充内置音乐库
+
+将 MP3 文件放入 `backend/assets/bgm/`，在 `bgm_library.json` 的 `tracks` 数组中追加条目，Docker 重建后生效。
 
 
 ## 封面选择策略（cover_selector.py）
@@ -526,7 +543,9 @@ VC 贵 3 倍但效果最好，适合对字幕质量有要求的场景。
 - `analyze_frame()` 返回值已扩展：`{mask, items, hsv_hist, upper_hsv_hist, lower_hsv_hist, orb_descriptors}`
 - 融合修复：fused candidates 带 `region_start_time` 字段，`fused_to_segments()` 优先用 LLM 区间起点避免片段被截短
 - 前端设置页面：ASR/LLM 关闭时折叠子配置，VLM 导出模式非 smart 时折叠 VLM 子配置
-- BGM 自动选曲基于本地音乐库（`backend/assets/bgm/`），商品类型→mood 映射在 `bgm_library.json` 的 `category_defaults` 中配置
-- 音乐库扩充：MP3 放入 `backend/assets/bgm/`，在 `bgm_library.json` 的 `tracks` 追加条目，Docker 重建后生效
+- BGM 自动选曲基于双库架构（内置 `backend/assets/bgm/` + 用户上传 `uploads/bgm_library/`），用户曲目优先选曲
+- 音乐库管理：前端 `/music` 页面支持拖拽上传 MP3、编辑标签、删除用户曲目；后端 `music.py` 提供 upload/patch/delete/library/audio 五个 API
+- 用户曲目存储：`uploads/bgm_library/user_{uuid}.mp3` + `library.json`（Docker volume 持久化）
+- `BGMSelector.with_user_library()` 加载双库，`_resolve_track_path()` 先查用户目录再查内置目录
 - FFmpeg `amix` 滤镜已加 `normalize=0:dropout_transition=0`，修复语音被自动降低音量的 bug
 - `bgm_enabled=False` 时跳过 BGM 输入和 amix 混音，FFmpeg 命令不含 bgm 相关参数
