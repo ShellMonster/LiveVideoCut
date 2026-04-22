@@ -9,7 +9,8 @@ hallucinated timestamps.
 import json
 import logging
 import time
-from typing import Any, cast
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any
 
 from openai import OpenAI
 
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 MAX_RETRIES = 2
 TIMEOUT_SECONDS = 30
+MAX_CONCURRENT = 3
 
 PROMPT_TEMPLATE = """你是一位直播视频剪辑专家。请审查以下商品讲解片段的起止边界是否合理。
 
@@ -128,6 +130,114 @@ def _parse_llm_response(text: str) -> dict[str, Any] | None:
     return data
 
 
+def _refine_single_segment(
+    idx: int,
+    seg: dict[str, Any],
+    transcript: list[dict[str, Any]],
+    client: OpenAI,
+    llm_model: str,
+    context_window: float,
+    min_duration: float,
+) -> tuple[int, dict[str, Any] | None]:
+    """Refine boundaries for a single segment. Returns (index, adjusted_seg_or_None)."""
+    orig_start = float(seg.get("start_time", 0.0))
+    orig_end = float(seg.get("end_time", 0.0))
+    product_name = seg.get("product_name", "未命名商品") or "未命名商品"
+
+    start_sentences = _extract_sentences_around(transcript, orig_start, context_window)
+    end_sentences = _extract_sentences_around(transcript, orig_end, context_window)
+
+    prompt = PROMPT_TEMPLATE.format(
+        product_name=product_name,
+        start=orig_start,
+        end=orig_end,
+        sentences_around_start=_format_numbered_sentences(start_sentences),
+        sentences_around_end=_format_numbered_sentences(end_sentences),
+    )
+
+    response_text = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            response = client.chat.completions.create(
+                model=llm_model,
+                messages=[{"role": "user", "content": prompt}],
+                timeout=TIMEOUT_SECONDS,
+                response_format={"type": "json_object"},
+            )
+            if not response.choices:
+                logger.warning("LLM returned empty choices for segment %d", idx)
+                break
+            response_text = response.choices[0].message.content or ""
+            break
+        except Exception as e:
+            if attempt < MAX_RETRIES - 1:
+                wait = 2 ** attempt
+                logger.warning(
+                    "Boundary refine segment %d attempt %d/%d failed, retry in %ds: %s",
+                    idx, attempt + 1, MAX_RETRIES, wait, str(e),
+                )
+                time.sleep(wait)
+            else:
+                logger.warning(
+                    "Boundary refine segment %d failed after %d attempts: %s",
+                    idx, MAX_RETRIES, str(e),
+                )
+
+    if not response_text:
+        return idx, None
+
+    parsed = _parse_llm_response(response_text)
+    if not parsed:
+        return idx, None
+
+    adjusted_start = parsed.get("adjusted_start")
+    adjusted_end = parsed.get("adjusted_end")
+    reason = parsed.get("reason", "")
+
+    new_start = orig_start
+    new_end = orig_end
+
+    if adjusted_start is not None:
+        snapped = _snap_to_sentence(adjusted_start, start_sentences, prefer="start")
+        if snapped is not None:
+            new_start = snapped
+        else:
+            logger.warning(
+                "Segment %d: LLM suggested start %.1f but no matching sentence found, keeping original",
+                idx, adjusted_start,
+            )
+
+    if adjusted_end is not None:
+        snapped = _snap_to_sentence(adjusted_end, end_sentences, prefer="end")
+        if snapped is not None:
+            new_end = snapped
+        else:
+            logger.warning(
+                "Segment %d: LLM suggested end %.1f but no matching sentence found, keeping original",
+                idx, adjusted_end,
+            )
+
+    if new_end - new_start < min_duration:
+        logger.info(
+            "Segment %d: refined duration %.1fs < min %.1fs, reverting",
+            idx, new_end - new_start, min_duration,
+        )
+        return idx, None
+
+    result = dict(seg)
+    changed = False
+    if new_start != orig_start:
+        logger.info("Segment %d: start %.1f → %.1f (%s)", idx, orig_start, new_start, reason)
+        result["start_time"] = new_start
+        changed = True
+    if new_end != orig_end:
+        logger.info("Segment %d: end %.1f → %.1f (%s)", idx, orig_end, new_end, reason)
+        result["end_time"] = new_end
+        changed = True
+
+    return idx, result if changed else None
+
+
 def refine_boundaries(
     segments: list[dict[str, Any]],
     transcript: list[dict[str, Any]],
@@ -150,7 +260,7 @@ def refine_boundaries(
         llm_key: LLM API key.
         llm_base: LLM API base URL.
         llm_model: LLM model name.
-        llm_type: "openai" or "gemini".
+        llm_type: "openai" or "gemini" (only openai supported for now).
         context_window: Seconds around each boundary to include as context.
         min_duration: Minimum duration after adjustment.
 
@@ -160,112 +270,36 @@ def refine_boundaries(
     if not segments or not transcript:
         return segments
 
-    client = OpenAI(api_key=llm_key, base_url=llm_base)
+    client = OpenAI(api_key=llm_key, base_url=llm_base if llm_base else None)
+
+    if llm_type != "openai":
+        logger.warning("Boundary refinement only supports openai-compatible APIs, got '%s'", llm_type)
+
     logger.info(
-        "Refining boundaries for %d segments (model=%s, window=%.1fs)",
-        len(segments), llm_model, context_window,
+        "Refining boundaries for %d segments (model=%s, type=%s, window=%.1fs)",
+        len(segments), llm_model, llm_type, context_window,
     )
 
-    for i, seg in enumerate(segments):
-        orig_start = float(seg.get("start_time", 0.0))
-        orig_end = float(seg.get("end_time", 0.0))
-        product_name = seg.get("product_name", "未命名商品") or "未命名商品"
-
-        # Collect context sentences around start and end boundaries
-        start_sentences = _extract_sentences_around(transcript, orig_start, context_window)
-        end_sentences = _extract_sentences_around(transcript, orig_end, context_window)
-
-        prompt = PROMPT_TEMPLATE.format(
-            product_name=product_name,
-            start=orig_start,
-            end=orig_end,
-            sentences_around_start=_format_numbered_sentences(start_sentences),
-            sentences_around_end=_format_numbered_sentences(end_sentences),
+    if len(segments) > 1:
+        with ThreadPoolExecutor(max_workers=min(MAX_CONCURRENT, len(segments))) as pool:
+            futures = {
+                pool.submit(
+                    _refine_single_segment, i, seg, transcript,
+                    client, llm_model, context_window, min_duration,
+                ): i
+                for i, seg in enumerate(segments)
+            }
+            for future in as_completed(futures):
+                idx, adjusted = future.result()
+                if adjusted is not None:
+                    segments[idx] = adjusted
+    else:
+        idx, adjusted = _refine_single_segment(
+            0, segments[0], transcript,
+            client, llm_model, context_window, min_duration,
         )
-
-        # Call LLM with retry
-        response_text = None
-        for attempt in range(MAX_RETRIES):
-            try:
-                response = client.chat.completions.create(
-                    model=llm_model,
-                    messages=[{"role": "user", "content": prompt}],
-                    timeout=TIMEOUT_SECONDS,
-                )
-                response_text = response.choices[0].message.content or ""
-                break
-            except Exception as e:
-                if attempt < MAX_RETRIES - 1:
-                    wait = 2 ** attempt
-                    logger.warning(
-                        "Boundary refine segment %d attempt %d/%d failed, retry in %ds: %s",
-                        i, attempt + 1, MAX_RETRIES, wait, str(e),
-                    )
-                    time.sleep(wait)
-                else:
-                    logger.warning(
-                        "Boundary refine segment %d failed after %d attempts: %s",
-                        i, MAX_RETRIES, str(e),
-                    )
-
-        if not response_text:
-            continue
-
-        parsed = _parse_llm_response(response_text)
-        if not parsed:
-            continue
-
-        adjusted_start = parsed.get("adjusted_start")
-        adjusted_end = parsed.get("adjusted_end")
-        reason = parsed.get("reason", "")
-        confidence = parsed.get("confidence", 0.0)
-
-        new_start = orig_start
-        new_end = orig_end
-
-        # Snap LLM suggestions to actual sentence boundaries
-        if adjusted_start is not None:
-            snapped = _snap_to_sentence(adjusted_start, start_sentences, prefer="start")
-            if snapped is not None:
-                new_start = snapped
-            else:
-                logger.warning(
-                    "Segment %d: LLM suggested start %.1f but no matching sentence found, keeping original",
-                    i, adjusted_start,
-                )
-
-        if adjusted_end is not None:
-            snapped = _snap_to_sentence(adjusted_end, end_sentences, prefer="end")
-            if snapped is not None:
-                new_end = snapped
-            else:
-                logger.warning(
-                    "Segment %d: LLM suggested end %.1f but no matching sentence found, keeping original",
-                    i, adjusted_end,
-                )
-
-        # Validate duration
-        if new_end - new_start < min_duration:
-            logger.info(
-                "Segment %d: refined duration %.1fs < min %.1fs, reverting",
-                i, new_end - new_start, min_duration,
-            )
-            continue
-
-        # Apply changes
-        if new_start != orig_start:
-            logger.info(
-                "Segment %d: start %.1f → %.1f (%s)",
-                i, orig_start, new_start, reason,
-            )
-            seg["start_time"] = new_start
-
-        if new_end != orig_end:
-            logger.info(
-                "Segment %d: end %.1f → %.1f (%s)",
-                i, orig_end, new_end, reason,
-            )
-            seg["end_time"] = new_end
+        if adjusted is not None:
+            segments[0] = adjusted
 
     logger.info("Boundary refinement complete for %d segments", len(segments))
     return segments
