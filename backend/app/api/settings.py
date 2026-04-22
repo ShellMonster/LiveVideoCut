@@ -172,6 +172,7 @@ class SettingsRequest(BaseModel):
     llm_model: str = ""
     segment_granularity: SegmentGranularity = SegmentGranularity.single_item
     boundary_snap: bool = True  # Snap clip boundaries to sentence edges
+    enable_boundary_refinement: bool = False  # LLM reviews and adjusts clip boundaries for narrative completeness
 
     # --- BGM 设置 ---
     bgm_enabled: bool = True

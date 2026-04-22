@@ -571,6 +571,24 @@ def enrich_segments(
                 min_duration=float(settings.min_segment_duration_seconds),
             )
 
+        # LLM boundary refinement (review and adjust boundaries for narrative quality)
+        if transcript and getattr(settings, "enable_boundary_refinement", False):
+            llm_key = settings.llm_api_key or os.getenv("LLM_API_KEY", "")
+            llm_base = settings.llm_api_base or os.getenv("LLM_API_BASE", "")
+            llm_model = settings.llm_model or os.getenv("LLM_MODEL", "")
+            llm_type = str(getattr(settings, "llm_type", "openai"))
+
+            if llm_key:
+                from app.services.boundary_refiner import refine_boundaries
+                segments = refine_boundaries(
+                    segments, transcript,
+                    llm_key=llm_key, llm_base=llm_base, llm_model=llm_model,
+                    llm_type=llm_type,
+                    min_duration=float(settings.min_segment_duration_seconds),
+                )
+            else:
+                logger.warning("LLM boundary refinement enabled but no API key configured, skipping")
+
         matcher = ProductNameMatcher()
         enriched = matcher.match(segments, transcript)
 

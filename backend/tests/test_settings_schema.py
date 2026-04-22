@@ -24,7 +24,7 @@ def test_settings_request_uses_backend_defaults_for_qwen():
     assert settings.review_strictness == "standard"
     assert settings.review_mode == "segment_multiframe"
     assert settings.max_candidate_count == 20
-    assert settings.subtitle_mode == "basic"
+    assert settings.subtitle_mode == "karaoke"
     assert settings.subtitle_position == "bottom"
     assert settings.subtitle_template == "clean"
     assert settings.custom_position_y is None

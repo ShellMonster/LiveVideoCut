@@ -76,6 +76,12 @@
 - 句边界对齐：`boundary_snap`：`true`（默认）/ `false`
   - 将 clip 起止时间对齐到 ASR 句子边界，避免截断半句话
   - 对齐后自动裁剪首尾孤立单字（如"的"、"了"），确保片段时长 ≥ min_duration
+- LLM 边界精修：`enable_boundary_refinement`：`false`（默认）/ `true`
+  - 用 LLM 审查每个片段的起止边界，确保开头完整独立、结尾自然不截断
+  - LLM 返回的调整建议自动 snap 到实际 ASR 句子边界（防时间戳幻觉）
+  - 允许与相邻段重叠几秒（每段独立审查）
+  - 需要开启 LLM 文本分析并配置 LLM API Key
+  - 失败时静默跳过，不阻塞管线
 - BGM 设置：
   - `bgm_enabled`：是否开启背景音乐（默认 `true`）
   - `bgm_volume`：BGM 音量（0-1，默认 0.3）
@@ -184,6 +190,12 @@
   - 终点对齐到最后一个 `end_time <= segment.end` 的句子
   - 自动裁剪首尾孤立单字（确保时长 ≥ min_duration）
   - snap 后时长不足时回退到原始边界
+- LLM 边界精修（`boundary_refiner.py`，默认关闭，需开启 LLM 文本分析）：用 LLM 审查片段起止边界
+  - 提取每个 segment 起止 ±15s 的 ASR 句子作为上下文
+  - LLM 判断开头是否完整独立（避免语气词/残句）、结尾是否自然
+  - 返回的 adjusted_start/end 自动 snap 到最近的真实 ASR 句子边界（10s 容差）
+  - 调整后时长 < min_duration 则回退
+  - 失败时静默跳过（retry 2 次），不阻塞管线
 - 换衣检测增强：
   - 多信号独立 EMA：全局 HSV、上身 HSV、下身 HSV、ORB 纹理各自独立走 EMA 平滑，任何一个信号的 EMA 低于进入阈值即触发检测，所有信号恢复到退出阈值以上才结束
   - 纹理信号取反处理：`(1.0 - tex_sim)`，进入阈值 0.6，退出阈值 0.7
@@ -403,6 +415,7 @@ docker-compose.yml 中 worker 启动参数：
 - `backend/app/services/text_segment_analyzer.py`
 - `backend/app/services/segment_fusion.py`
 - `backend/app/services/boundary_snapper.py`
+- `backend/app/services/boundary_refiner.py`
 - `backend/app/services/bgm_selector.py`
 - `backend/app/api/music.py`
 
