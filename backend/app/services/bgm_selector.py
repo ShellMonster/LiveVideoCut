@@ -6,6 +6,8 @@ logger = logging.getLogger(__name__)
 
 ASSETS_DIR = Path(__file__).resolve().parent.parent.parent / "assets"
 DEFAULT_BGM = str(ASSETS_DIR / "default_bgm.mp3")
+USER_BGM_DIR = Path("/app/uploads/bgm_library")
+USER_LIBRARY_PATH = USER_BGM_DIR / "library.json"
 
 
 class BGMSelector:
@@ -14,7 +16,21 @@ class BGMSelector:
         self._bgm_dir = self._library_path.parent
         self._tracks: list[dict] = []
         self._category_defaults: dict[str, list[str]] = {}
+        self._user_dir: Path | None = None
         self._load()
+
+    @classmethod
+    def with_user_library(cls, library_path: str | Path) -> "BGMSelector":
+        selector = cls(library_path)
+        selector._user_dir = USER_BGM_DIR
+        if USER_LIBRARY_PATH.exists():
+            try:
+                user_data = json.loads(USER_LIBRARY_PATH.read_text())
+                user_tracks = user_data if isinstance(user_data, list) else user_data.get("tracks", [])
+                selector._tracks = user_tracks + selector._tracks
+            except Exception:
+                logger.exception("Failed to load user BGM library")
+        return selector
 
     def _load(self) -> None:
         if not self._library_path.exists():
@@ -26,6 +42,17 @@ class BGMSelector:
             self._category_defaults = data.get("category_defaults", {})
         except Exception:
             logger.exception("Failed to load BGM library: %s", self._library_path)
+
+    def _resolve_track_path(self, track: dict) -> str | None:
+        filename = track.get("file", "")
+        if self._user_dir:
+            user_path = self._user_dir / filename
+            if user_path.exists():
+                return str(user_path)
+        builtin_path = self._bgm_dir / filename
+        if builtin_path.exists():
+            return str(builtin_path)
+        return None
 
     def select_for_segment(self, segment: dict, used_ids: set[str] | None = None) -> str:
         if not self._tracks:
@@ -62,11 +89,11 @@ class BGMSelector:
         if used_ids is not None:
             used_ids.add(selected["id"])
 
-        file_path = self._bgm_dir / selected["file"]
-        if file_path.exists():
-            return str(file_path)
+        resolved = self._resolve_track_path(selected)
+        if resolved:
+            return resolved
 
-        logger.warning("BGM file missing: %s, falling back to default", file_path)
+        logger.warning("BGM file missing for track %s, falling back to default", selected.get("id"))
         return DEFAULT_BGM
 
     @staticmethod
@@ -104,8 +131,7 @@ class BGMSelector:
     def get_track_path(self, track_id: str) -> str | None:
         for track in self._tracks:
             if track["id"] == track_id:
-                path = self._bgm_dir / track["file"]
-                return str(path) if path.exists() else None
+                return self._resolve_track_path(track)
         return None
 
 

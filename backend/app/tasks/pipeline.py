@@ -980,7 +980,7 @@ def process_clips(self, task_id: str, task_dir: str) -> dict[str, Any]:
         parallelism = calculate_parallelism()
         clip_workers = min(parallelism["clip_workers"], len(segments))
 
-        bgm_selector = BGMSelector(ASSETS_DIR / "bgm" / "bgm_library.json")
+        bgm_selector = BGMSelector.with_user_library(ASSETS_DIR / "bgm" / "bgm_library.json")
         used_bgm_ids: set[str] = set()
 
         processed: list[dict[str, Any]] = []
