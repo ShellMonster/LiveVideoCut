@@ -40,6 +40,7 @@ export interface Settings {
   coverStrategy: CoverStrategy;
   videoSpeed: VideoSpeed;
   boundarySnap: boolean;
+  enableBoundaryRefinement: boolean;
   customPositionY: number | null;
   asrProvider: AsrProvider;
   asrApiKey: string;
@@ -97,6 +98,7 @@ const defaultSettings: Settings = {
   coverStrategy: "content_first" as CoverStrategy,
   videoSpeed: 1.25 as VideoSpeed,
   boundarySnap: true,
+  enableBoundaryRefinement: false,
   customPositionY: null,
   asrProvider: "volcengine_vc",
   asrApiKey: "",

@@ -83,6 +83,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     subtitlePosition,
     subtitleTemplate,
     boundarySnap,
+    enableBoundaryRefinement,
     customPositionY,
     asrProvider,
     asrApiKey,
@@ -129,6 +130,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     subtitlePosition,
     subtitleTemplate,
     boundarySnap,
+    enableBoundaryRefinement,
     customPositionY,
     asrProvider,
     asrApiKey,
@@ -393,6 +395,28 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
               </select>
               <p className="mt-1 text-xs text-slate-500">
                 将片段起止时间对齐到语音句子边界，避免截断半句话
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="boundary-refinement" className="mb-1 block text-sm font-medium text-slate-700">
+                LLM 边界精修
+              </label>
+              <select
+                id="boundary-refinement"
+                className={inputClassName}
+                value={draft.enableBoundaryRefinement ? "true" : "false"}
+                onChange={(e) => setDraft({ ...draft, enableBoundaryRefinement: e.target.value === "true" })}
+                disabled={!draft.enableLlmAnalysis}
+              >
+                <option value="true">开启</option>
+                <option value="false">关闭（默认）</option>
+              </select>
+              <p className="mt-1 text-xs text-slate-500">
+                使用 LLM 审查并优化片段起止边界，确保开头完整、结尾自然。需要开启 LLM 文本分析。
+                {!draft.enableLlmAnalysis && (
+                  <span className="ml-1 text-amber-600 font-medium">需先开启 LLM 文本分析</span>
+                )}
               </p>
             </div>
           </div>
