@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   ChevronDown,
@@ -123,14 +123,17 @@ export function HistoryPage({ onBack }: HistoryPageProps) {
   const [clipsLoading, setClipsLoading] = useState(false);
   const [offset, setOffset] = useState(0);
   const [counts, setCounts] = useState({ all: 0, processing: 0, completed: 0, failed: 0 });
+  const clipsCacheRef = useRef<Record<string, ClipItem[]>>({});
+  const clipsRequestRef = useRef(0);
 
   useEffect(() => {
+    const controller = new AbortController();
     const tab = FILTER_TABS.find((t) => t.key === filter);
     const params = new URLSearchParams({ offset: "0", limit: String(PAGE_SIZE) });
     if (tab?.apiParam) params.set("status", tab.apiParam);
 
     setLoading(true);
-    fetch(`${API_BASE}/api/tasks?${params}`)
+    fetch(`${API_BASE}/api/tasks?${params}`, { signal: controller.signal })
       .then((r) => r.json())
       .then((data) => {
         setTasks(data.items ?? []);
@@ -144,26 +147,39 @@ export function HistoryPage({ onBack }: HistoryPageProps) {
         }
       })
       .catch(() => {
+        if (controller.signal.aborted) return;
         setTasks([]);
         setTotal(0);
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+
+    return () => controller.abort();
   }, [filter]);
 
   useEffect(() => {
-    FILTER_TABS.forEach((tab) => {
-      const params = new URLSearchParams({ offset: "0", limit: "1" });
-      if (tab.apiParam) params.set("status", tab.apiParam);
-      fetch(`${API_BASE}/api/tasks?${params}`)
-        .then((r) => r.json())
-        .then((data) => {
-          setCounts((prev) => ({ ...prev, [tab.key]: data.total ?? 0 }));
-        })
-        .catch(() => {});
-    });
+    const controller = new AbortController();
+
+    Promise.all(
+      FILTER_TABS.map((tab) => {
+        const params = new URLSearchParams({ offset: "0", limit: "1" });
+        if (tab.apiParam) params.set("status", tab.apiParam);
+        return fetch(`${API_BASE}/api/tasks?${params}`, { signal: controller.signal })
+          .then((r) => r.json())
+          .then((data) => [tab.key, data.total ?? 0] as const);
+      }),
+    )
+      .then((entries) => {
+        if (controller.signal.aborted) return;
+        setCounts((prev) => ({ ...prev, ...Object.fromEntries(entries) }));
+      })
+      .catch(() => {});
+
+    return () => controller.abort();
   }, []);
 
-  const loadMore = () => {
+  const loadMore = useCallback(() => {
     const newOffset = offset + PAGE_SIZE;
     const tab = FILTER_TABS.find((t) => t.key === filter);
     const params = new URLSearchParams({ offset: String(newOffset), limit: String(PAGE_SIZE) });
@@ -176,25 +192,42 @@ export function HistoryPage({ onBack }: HistoryPageProps) {
         setOffset(newOffset);
       })
       .catch(() => {});
-  };
+  }, [filter, offset]);
 
-  const toggleExpand = (taskId: string) => {
+  const toggleExpand = useCallback((taskId: string) => {
     if (expandedId === taskId) {
+      clipsRequestRef.current += 1;
       setExpandedId(null);
       setClips([]);
       return;
     }
+    const requestId = clipsRequestRef.current + 1;
+    clipsRequestRef.current = requestId;
     setExpandedId(taskId);
+    const cachedClips = clipsCacheRef.current[taskId];
+    if (cachedClips) {
+      setClips(cachedClips);
+      setClipsLoading(false);
+      return;
+    }
+
     setClips([]);
     setClipsLoading(true);
     fetch(`${API_BASE}/api/tasks/${taskId}/clips`)
       .then((r) => r.json())
       .then((data) => {
-        setClips(data.clips ?? []);
+        if (clipsRequestRef.current !== requestId) return;
+        const nextClips = data.clips ?? [];
+        clipsCacheRef.current[taskId] = nextClips;
+        setClips(nextClips);
       })
-      .catch(() => setClips([]))
-      .finally(() => setClipsLoading(false));
-  };
+      .catch(() => {
+        if (clipsRequestRef.current === requestId) setClips([]);
+      })
+      .finally(() => {
+        if (clipsRequestRef.current === requestId) setClipsLoading(false);
+      });
+  }, [expandedId]);
 
   const deleteTask = (taskId: string) => {
     if (!confirm("确定要删除这个任务吗？删除后无法恢复。")) return;
@@ -202,6 +235,7 @@ export function HistoryPage({ onBack }: HistoryPageProps) {
       .then((r) => {
         if (r.ok) {
           setTasks((prev) => prev.filter((t) => t.task_id !== taskId));
+          delete clipsCacheRef.current[taskId];
           setTotal((prev) => prev - 1);
           setCounts((prev) => ({
             ...prev,
@@ -284,6 +318,8 @@ export function HistoryPage({ onBack }: HistoryPageProps) {
                             src={task.thumbnail_url}
                             alt=""
                             className="h-full w-full object-cover"
+                            loading="lazy"
+                            decoding="async"
                           />
                         ) : (
                           <div className="flex h-full w-full items-center justify-center text-slate-300">
@@ -368,6 +404,8 @@ export function HistoryPage({ onBack }: HistoryPageProps) {
                                       src={clip.thumbnail_url}
                                       alt={clip.product_name}
                                       className="h-full w-full object-cover"
+                                      loading="lazy"
+                                      decoding="async"
                                     />
                                   ) : (
                                     <div className="flex h-full w-full items-center justify-center text-slate-300">
