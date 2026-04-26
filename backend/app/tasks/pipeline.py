@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import subprocess
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, cast
@@ -33,6 +34,10 @@ from app.services.segment_fusion import fuse_candidates, fused_to_segments
 from app.services.bgm_selector import BGMSelector, DEFAULT_BGM
 
 logger = logging.getLogger(__name__)
+
+
+def _log_elapsed(label: str, started_at: float) -> None:
+    logger.info("%s finished in %.2fs", label, time.perf_counter() - started_at)
 
 
 def _need_asr(settings: SettingsRequest) -> bool:
@@ -242,6 +247,7 @@ def visual_prescreen(
     cleaner = TempFileCleaner()
 
     try:
+        stage_started_at = time.perf_counter()
         sm.transition("UPLOADED", "EXTRACTING_FRAMES", step="extracting_frames")
 
         frames_dir = task_path / "frames" / "scene000"
@@ -276,8 +282,13 @@ def visual_prescreen(
                     "scene_idx": 0,
                 }
             )
+        (task_path / "frames" / "frames.json").write_text(
+            json.dumps(frames, ensure_ascii=False, indent=2)
+        )
         logger.info("Extracted %d frames at %.2f fps", len(frames), sample_fps)
+        _log_elapsed("visual_prescreen.extract_frames", stage_started_at)
 
+        stage_started_at = time.perf_counter()
         sm.transition("EXTRACTING_FRAMES", "SCENE_DETECTING", step="scene_detecting")
 
         clothing_detector = ClothingChangeDetector(
@@ -289,6 +300,7 @@ def visual_prescreen(
             frames,
             output_dir=str(task_path / "scenes"),
         )
+        _log_elapsed("visual_prescreen.detect_changes", stage_started_at)
         sm.transition("SCENE_DETECTING", "VISUAL_SCREENING", step="visual_screening")
 
         # 同时生成 scenes.json（供 all_scenes 模式使用）
@@ -305,8 +317,6 @@ def visual_prescreen(
 
         candidates_file = task_path / "candidates.json"
         candidates_file.write_text(json.dumps(candidates, ensure_ascii=False, indent=2))
-
-        cleaner.cleanup_frames(task_dir)
 
         return {
             "candidates_count": len(candidates),
@@ -344,6 +354,7 @@ def vlm_confirm(
     err = PipelineErrorHandler(task_dir=task_path)
 
     try:
+        stage_started_at = time.perf_counter()
         sm.transition("VISUAL_SCREENING", "VLM_CONFIRMING", step="vlm_confirming")
 
         candidates_file = task_path / "candidates.json"
@@ -393,6 +404,7 @@ def vlm_confirm(
             review_mode=review_mode,
             review_strictness=review_strictness,
         )
+        _log_elapsed("vlm_confirm.confirm_candidates", stage_started_at)
 
         return {
             "confirmed_count": len(confirmed),
@@ -423,6 +435,7 @@ def enrich_segments(
     cleaner = TempFileCleaner()
 
     try:
+        enrich_started_at = time.perf_counter()
         sm.transition("VLM_CONFIRMING", "TRANSCRIBING", step="transcribing")
 
         export_mode = settings.export_mode.value
@@ -518,6 +531,7 @@ def enrich_segments(
 
         transcript_file = task_path / "transcript.json"
         transcript_file.write_text(json.dumps(transcript, ensure_ascii=False, indent=2))
+        _log_elapsed("enrich_segments.transcribe", enrich_started_at)
 
         cleaner.cleanup_chunks(task_dir)
 
@@ -537,7 +551,9 @@ def enrich_segments(
                     )
                     granularity = getattr(settings, "segment_granularity", "single_item")
                     granularity = granularity.value if hasattr(granularity, "value") else granularity
+                    llm_started_at = time.perf_counter()
                     text_boundaries = analyzer.analyze(transcript, segment_granularity=granularity)
+                    _log_elapsed("enrich_segments.llm_analysis", llm_started_at)
                     logger.info("LLM text analysis found %d boundaries", len(text_boundaries))
 
                     text_boundaries_file = task_path / "text_boundaries.json"
@@ -589,6 +605,7 @@ def enrich_segments(
             else:
                 logger.warning("LLM boundary refinement enabled but no API key configured, skipping")
 
+        enrich_post_started_at = time.perf_counter()
         matcher = ProductNameMatcher()
         enriched = matcher.match(segments, transcript)
 
@@ -603,6 +620,7 @@ def enrich_segments(
 
         output_file = task_path / "enriched_segments.json"
         output_file.write_text(json.dumps(validated, ensure_ascii=False, indent=2))
+        _log_elapsed("enrich_segments.postprocess", enrich_post_started_at)
 
         sm.transition("TRANSCRIBING", "PROCESSING", step="processing")
 
@@ -672,8 +690,8 @@ def build_clip_metadata(
     }
 
 
-def _merge_segments(segments: list[dict], merge_count: int) -> list[dict]:
-    merged: list[dict] = []
+def _merge_segments(segments: list[dict[str, Any]], merge_count: int) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
     for i in range(0, len(segments), merge_count):
         batch = segments[i : i + merge_count]
         if len(batch) == 1:
@@ -764,17 +782,20 @@ def _process_single_clip(
     covers_dir: Path,
     transcript: list[dict[str, Any]],
     settings: SettingsRequest,
+    pre_sampled_frames: list[dict[str, Any]] | None = None,
     bgm_selector: BGMSelector | None = None,
     used_bgm_ids: set[str] | None = None,
 ) -> dict[str, Any] | None:
     """Process a single clip — designed for ProcessPoolExecutor (module-level for pickling)."""
     try:
+        clip_started_at = time.perf_counter()
         seg_label = seg.get("product_name", f"segment_{idx}")
         safe_label = build_clip_basename(idx, seg_label)
 
         output_path = str((clips_dir / f"{safe_label}.mp4").resolve())
         thumbnail_path = str((covers_dir / f"{safe_label}.jpg").resolve())
 
+        subtitle_started_at = time.perf_counter()
         sub_segments = _collect_clip_subtitle_segments(seg, transcript)
         if not sub_segments:
             seg_text = seg.get("text", "")
@@ -795,7 +816,7 @@ def _process_single_clip(
         if filler_mode in ("subtitle", "video"):
             sub_segments = filter_subtitle_words(sub_segments)
 
-        filler_cut_ranges: list = []
+        filler_cut_ranges: list[dict[str, object]] = []
         if filler_mode == "video":
             filler_cut_ranges = compute_filler_cut_ranges(sub_segments)
 
@@ -827,22 +848,29 @@ def _process_single_clip(
                     exc_info=True,
                 )
                 effective_subtitle_mode = "off"
+        logger.info("Clip %s subtitle preparation finished in %.2fs", safe_label, time.perf_counter() - subtitle_started_at)
 
         cover_strategy = getattr(settings, "cover_strategy", "content_first")
         video_speed = getattr(settings, "video_speed", 1.0)
         export_resolution = getattr(settings, "export_resolution", "1080p")
+        cover_started_at = time.perf_counter()
         cover_ts = select_cover_frame(
             video_path=str(video_path),
             clip_start=float(seg.get("start_time", 0.0)),
             clip_end=float(seg.get("end_time", 0.0)),
             strategy=cover_strategy,
+            output_path=thumbnail_path,
+            pre_sampled_frames=pre_sampled_frames,
         )
+        thumbnail_precreated = Path(thumbnail_path).exists()
+        logger.info("Clip %s cover selection finished in %.2fs", safe_label, time.perf_counter() - cover_started_at)
 
         ffmpeg = FFmpegBuilder()
         if bgm_selector and getattr(settings, "bgm_enabled", True):
             selected_bgm = bgm_selector.select_for_segment(seg, used_bgm_ids)
         else:
             selected_bgm = DEFAULT_BGM
+        export_started_at = time.perf_counter()
         result = ffmpeg.process_clip(
             input_path=str(video_path),
             segment=seg,
@@ -862,7 +890,9 @@ def _process_single_clip(
             bgm_enabled=getattr(settings, "bgm_enabled", True),
             bgm_volume=getattr(settings, "bgm_volume", 0.25),
             original_volume=getattr(settings, "original_volume", 1.0),
+            thumbnail_precreated=thumbnail_precreated,
         )
+        logger.info("Clip %s FFmpeg export finished in %.2fs", safe_label, time.perf_counter() - export_started_at)
 
         meta_path = clips_dir / f"{safe_label}_meta.json"
         meta_path.write_text(
@@ -871,6 +901,7 @@ def _process_single_clip(
             )
         )
 
+        logger.info("Clip %s total processing finished in %.2fs", safe_label, time.perf_counter() - clip_started_at)
         return result
     except Exception:
         logger.exception("Failed to process clip %d: %s", idx, build_clip_basename(idx, ""))
@@ -893,6 +924,7 @@ def process_clips(self, task_id: str, task_dir: str) -> dict[str, Any]:
     cleaner = TempFileCleaner()
 
     try:
+        process_started_at = time.perf_counter()
         enriched_file = task_path / "enriched_segments.json"
         if not enriched_file.exists():
             logger.error("No enriched segments found: %s", enriched_file)
@@ -995,8 +1027,14 @@ def process_clips(self, task_id: str, task_dir: str) -> dict[str, Any]:
         if transcript_file.exists():
             transcript = json.loads(transcript_file.read_text())
 
+        pre_sampled_frames: list[dict[str, Any]] = []
+        frames_index = task_path / "frames" / "frames.json"
+        if frames_index.exists():
+            pre_sampled_frames = json.loads(frames_index.read_text())
+            logger.info("Loaded %d pre-sampled frames for cover selection", len(pre_sampled_frames))
+
         parallelism = calculate_parallelism()
-        clip_workers = min(parallelism["clip_workers"], len(segments))
+        clip_workers = int(min(parallelism["clip_workers"], len(segments)))
 
         bgm_selector = BGMSelector.with_user_library(ASSETS_DIR / "bgm" / "bgm_library.json")
         used_bgm_ids: set[str] = set()
@@ -1010,7 +1048,7 @@ def process_clips(self, task_id: str, task_dir: str) -> dict[str, Any]:
                     future = executor.submit(
                         _process_single_clip,
                         idx, seg, video_path, clips_dir, srt_dir, covers_dir,
-                        transcript, settings, bgm_selector, used_bgm_ids,
+                        transcript, settings, pre_sampled_frames, bgm_selector, used_bgm_ids,
                     )
                     futures[future] = idx
 
@@ -1030,7 +1068,7 @@ def process_clips(self, task_id: str, task_dir: str) -> dict[str, Any]:
             for idx, seg in enumerate(segments):
                 result = _process_single_clip(
                     idx, seg, video_path, clips_dir, srt_dir, covers_dir,
-                    transcript, settings, bgm_selector, used_bgm_ids,
+                    transcript, settings, pre_sampled_frames, bgm_selector, used_bgm_ids,
                 )
                 if result is not None:
                     processed.append(result)
@@ -1040,6 +1078,8 @@ def process_clips(self, task_id: str, task_dir: str) -> dict[str, Any]:
                     )
 
         sm.transition("PROCESSING", "COMPLETED", step="completed")
+        _log_elapsed("process_clips", process_started_at)
+        cleaner.cleanup_frames(task_dir)
 
         return {
             "clips_count": len(processed),

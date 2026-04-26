@@ -9,9 +9,12 @@ detected by a COCO YOLOv8n model.
 """
 
 import logging
+import importlib
 import os
+import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 import cv2
@@ -40,7 +43,9 @@ COCO_YOLO_MODEL_PATH = "/app/assets/models/yolov8n.onnx"
 def _get_segmenter():
     global _segmenter_instance
     if _segmenter_instance is None:
-        from app.services.clothing_segmenter import ClothingSegmenter
+        ClothingSegmenter = importlib.import_module(
+            "app.services.clothing_segmenter"
+        ).ClothingSegmenter
         _segmenter_instance = ClothingSegmenter()
     return _segmenter_instance
 
@@ -48,11 +53,21 @@ def _get_segmenter():
 def _get_face_detection():
     global _face_detection_instance
     if _face_detection_instance is None:
-        import mediapipe as mp
+        mp = importlib.import_module("mediapipe")
         _face_detection_instance = mp.solutions.face_detection.FaceDetection(
             model_selection=1,
         )
     return _face_detection_instance
+
+
+def _record_timestamp(record: dict[str, object], default: float = -1.0) -> float:
+    raw_timestamp = record.get("timestamp", default)
+    if isinstance(raw_timestamp, (int, float, str)):
+        try:
+            return float(raw_timestamp)
+        except ValueError:
+            return default
+    return default
 
 
 def _get_coco_yolo():
@@ -87,9 +102,22 @@ def _sample_frames(
     clip_end: float,
     max_frames: int = 30,
 ) -> list[tuple[float, np.ndarray]]:
+    candidates = _sample_frame_candidates(video_path, clip_start, clip_end, max_frames)
+    try:
+        return [(ts, frame) for ts, frame, _path in candidates]
+    finally:
+        _cleanup_candidate_files(candidates)
+
+
+def _sample_frame_candidates(
+    video_path: str,
+    clip_start: float,
+    clip_end: float,
+    max_frames: int = 30,
+) -> list[tuple[float, np.ndarray, str]]:
     """Extract up to *max_frames* uniformly spaced frames from the clip.
 
-    Returns list of (timestamp, bgr_array). Timestamps are relative to video start.
+    Returns list of (timestamp, bgr_array, jpg_path). Timestamps are relative to video start.
     """
     duration = clip_end - clip_start
     if duration <= 0:
@@ -105,11 +133,89 @@ def _sample_frames(
     if not timestamps:
         return []
 
-    frames: list[tuple[float, np.ndarray]] = []
+    frames: list[tuple[float, np.ndarray, str]] = []
     tmpdir = tempfile.mkdtemp(prefix="cover_sel_")
 
+    try:
+        # Extract the uniformly spaced candidates in one FFmpeg process instead
+        # of spawning one FFmpeg process per candidate frame.
+        output_pattern = os.path.join(tmpdir, "frame_%05d.jpg")
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-ss", str(clip_start),
+            "-t", str(duration),
+            "-i", video_path,
+            "-vf", f"fps=1/{interval:.6f}",
+            "-frames:v", str(len(timestamps)),
+            "-q:v", "2",
+            "-an",
+            output_pattern,
+        ]
+        _ = subprocess.run(cmd, capture_output=True, timeout=60, check=True)
+
+        for idx, ts in enumerate(timestamps, start=1):
+            out_path = os.path.join(tmpdir, f"frame_{idx:05d}.jpg")
+            img = cv2.imread(out_path)
+            if img is not None:
+                frames.append((ts, img, out_path))
+        if len(frames) < len(timestamps):
+            logger.debug(
+                "Batch cover frame extraction returned %d/%d frames, falling back to per-frame extraction",
+                len(frames), len(timestamps),
+            )
+            frames = _sample_frames_individually(video_path, timestamps, tmpdir)
+    except Exception as exc:
+        logger.debug("Batch cover frame extraction failed: %s", exc)
+        frames = _sample_frames_individually(video_path, timestamps, tmpdir)
+    finally:
+        # Keep the temp directory alive until select_cover_frame has a chance to
+        # copy the chosen JPEG. The caller removes it via _cleanup_candidate_files.
+        pass
+
+    return frames
+
+
+def _sample_pre_sampled_frame_candidates(
+    frame_records: list[dict[str, object]],
+    clip_start: float,
+    clip_end: float,
+    max_frames: int,
+) -> list[tuple[float, np.ndarray, str]]:
+    in_range = [
+        record for record in frame_records
+        if clip_start <= _record_timestamp(record) <= clip_end
+        and Path(str(record.get("path", ""))).exists()
+    ]
+    if not in_range:
+        return []
+
+    if len(in_range) <= max_frames:
+        selected = in_range
+    else:
+        selected = []
+        last_index = len(in_range) - 1
+        for idx in range(max_frames):
+            source_index = round(idx * last_index / max(max_frames - 1, 1))
+            selected.append(in_range[source_index])
+
+    candidates: list[tuple[float, np.ndarray, str]] = []
+    for record in selected:
+        source_path = str(record.get("path", ""))
+        img = cv2.imread(source_path)
+        if img is not None:
+            candidates.append((_record_timestamp(record, 0.0), img, source_path))
+    return candidates
+
+
+def _sample_frames_individually(
+    video_path: str,
+    timestamps: list[float],
+    tmpdir: str,
+) -> list[tuple[float, np.ndarray, str]]:
+    frames: list[tuple[float, np.ndarray, str]] = []
     for ts in timestamps:
-        out_path = os.path.join(tmpdir, f"f_{ts:.3f}.jpg")
+        out_path = os.path.join(tmpdir, f"fallback_{ts:.3f}.jpg")
         cmd = [
             "ffmpeg",
             "-ss", str(ts),
@@ -120,24 +226,38 @@ def _sample_frames(
             "-y", out_path,
         ]
         try:
-            subprocess.run(cmd, capture_output=True, timeout=15, check=True)
+            _ = subprocess.run(cmd, capture_output=True, timeout=15, check=True)
             img = cv2.imread(out_path)
             if img is not None:
-                frames.append((ts, img))
+                frames.append((ts, img, out_path))
         except Exception as exc:
             logger.debug("Failed to extract frame at %.3f: %s", ts, exc)
+    return frames
 
-    for f in os.listdir(tmpdir):
+
+def _cleanup_candidate_files(candidates: list[tuple[float, np.ndarray, str]]) -> None:
+    seen_dirs: set[str] = set()
+    for _ts, _frame, path in candidates:
+        frame_path = Path(path)
         try:
-            os.remove(os.path.join(tmpdir, f))
+            frame_path.unlink()
         except OSError:
             pass
-    try:
-        os.rmdir(tmpdir)
-    except OSError:
-        pass
-
-    return frames
+        seen_dirs.add(str(frame_path.parent))
+    for directory in seen_dirs:
+        directory_path = Path(directory)
+        try:
+            for leftover in directory_path.iterdir():
+                try:
+                    leftover.unlink()
+                except OSError:
+                    pass
+        except OSError:
+            pass
+        try:
+            directory_path.rmdir()
+        except OSError:
+            pass
 
 
 def _detect_occluders(
@@ -364,23 +484,46 @@ def select_cover_frame(
     clip_end: float,
     strategy: str = "content_first",
     max_frames: int = 30,
+    output_path: str | None = None,
+    pre_sampled_frames: list[dict[str, object]] | None = None,
 ) -> float:
     """Return the timestamp (relative to video start) of the best cover frame.
 
     Falls back to clip midpoint if scoring fails.
     """
     midpoint = clip_start + (clip_end - clip_start) / 2
+    candidates: list[tuple[float, np.ndarray, str]] = []
+    top_up_candidates: list[tuple[float, np.ndarray, str]] = []
+    uses_pre_sampled_frames = False
 
     try:
-        frames = _sample_frames(video_path, clip_start, clip_end, max_frames)
-        if not frames:
+        started_at = time.perf_counter()
+        uses_pre_sampled_frames = bool(pre_sampled_frames)
+        candidates = (
+            _sample_pre_sampled_frame_candidates(pre_sampled_frames or [], clip_start, clip_end, max_frames)
+            if uses_pre_sampled_frames
+            else []
+        )
+        if uses_pre_sampled_frames and 0 < len(candidates) < max_frames:
+            top_up_candidates = _sample_frame_candidates(
+                video_path,
+                clip_start,
+                clip_end,
+                max_frames - len(candidates),
+            )
+            candidates.extend(top_up_candidates)
+        if not candidates:
+            uses_pre_sampled_frames = False
+            candidates = _sample_frame_candidates(video_path, clip_start, clip_end, max_frames)
+        if not candidates:
             logger.debug("No frames sampled, falling back to midpoint")
             return midpoint
 
         best_ts = midpoint
         best_final_score = -1.0
+        best_source_path: str | None = None
 
-        for ts, bgr in frames:
+        for ts, bgr, source_path in candidates:
             quality = _score_quality(bgr)
 
             if strategy == "person_first":
@@ -401,13 +544,26 @@ def select_cover_frame(
             if final_score > best_final_score:
                 best_final_score = final_score
                 best_ts = ts
+                best_source_path = source_path
 
-        logger.debug(
-            "Cover selection: strategy=%s, best_ts=%.3f (score=%.4f)",
-            strategy, best_ts, best_final_score,
+        if output_path and best_source_path is not None:
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            # Reuse the already-encoded candidate JPEG instead of decoding and
+            # re-encoding through OpenCV, preserving the same JPEG quality as extraction.
+            shutil.copyfile(best_source_path, output_path)
+
+        logger.info(
+            "Cover selection: strategy=%s, frames=%d, source=%s, best_ts=%.3f, score=%.4f, elapsed=%.2fs",
+            strategy, len(candidates), "pre_sampled" if uses_pre_sampled_frames else "ffmpeg", best_ts, best_final_score,
+            time.perf_counter() - started_at,
         )
         return best_ts
 
     except Exception as exc:
         logger.warning("Cover selection failed, falling back to midpoint: %s", exc)
         return midpoint
+    finally:
+        if top_up_candidates:
+            _cleanup_candidate_files(top_up_candidates)
+        elif candidates and not uses_pre_sampled_frames:
+            _cleanup_candidate_files(candidates)
