@@ -34,6 +34,18 @@ class TestCleanupFrames:
         assert not (frames_dir / "frame_001.jpg").exists()
         assert not (frames_dir / "frame_002.png").exists()
 
+    def test_removes_nested_frame_index_and_scene_frames(self, tmp_path: Path):
+        frames_dir = tmp_path / "frames"
+        scene_dir = frames_dir / "scene000"
+        scene_dir.mkdir(parents=True)
+        (frames_dir / "frames.json").write_text("[]")
+        (scene_dir / "frame_00001.jpg").write_bytes(b"\xff\xd8\xff")
+
+        cleaner = TempFileCleaner()
+        cleaner.cleanup_frames(tmp_path)
+
+        assert not frames_dir.exists()
+
     def test_noop_when_no_frames_dir(self, tmp_path: Path):
         cleaner = TempFileCleaner()
         cleaner.cleanup_frames(tmp_path)

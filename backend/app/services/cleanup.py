@@ -16,16 +16,11 @@ class TempFileCleaner:
             logger.info("Cleaned up chunks: %s", chunks_dir)
 
     def cleanup_frames(self, task_dir: str | Path) -> None:
-        """Remove extracted frames after visual analysis (keep key frames)."""
+        """Remove extracted frame directory after all downstream reuse is complete."""
         frames_dir = Path(task_dir) / "frames"
         if not frames_dir.exists():
             return
-        for f in frames_dir.iterdir():
-            if f.is_file() and f.suffix.lower() in (".jpg", ".jpeg", ".png"):
-                f.unlink()
-        # 如果目录为空则删除
-        if not any(frames_dir.iterdir()):
-            frames_dir.rmdir()
+        shutil.rmtree(frames_dir, ignore_errors=True)
         logger.info("Cleaned up frames: %s", frames_dir)
 
     def cleanup_srt(self, task_dir: str | Path) -> None:
