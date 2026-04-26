@@ -270,6 +270,60 @@ class TestFallbackBehavior:
         assert "subtitles=" not in " ".join(first_cmd)
         assert len(mock_run.call_args_list) == 2
 
+    def test_skips_thumbnail_extraction_when_precreated_thumbnail_is_allowed(self, builder, tmp_dir):
+        output_path = str(tmp_dir / "clip.mp4")
+        thumb_path = tmp_dir / "thumb.jpg"
+        thumb_path.write_bytes(b"existing thumbnail")
+
+        segment = {"start_time": 0.0, "end_time": 5.0}
+
+        ok = MagicMock(returncode=0, stderr="")
+
+        with patch(
+            "app.services.ffmpeg_builder.subprocess.run",
+            return_value=ok,
+        ) as mock_run:
+            builder.process_clip(
+                input_path="input.mp4",
+                segment=segment,
+                srt_path=None,
+                bgm_path="bgm.mp3",
+                watermark_path="wm.png",
+                output_path=output_path,
+                thumbnail_path=str(thumb_path),
+                subtitle_mode="off",
+                thumbnail_precreated=True,
+            )
+
+        assert len(mock_run.call_args_list) == 1
+
+    def test_existing_thumbnail_is_replaced_unless_precreated_by_current_selection(self, builder, tmp_dir):
+        output_path = str(tmp_dir / "clip.mp4")
+        thumb_path = tmp_dir / "thumb.jpg"
+        thumb_path.write_bytes(b"stale thumbnail")
+
+        segment = {"start_time": 0.0, "end_time": 5.0}
+
+        ok = MagicMock(returncode=0, stderr="")
+        thumb_ok = MagicMock(returncode=0, stderr="")
+
+        with patch(
+            "app.services.ffmpeg_builder.subprocess.run",
+            side_effect=[ok, thumb_ok],
+        ) as mock_run:
+            builder.process_clip(
+                input_path="input.mp4",
+                segment=segment,
+                srt_path=None,
+                bgm_path="bgm.mp3",
+                watermark_path="wm.png",
+                output_path=output_path,
+                thumbnail_path=str(thumb_path),
+                subtitle_mode="off",
+            )
+
+        assert len(mock_run.call_args_list) == 2
+
 
 @pytest.mark.skipif(not ffmpeg_available, reason="ffmpeg not installed")
 class TestProcessClip:

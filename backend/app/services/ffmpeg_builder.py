@@ -2,6 +2,7 @@
 
 import logging
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -396,6 +397,7 @@ class FFmpegBuilder:
         bgm_enabled: bool = True,
         bgm_volume: float = 0.25,
         original_volume: float = 1.0,
+        thumbnail_precreated: bool = False,
     ) -> dict[str, Any]:
         start = float(segment.get("start_time", 0.0))
         end = float(segment.get("end_time", 0.0))
@@ -423,6 +425,7 @@ class FFmpegBuilder:
             original_volume=original_volume,
         )
 
+        started_at = time.perf_counter()
         logger.info("Processing clip: %s → %s", input_path, output_path)
         result = subprocess.run(cut_cmd, capture_output=True, text=True, timeout=600)
         if result.returncode != 0 and srt_path and subtitle_mode != "off":
@@ -455,19 +458,24 @@ class FFmpegBuilder:
             )
             raise RuntimeError(f"FFmpeg cut failed: {result.returncode}")
 
-        thumb_timestamp = cover_timestamp if cover_timestamp is not None else start + duration / 2
-        thumb_cmd = self.build_thumbnail_command(
-            input_path, thumb_timestamp, thumbnail_path
-        )
-
-        thumb_result = subprocess.run(
-            thumb_cmd, capture_output=True, text=True, timeout=60
-        )
-        if thumb_result.returncode != 0:
-            logger.warning(
-                "Thumbnail extraction failed: %s",
-                thumb_result.stderr[-200:] if thumb_result.stderr else "",
+        if thumbnail_precreated and Path(thumbnail_path).exists():
+            logger.info("Thumbnail already exists, skipping extraction: %s", thumbnail_path)
+        else:
+            thumb_timestamp = cover_timestamp if cover_timestamp is not None else start + duration / 2
+            thumb_cmd = self.build_thumbnail_command(
+                input_path, thumb_timestamp, thumbnail_path
             )
+
+            thumb_result = subprocess.run(
+                thumb_cmd, capture_output=True, text=True, timeout=60
+            )
+            if thumb_result.returncode != 0:
+                logger.warning(
+                    "Thumbnail extraction failed: %s",
+                    thumb_result.stderr[-200:] if thumb_result.stderr else "",
+                )
+
+        logger.info("Clip processing finished in %.2fs: %s", time.perf_counter() - started_at, output_path)
 
         return {
             "output_path": str(Path(output_path).resolve()),
