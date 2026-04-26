@@ -4,15 +4,111 @@ import json
 import os
 import shutil
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 from starlette.responses import JSONResponse
 
 from app.services.state_machine import TaskStateMachine
+from app.tasks.pipeline import start_pipeline
 
 UPLOAD_DIR = Path("uploads")
 
 router = APIRouter()
+
+
+class ReviewSegmentPatch(BaseModel):
+    product_name: str | None = None
+    title: str | None = None
+    start_time: float | None = None
+    end_time: float | None = None
+    status: str | None = None
+    cover_strategy: str | None = None
+    note: str | None = None
+
+
+def _read_json(path: Path, fallback: Any) -> Any:
+    if not path.exists():
+        return fallback
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return fallback
+
+
+def _task_dir_or_404(task_id: str) -> Path | JSONResponse:
+    task_dir = UPLOAD_DIR / task_id
+    if not task_dir.exists():
+        return JSONResponse(status_code=404, content={"detail": "Task not found"})
+    return task_dir
+
+
+def _count_clip_videos(task_dir: Path) -> int:
+    clips_dir = task_dir / "clips"
+    if not clips_dir.is_dir():
+        return 0
+    return sum(1 for f in clips_dir.iterdir() if f.name.endswith(".mp4"))
+
+
+def _collect_artifact_status(task_dir: Path) -> dict[str, bool]:
+    return {
+        "meta": (task_dir / "meta.json").exists(),
+        "settings": (task_dir / "settings.json").exists(),
+        "candidates": (task_dir / "candidates.json").exists(),
+        "scenes": (task_dir / "scenes" / "scenes.json").exists(),
+        "person_presence": (task_dir / "scenes" / "person_presence.json").exists(),
+        "confirmed_segments": (task_dir / "vlm" / "confirmed_segments.json").exists(),
+        "transcript": (task_dir / "transcript.json").exists(),
+        "text_boundaries": (task_dir / "text_boundaries.json").exists(),
+        "fused_candidates": (task_dir / "fused_candidates.json").exists(),
+        "enriched_segments": (task_dir / "enriched_segments.json").exists(),
+        "clips": (task_dir / "clips").is_dir(),
+    }
+
+
+def _load_review_state(task_dir: Path) -> dict[str, Any]:
+    review = _read_json(task_dir / "review.json", {})
+    return review if isinstance(review, dict) else {}
+
+
+def _write_review_state(task_dir: Path, review: dict[str, Any]) -> None:
+    review["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    (task_dir / "review.json").write_text(
+        json.dumps(review, ensure_ascii=False, indent=2)
+    )
+
+
+def _segment_id(index: int) -> str:
+    return f"clip_{index:03d}"
+
+
+def _summary_from_task_dir(task_dir: Path) -> dict[str, Any]:
+    candidates = _read_json(task_dir / "candidates.json", [])
+    confirmed = _read_json(task_dir / "vlm" / "confirmed_segments.json", [])
+    transcript = _read_json(task_dir / "transcript.json", [])
+    text_boundaries = _read_json(task_dir / "text_boundaries.json", [])
+    fused = _read_json(task_dir / "fused_candidates.json", [])
+    enriched = _read_json(task_dir / "enriched_segments.json", [])
+    person_presence = _read_json(task_dir / "scenes" / "person_presence.json", [])
+    clips_count = _count_clip_videos(task_dir)
+
+    enriched_count = len(enriched) if isinstance(enriched, list) else 0
+    empty_screen_dropped = max(enriched_count - clips_count, 0)
+
+    return {
+        "task_id": task_dir.name,
+        "candidates_count": len(candidates) if isinstance(candidates, list) else 0,
+        "confirmed_count": len(confirmed) if isinstance(confirmed, list) else 0,
+        "transcript_segments_count": len(transcript) if isinstance(transcript, list) else 0,
+        "text_boundaries_count": len(text_boundaries) if isinstance(text_boundaries, list) else 0,
+        "fused_candidates_count": len(fused) if isinstance(fused, list) else 0,
+        "enriched_segments_count": enriched_count,
+        "clips_count": clips_count,
+        "empty_screen_dropped_estimate": empty_screen_dropped,
+        "person_presence_frames": len(person_presence) if isinstance(person_presence, list) else 0,
+        "artifact_status": _collect_artifact_status(task_dir),
+    }
 
 
 @router.get("/api/tasks")
@@ -142,6 +238,201 @@ async def get_task_status(task_id: str):
         metadata = json.loads(meta_file.read_text())
 
     return {"task_id": task_id, **state, "metadata": metadata}
+
+
+@router.get("/api/tasks/{task_id}/summary")
+async def get_task_summary(task_id: str):
+    task_dir = _task_dir_or_404(task_id)
+    if isinstance(task_dir, JSONResponse):
+        return task_dir
+    return _summary_from_task_dir(task_dir)
+
+
+@router.get("/api/tasks/{task_id}/diagnostics")
+async def get_task_diagnostics(task_id: str):
+    task_dir = _task_dir_or_404(task_id)
+    if isinstance(task_dir, JSONResponse):
+        return task_dir
+
+    summary = _summary_from_task_dir(task_dir)
+    state = _read_json(task_dir / "state.json", {"state": "UPLOADED"})
+    artifacts = summary["artifact_status"]
+
+    pipeline = [
+        {"stage": "上传", "status": "done" if artifacts["meta"] else "pending", "artifact": "meta.json"},
+        {"stage": "抽帧", "status": "done" if (task_dir / "frames" / "frames.json").exists() else "pending", "artifact": "frames/frames.json"},
+        {"stage": "换衣检测", "status": "done" if artifacts["candidates"] else "pending", "artifact": "candidates.json"},
+        {"stage": "VLM确认", "status": "done" if artifacts["confirmed_segments"] else "skipped", "artifact": "vlm/confirmed_segments.json"},
+        {"stage": "ASR转写", "status": "done" if artifacts["transcript"] else "skipped", "artifact": "transcript.json"},
+        {"stage": "LLM融合", "status": "done" if artifacts["fused_candidates"] else "skipped", "artifact": "fused_candidates.json"},
+        {"stage": "导出", "status": "done" if summary["clips_count"] > 0 else "pending", "artifact": "clips/"},
+    ]
+
+    funnel = [
+        {"label": "原始候选", "count": summary["candidates_count"]},
+        {"label": "VLM确认", "count": summary["confirmed_count"]},
+        {"label": "文本边界", "count": summary["text_boundaries_count"]},
+        {"label": "融合候选", "count": summary["fused_candidates_count"]},
+        {"label": "有效分段", "count": summary["enriched_segments_count"]},
+        {"label": "导出成功", "count": summary["clips_count"]},
+    ]
+
+    warnings: list[dict[str, str]] = []
+    settings = _read_json(task_dir / "settings.json", {})
+    if settings.get("subtitle_mode") == "karaoke" and settings.get("asr_provider") == "dashscope":
+        warnings.append({
+            "level": "warning",
+            "message": "DashScope 字幕时间戳可能不适合 karaoke，推荐使用火山 VC。",
+        })
+    if summary["empty_screen_dropped_estimate"] > 0:
+        warnings.append({
+            "level": "info",
+            "message": f"预计有 {summary['empty_screen_dropped_estimate']} 个分段未生成 clip，可能被空镜/时长/导出过滤。",
+        })
+    if state.get("state") == "ERROR":
+        warnings.append({
+            "level": "error",
+            "message": state.get("message", "任务执行失败"),
+        })
+
+    event_log = []
+    for label, path in [
+        ("候选边界", task_dir / "candidates.json"),
+        ("转写文本", task_dir / "transcript.json"),
+        ("融合候选", task_dir / "fused_candidates.json"),
+        ("有效分段", task_dir / "enriched_segments.json"),
+        ("复核状态", task_dir / "review.json"),
+    ]:
+        if path.exists():
+            stat = path.stat()
+            event_log.append({
+                "time": datetime.datetime.fromtimestamp(
+                    stat.st_mtime, tz=datetime.timezone.utc
+                ).isoformat(),
+                "stage": label,
+                "level": "INFO",
+                "message": f"{label} 文件已生成",
+                "file": path.relative_to(task_dir).as_posix(),
+            })
+
+    return {
+        "task_id": task_id,
+        "state": state,
+        "summary": summary,
+        "pipeline": pipeline,
+        "funnel": funnel,
+        "warnings": warnings,
+        "event_log": event_log,
+    }
+
+
+@router.get("/api/tasks/{task_id}/review")
+async def get_task_review(task_id: str):
+    task_dir = _task_dir_or_404(task_id)
+    if isinstance(task_dir, JSONResponse):
+        return task_dir
+
+    enriched = _read_json(task_dir / "enriched_segments.json", [])
+    transcript = _read_json(task_dir / "transcript.json", [])
+    settings = _read_json(task_dir / "settings.json", {})
+    review = _load_review_state(task_dir)
+    segment_reviews = review.get("segments", {})
+    if not isinstance(segment_reviews, dict):
+        segment_reviews = {}
+
+    segments: list[dict[str, Any]] = []
+    if isinstance(enriched, list):
+        for idx, segment in enumerate(enriched):
+            if not isinstance(segment, dict):
+                continue
+            segment_id = _segment_id(idx)
+            override = segment_reviews.get(segment_id, {})
+            if not isinstance(override, dict):
+                override = {}
+            merged = {**segment, **override}
+            merged["segment_id"] = segment_id
+            merged["review_status"] = override.get("status", "pending")
+            segments.append(merged)
+
+    clips: list[dict[str, Any]] = []
+    clips_dir = task_dir / "clips"
+    if clips_dir.is_dir():
+        for meta_file in sorted(clips_dir.glob("clip_*_meta.json")):
+            meta = _read_json(meta_file, {})
+            if not isinstance(meta, dict):
+                continue
+            stem = meta_file.stem.replace("_meta", "")
+            meta["segment_id"] = stem
+            meta["clip_id"] = f"{task_id}/{stem}"
+            meta["video_url"] = f"/api/clips/{task_id}/{stem}/download"
+            meta["thumbnail_url"] = f"/api/clips/{task_id}/{stem}/thumbnail"
+            meta["review_status"] = segment_reviews.get(stem, {}).get("status", "pending") if isinstance(segment_reviews.get(stem), dict) else "pending"
+            clips.append(meta)
+
+    return {
+        "task_id": task_id,
+        "segments": segments,
+        "clips": clips,
+        "transcript": transcript if isinstance(transcript, list) else [],
+        "settings": settings if isinstance(settings, dict) else {},
+        "review_status": review,
+    }
+
+
+@router.patch("/api/tasks/{task_id}/review/segments/{segment_id}")
+async def patch_review_segment(task_id: str, segment_id: str, patch: ReviewSegmentPatch):
+    task_dir = _task_dir_or_404(task_id)
+    if isinstance(task_dir, JSONResponse):
+        return task_dir
+
+    if not segment_id.startswith("clip_"):
+        return JSONResponse(status_code=400, content={"detail": "Invalid segment id"})
+
+    review = _load_review_state(task_dir)
+    segments = review.setdefault("segments", {})
+    if not isinstance(segments, dict):
+        segments = {}
+        review["segments"] = segments
+
+    current = segments.get(segment_id, {})
+    if not isinstance(current, dict):
+        current = {}
+
+    updates = patch.model_dump(exclude_unset=True, exclude_none=True)
+    if "status" in updates and updates["status"] not in {
+        "pending",
+        "approved",
+        "skipped",
+        "needs_adjustment",
+    }:
+        return JSONResponse(status_code=422, content={"detail": "Invalid review status"})
+
+    current.update(updates)
+    current["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    segments[segment_id] = current
+    _write_review_state(task_dir, review)
+    return {"task_id": task_id, "segment_id": segment_id, "review": current}
+
+
+@router.post("/api/tasks/{task_id}/retry")
+async def retry_task(task_id: str):
+    task_dir = _task_dir_or_404(task_id)
+    if isinstance(task_dir, JSONResponse):
+        return task_dir
+
+    original = task_dir / "original.mp4"
+    if not original.exists():
+        return JSONResponse(status_code=409, content={"detail": "original.mp4 not found"})
+
+    (task_dir / "state.json").write_text(
+        json.dumps(
+            {"state": "UPLOADED", "message": "Retry requested", "step": "uploaded"},
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    start_pipeline.delay(task_id, str(original))
+    return {"task_id": task_id, "status": "queued"}
 
 
 @router.websocket("/ws/tasks/{task_id}")

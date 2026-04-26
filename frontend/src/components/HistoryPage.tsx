@@ -132,7 +132,6 @@ export function HistoryPage({ onBack }: HistoryPageProps) {
     const params = new URLSearchParams({ offset: "0", limit: String(PAGE_SIZE) });
     if (tab?.apiParam) params.set("status", tab.apiParam);
 
-    setLoading(true);
     fetch(`${API_BASE}/api/tasks?${params}`, { signal: controller.signal })
       .then((r) => r.json())
       .then((data) => {
@@ -273,7 +272,10 @@ export function HistoryPage({ onBack }: HistoryPageProps) {
           {FILTER_TABS.map((tab) => (
             <button
               key={tab.key}
-              onClick={() => setFilter(tab.key)}
+              onClick={() => {
+                setLoading(true);
+                setFilter(tab.key);
+              }}
               className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
                 filter === tab.key
                   ? "bg-slate-900 text-white"

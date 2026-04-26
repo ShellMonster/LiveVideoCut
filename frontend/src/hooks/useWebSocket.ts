@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTaskStore } from "@/stores/taskStore";
 
 function resolveWebSocketBase(): string {
@@ -30,54 +30,55 @@ export function useTaskProgress(taskId: string | null) {
   const [connected, setConnected] = useState(false);
   const { setStatus, setError, setCurrentState } = useTaskStore();
 
-  const connect = useCallback(() => {
-    if (!taskId) return;
-
-    const ws = new WebSocket(`${WS_BASE}/ws/tasks/${taskId}`);
-    wsRef.current = ws;
-
-    ws.onopen = () => setConnected(true);
-
-    ws.onmessage = (event) => {
-      const data: WSMessage = JSON.parse(event.data);
-      if (lastStateRef.current !== data.state) {
-        lastStateRef.current = data.state;
-        setCurrentState(data.state);
-      }
-
-      if (data.state === "COMPLETED") {
-        if (lastStatusRef.current !== "done") {
-          lastStatusRef.current = "done";
-          setStatus("done");
-        }
-      } else if (data.state === "ERROR") {
-        lastStatusRef.current = "error";
-        setError(data.message || "处理失败");
-      } else {
-        if (lastStatusRef.current !== "processing") {
-          lastStatusRef.current = "processing";
-          setStatus("processing");
-        }
-      }
-    };
-
-    ws.onclose = (event) => {
-      setConnected(false);
-      wsRef.current = null;
-
-      if (event.code !== 4040 && event.code !== 1000) {
-        reconnectRef.current = setTimeout(connect, 3000);
-      }
-    };
-
-    ws.onerror = () => {
-      ws.close();
-    };
-  }, [taskId, setStatus, setError, setCurrentState]);
-
   useEffect(() => {
     lastStateRef.current = null;
     lastStatusRef.current = null;
+
+    function connect() {
+      if (!taskId) return;
+
+      const ws = new WebSocket(`${WS_BASE}/ws/tasks/${taskId}`);
+      wsRef.current = ws;
+
+      ws.onopen = () => setConnected(true);
+
+      ws.onmessage = (event) => {
+        const data: WSMessage = JSON.parse(event.data);
+        if (lastStateRef.current !== data.state) {
+          lastStateRef.current = data.state;
+          setCurrentState(data.state);
+        }
+
+        if (data.state === "COMPLETED") {
+          if (lastStatusRef.current !== "done") {
+            lastStatusRef.current = "done";
+            setStatus("done");
+          }
+        } else if (data.state === "ERROR") {
+          lastStatusRef.current = "error";
+          setError(data.message || "处理失败");
+        } else {
+          if (lastStatusRef.current !== "processing") {
+            lastStatusRef.current = "processing";
+            setStatus("processing");
+          }
+        }
+      };
+
+      ws.onclose = (event) => {
+        setConnected(false);
+        wsRef.current = null;
+
+        if (event.code !== 4040 && event.code !== 1000) {
+          reconnectRef.current = setTimeout(connect, 3000);
+        }
+      };
+
+      ws.onerror = () => {
+        ws.close();
+      };
+    }
+
     connect();
 
     return () => {
@@ -85,7 +86,7 @@ export function useTaskProgress(taskId: string | null) {
       wsRef.current?.close(1000, "Component unmounted");
       wsRef.current = null;
     };
-  }, [connect]);
+  }, [taskId, setStatus, setError, setCurrentState]);
 
   return { connected };
 }
