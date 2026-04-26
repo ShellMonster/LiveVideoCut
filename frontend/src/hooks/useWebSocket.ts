@@ -25,6 +25,8 @@ interface WSMessage {
 export function useTaskProgress(taskId: string | null) {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const lastStateRef = useRef<string | null>(null);
+  const lastStatusRef = useRef<"processing" | "done" | "error" | null>(null);
   const [connected, setConnected] = useState(false);
   const { setStatus, setError, setCurrentState } = useTaskStore();
 
@@ -38,14 +40,24 @@ export function useTaskProgress(taskId: string | null) {
 
     ws.onmessage = (event) => {
       const data: WSMessage = JSON.parse(event.data);
-      setCurrentState(data.state);
+      if (lastStateRef.current !== data.state) {
+        lastStateRef.current = data.state;
+        setCurrentState(data.state);
+      }
 
       if (data.state === "COMPLETED") {
-        setStatus("done");
+        if (lastStatusRef.current !== "done") {
+          lastStatusRef.current = "done";
+          setStatus("done");
+        }
       } else if (data.state === "ERROR") {
+        lastStatusRef.current = "error";
         setError(data.message || "处理失败");
       } else {
-        setStatus("processing");
+        if (lastStatusRef.current !== "processing") {
+          lastStatusRef.current = "processing";
+          setStatus("processing");
+        }
       }
     };
 
@@ -64,6 +76,8 @@ export function useTaskProgress(taskId: string | null) {
   }, [taskId, setStatus, setError, setCurrentState]);
 
   useEffect(() => {
+    lastStateRef.current = null;
+    lastStatusRef.current = null;
     connect();
 
     return () => {

@@ -51,10 +51,16 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   ...initialState,
   setTask: (taskId, metadata) =>
     set({ taskId, metadata, currentState: "UPLOADED", status: "processing", clips: null }),
-  setCurrentState: (currentState) => set({ currentState }),
-  setStatus: (status) => set({ status }),
-  setError: (error) => set({ error, status: "error" }),
-  setProgress: (progress) => set({ progress }),
+  setCurrentState: (currentState) =>
+    set((state) => (state.currentState === currentState ? state : { currentState })),
+  setStatus: (status) =>
+    set((state) => (state.status === status ? state : { status })),
+  setError: (error) =>
+    set((state) =>
+      state.error === error && state.status === "error" ? state : { error, status: "error" },
+    ),
+  setProgress: (progress) =>
+    set((state) => (state.progress === progress ? state : { progress })),
   reset: () => set(initialState),
 
   fetchClips: async (taskId: string) => {
