@@ -83,7 +83,7 @@ graph TD
     D --> E["阶段1: visual_prescreen"]
     E --> E1["FFmpeg 抽帧 (0.5fps)"]
     E1 --> E2["换衣检测<br/>YOLO 46类 + MediaPipe + HSV + 分区域 HSV + ORB 纹理<br/>多信号独立 EMA + 滞后阈值 + 人物出现标记"]
-    E2 --> E3["产出 candidates.json + scenes.json + person_presence.json"]
+    E2 --> E3["产出 frames.json + candidates.json + scenes.json + person_presence.json"]
 
     E3 --> F["阶段2: vlm_confirm"]
     F --> F1{"export_mode?"}
@@ -106,8 +106,8 @@ graph TD
     H --> H0["空镜过滤<br/>person_presence.json 丢弃无主播段"]
     H0 --> H1["裁切字幕 SRT / ASS"]
     H1 --> H2["语气词过滤 (可选)<br/>subtitle: 仅删字幕 / video: 裁剪视频段"]
-    H2 --> H3["FFmpeg 并行烧录字幕 + BGM 混音 + 导出 mp4"]
-    H3 --> H4["智能封面选择<br/>content_first / person_first"]
+    H2 --> H3["智能封面选择<br/>优先复用预抽帧，不足时补采样"]
+    H3 --> H4["FFmpeg 并行烧录字幕 + BGM 混音 + 导出 mp4"]
     H4 --> H5["产出 clips/ + covers/ 目录"]
 
     D -->|"WebSocket 推送进度"| W["前端实时显示进度"]
@@ -129,9 +129,9 @@ graph TD
 - **实时进度** -- WebSocket 推送处理进度，前端实时展示
 - **历史记录** -- 分页列表查看所有历史任务，支持状态筛选、展开查看片段、删除
 - **语气词过滤** -- 三级词表（38词），支持仅过滤字幕或同时裁剪视频片段，默认关闭
-- **智能封面** -- content_first（商品优先）/ person_first（主播优先），30帧评分选最佳，COCO YOLO 遮挡检测自动排除手机等遮挡帧
+- **智能封面** -- content_first（商品优先）/ person_first（主播优先），最多 30 帧评分选最佳；优先复用 visual_prescreen 已抽帧，不足时再用 FFmpeg 补足候选，COCO YOLO 遮挡检测自动排除手机等遮挡帧
 - **视频变速** -- 0.5x~3x 倍速，先烧字幕再变速，默认 1.25x
-- **并发处理** -- cgroup-aware 资源检测，ThreadPoolExecutor 并行处理多 clip，4GB 容器默认 2 workers
+- **并发处理** -- cgroup-aware 资源检测，ThreadPoolExecutor 并行处理多 clip，4GB 容器通常约 3 workers（由 CPU/内存实时计算）
 - **BGM 自动选曲** -- 双库架构（内置曲库+用户上传），按商品类型自动匹配背景音乐，用户曲目优先，跨 clip 去重，前端支持拖拽上传/编辑标签/删除
 
 ## 技术栈
@@ -448,6 +448,9 @@ uploads/<task_id>/
 ├── scenes.json                   # 场景检测结果
 ├── transcript.json               # 完整转写 (含 words 时间戳)
 ├── enriched_segments.json        # 校验后的片段
+├── frames/                       # 临时抽帧目录（process_clips 完成后清理）
+│   ├── frames.json               # 预抽帧索引，供封面选择复用
+│   └── scene000/frame_*.jpg      # visual_prescreen 抽出的候选帧
 ├── scenes/
 │   ├── person_presence.json      # 每帧人物出现标记 (空镜过滤用)
 │   ├── hist_debug.json           # 检测信号调试数据 (EMA 等)
@@ -464,7 +467,8 @@ uploads/<task_id>/
 
 | 优化项 | 说明 |
 |--------|------|
-| 并行 clip 处理 | ThreadPoolExecutor 并行处理多 clip，4GB 容器 2 workers |
+| 并行 clip 处理 | ThreadPoolExecutor 并行处理多 clip，并发数由 cgroup CPU/内存实时计算，4GB 容器通常约 3 workers |
+| 封面预抽帧复用 | `visual_prescreen` 写出 `frames/frames.json`，`process_clips` 优先复用已抽帧做封面评分；预抽帧不足时才用 FFmpeg 补足候选，导出完成后递归清理 `frames/` |
 | FFmpeg x264 优化 | `rc-lookahead=5:bframes=1:ref=1` 降低每实例 ~100MB 内存 |
 | FFmpeg 线程限制 | `-threads 4 -filter_threads 2` 避免内存膨胀 |
 | Celery 资源回收 | `--max-tasks-per-child=10 --max-memory-per-child=3GB` |
@@ -475,6 +479,13 @@ uploads/<task_id>/
 | 阶段 | 串行 | 并行 2w + 优化 | 改善 |
 |------|------|---------------|------|
 | process_clips | 276s | 195s | -29% |
+
+最新基准（同一 20 分钟 1080x1920 直播视频）：
+
+| 场景 | 关键结果 |
+|------|----------|
+| 本地隔离链路（VLM/ASR/LLM/BGM/字幕关闭） | 封面选择平均约 `20.16s → 15.87s/clip`，子阶段约 -21%；端到端受 FFmpeg 负载波动影响，不直接宣称整体加速 |
+| 完整链路（smart + VLM + volcengine_vc + karaoke + LLM + BGM） | 监控总耗时约 600s；主要瓶颈为 `process_clips=285.08s` 和视觉抽帧+检测约 211.74s |
 
 ## 常见问题
 

@@ -154,6 +154,7 @@
 做这些事：
 
 - FFmpeg 抽帧（默认 0.5fps）
+- 写出 `frames/frames.json` 预抽帧索引（含 path/timestamp/scene_idx），供导出阶段封面选择复用
 - 用 ClothingChangeDetector（五信号联合：YOLO 品类变化 + MediaPipe 像素分割 + 全帧 HSV + 分区域 HSV（上身/下身）+ ORB 纹理）检测换衣节点
 - 五信号各自独立走 EMA 平滑，任何一个信号的 EMA 低于阈值即可触发换衣检测
 - 写出 `scenes/person_presence.json`（每帧人物出现标记，用于下游空镜过滤）
@@ -212,10 +213,11 @@
 - 生成 `.srt` 或 `.ass`
 - 调用 FFmpeg 烧录字幕并导出 mp4
 - BGM 自动选曲（`bgm_selector.py`）：双库架构（内置+用户上传），基于商品类型和 mood 匹配，用户曲目优先，跨 clip 去重避免重复
-- 封面选择：根据 `cover_strategy` 从 clip 中均匀采样最多 30 帧，评分选出最佳封面
+- 封面选择：根据 `cover_strategy` 最多评分 30 帧；优先复用 `visual_prescreen` 已抽帧，预抽帧不足时再用 FFmpeg 补足候选，评分选出最佳封面
 - 生成缩略图（保存到 `covers/clip_xxx.jpg`）
 - 空镜过滤：读取 `scenes/person_presence.json`，两层过滤：(1) 段内人物出现率 < 60% 丢弃；(2) 开头连续无人 ≥ 8 秒丢弃；缺文件时不过滤
 - 写 `clip_xxx_meta.json`
+- 导出完成后递归清理临时 `frames/` 目录（包含 `frames.json` 和 `scene000/frame_*.jpg`），避免抽帧文件长期占用磁盘
 
 **并发处理**：使用 `ThreadPoolExecutor` 并行处理多个 clip，并发数由 `resource_detector.py` 根据容器 cgroup 资源动态计算（4GB 容器默认 2 workers）
 
@@ -227,7 +229,7 @@
 `resource_detector.py` 在 Docker 容器内通过 cgroup v2 实时检测资源：
 - CPU：读 `/sys/fs/cgroup/cpu.max`
 - 内存：读 `/sys/fs/cgroup/memory.max`
-- 计算公式：`clip_workers = min(cpu_cores, (mem - 2.0GB) / 0.6GB, 2)`
+- 计算公式：`clip_workers = min(cpu_cores, (mem - 2.0GB) / 0.6GB, 4)`，`frame_workers` 上限为 3；4GB 容器实测通常约 3 个 clip workers
 
 ### process_clips 并行策略
 
@@ -257,6 +259,17 @@ docker-compose.yml 中 worker 启动参数：
 |------|------|---------------------|------|
 | process_clips | 276s | **195s** | **-29%** |
 | visual_prescreen | 336s | 269s | 不稳定（受系统负载影响） |
+
+### 最新性能基准（2026-04-26）
+
+同一条 20 分钟 1080x1920 直播视频：
+
+| 场景 | 关键结果 |
+|---|---|
+| 本地隔离链路（VLM/ASR/LLM/BGM/字幕关闭） | 封面选择平均约 `20.16s → 15.87s/clip`，子阶段约 -21%；总耗时受 FFmpeg 负载波动影响，不能直接宣称端到端加速 |
+| 完整链路（smart + VLM + volcengine_vc + karaoke + LLM + BGM） | 监控总耗时约 600s；主要瓶颈为 `process_clips=285.08s` 和视觉抽帧+检测约 211.74s |
+
+基准报告：`.gstack/benchmark-reports/2026-04-26-pipeline-benchmark.md`
 
 
 ## 语气词过滤（filler_filter.py）
@@ -329,7 +342,7 @@ docker-compose.yml 中 worker 启动参数：
 
 ## 封面选择策略（cover_selector.py）
 
-从 clip 中均匀采样最多 30 帧进行评分，选最佳帧作为缩略图。
+从 clip 中采样最多 30 帧进行评分，选最佳帧作为缩略图。导出阶段会优先复用 `visual_prescreen` 的预抽帧；如果预抽帧数量不足，再用 FFmpeg 补足候选，避免因为 0.5fps 抽帧太稀导致封面质量下降。
 
 ### 评分算法
 
@@ -443,6 +456,8 @@ docker-compose.yml 中 worker 启动参数：
 - `uploads/<task_id>/transcript.json`
 - `uploads/<task_id>/candidates.json`
 - `uploads/<task_id>/enriched_segments.json`
+- `uploads/<task_id>/frames/frames.json`（临时预抽帧索引，process_clips 完成后清理）
+- `uploads/<task_id>/frames/scene000/frame_*.jpg`（临时预抽帧，process_clips 完成后清理）
 - `uploads/<task_id>/clips/clip_xxx.mp4`
 - `uploads/<task_id>/clips/clip_xxx_meta.json`
 - `uploads/<task_id>/covers/clip_xxx.jpg`
@@ -547,6 +562,7 @@ VC 贵 3 倍但效果最好，适合对字幕质量有要求的场景。
   - Docker 构建时通过 `COPY assets/` 打包进镜像
   - 模型来源：MediaPipe 从 Google GCS 下载，Fashionpedia YOLO 从 HuggingFace 下载（国内需代理），COCO YOLO 从 ultralytics 导出
 - `frame_sample_fps` 默认值已改为 `0.5`（float 类型），原来 `2` 导致帧数过多、处理慢且容易 OOM
+- `visual_prescreen` 的预抽帧会暂存到 `frames/frames.json` + `frames/scene000/`，`process_clips` 封面选择优先复用这些帧；候选不足时才额外 FFmpeg 补采样，导出结束后递归清理整个 `frames/` 目录
 - 换衣检测的帧分析会在处理前 resize 到 640px 以降低内存占用
 - 新增依赖 `mediapipe>=0.10.14`（在 requirements.txt 中）
 - 换衣检测已从三信号升级到五信号：YOLO 品类变化 + MediaPipe 像素分割 + 全帧 HSV + 分区域 HSV（上身/下身，用 YOLO bbox 区分 UPPER_BODY_CLASSES / LOWER_BODY_CLASSES）+ ORB 纹理（上身 bbox 裁剪后提取描述子）
