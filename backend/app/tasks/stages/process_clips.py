@@ -1,0 +1,444 @@
+import json
+import time
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from typing import Any
+
+from app.api.settings import SettingsRequest
+from app.services.bgm_selector import BGMSelector, DEFAULT_BGM
+
+logger = logging.getLogger(__name__)
+
+ASSETS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "assets"
+DEFAULT_WATERMARK = str(ASSETS_DIR / "watermark.png")
+
+
+def build_clip_basename(index: int, _product_name: str) -> str:
+    """Return a stable ASCII-only basename for exported clip artifacts."""
+    return f"clip_{index:03d}"
+
+
+def build_clip_metadata(
+    segment: dict[str, Any], result: dict[str, Any]
+) -> dict[str, Any]:
+    return {
+        "product_name": segment.get("product_name", "未知商品"),
+        "duration": result.get(
+            "duration",
+            float(segment.get("end_time", 0.0)) - float(segment.get("start_time", 0.0)),
+        ),
+        "start_time": segment.get("start_time", 0.0),
+        "end_time": segment.get("end_time", 0.0),
+        "confidence": segment.get("confidence", 0),
+    }
+
+
+def _merge_segments(segments: list[dict[str, Any]], merge_count: int) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    for i in range(0, len(segments), merge_count):
+        batch = segments[i : i + merge_count]
+        if len(batch) == 1:
+            merged.append(batch[0])
+            continue
+        start_time = float(batch[0].get("start_time", 0.0))
+        end_time = float(batch[-1].get("end_time", 0.0))
+        texts = [s.get("text", "") for s in batch if s.get("text")]
+        merged.append({
+            **batch[0],
+            "start_time": start_time,
+            "end_time": end_time,
+            "text": " ".join(texts),
+            "product_name": batch[0].get("product_name", "未知商品"),
+        })
+    logger.info(
+        "Merged %d segments into %d (merge_count=%d)",
+        len(segments), len(merged), merge_count,
+    )
+    return merged
+
+
+def _collect_clip_subtitle_segments(
+    segment: dict[str, Any], transcript: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    clip_start = float(segment.get("start_time", 0.0))
+    clip_end = float(segment.get("end_time", 0.0))
+    subtitle_segments: list[dict[str, Any]] = []
+
+    for transcript_segment in transcript:
+        transcript_start = float(transcript_segment.get("start_time", 0.0))
+        transcript_end = float(transcript_segment.get("end_time", 0.0))
+        if transcript_start > clip_end or transcript_end < clip_start:
+            continue
+
+        relative_start = max(transcript_start, clip_start) - clip_start
+        relative_end = min(transcript_end, clip_end) - clip_start
+
+        subtitle_segment: dict[str, Any] = {
+            "text": "",
+            "start_time": relative_start,
+            "end_time": relative_end,
+        }
+
+        words = []
+        for word in transcript_segment.get("words", []) or []:
+            word_start = float(word.get("start_time", transcript_start))
+            word_end = float(word.get("end_time", transcript_end))
+            if word_start > clip_end or word_end < clip_start:
+                continue
+            rel_start = max(word_start, clip_start) - clip_start
+            rel_end = min(word_end, clip_end) - clip_start
+            if rel_end <= rel_start:
+                continue
+            words.append(
+                {
+                    "text": word.get("text", ""),
+                    "start_time": rel_start,
+                    "end_time": rel_end,
+                    "probability": word.get("probability", 0.0),
+                }
+            )
+
+        subtitle_segment["text"] = (
+            "".join(w["text"] for w in words) if words else transcript_segment.get("text", "")
+        )
+
+        if words:
+            subtitle_segment["words"] = words
+
+        # 过滤零时长幽灵片段：边界对齐可能产生 start==end 的单字残留，
+        # 会在 ASS Layer 0 产生与下一段重叠的 dialogue，导致字幕和跳动分两行
+        seg_duration = subtitle_segment["end_time"] - subtitle_segment["start_time"]
+        if seg_duration < 0.05 and not words:
+            continue
+
+        subtitle_segments.append(subtitle_segment)
+
+    return subtitle_segments
+
+
+def _process_single_clip(
+    idx: int,
+    seg: dict[str, Any],
+    video_path: Path,
+    clips_dir: Path,
+    srt_dir: Path,
+    covers_dir: Path,
+    transcript: list[dict[str, Any]],
+    settings: SettingsRequest,
+    pre_sampled_frames: list[dict[str, Any]] | None = None,
+    bgm_path: str | None = None,
+) -> dict[str, Any] | None:
+    """Process a single clip — designed for ProcessPoolExecutor (module-level for pickling)."""
+    from app.tasks.pipeline import (
+        SRTGenerator,
+        FFmpegBuilder,
+        select_cover_frame,
+        filter_subtitle_words,
+        compute_filler_cut_ranges,
+    )
+
+    try:
+        clip_started_at = time.perf_counter()
+        seg_label = seg.get("product_name", f"segment_{idx}")
+        safe_label = build_clip_basename(idx, seg_label)
+
+        output_path = str((clips_dir / f"{safe_label}.mp4").resolve())
+        thumbnail_path = str((covers_dir / f"{safe_label}.jpg").resolve())
+
+        subtitle_started_at = time.perf_counter()
+        sub_segments = _collect_clip_subtitle_segments(seg, transcript)
+        if not sub_segments:
+            seg_text = seg.get("text", "")
+            sub_segments = (
+                [
+                    {
+                        "text": seg_text,
+                        "start_time": 0.0,
+                        "end_time": seg.get("end_time", 0.0)
+                        - seg.get("start_time", 0.0),
+                    }
+                ]
+                if seg_text
+                else []
+            )
+
+        filler_mode = getattr(settings, "filter_filler_mode", "off")
+        if filler_mode in ("subtitle", "video"):
+            sub_segments = filter_subtitle_words(sub_segments)
+
+        filler_cut_ranges: list[dict[str, object]] = []
+        if filler_mode == "video":
+            filler_cut_ranges = compute_filler_cut_ranges(sub_segments)
+
+        srt_gen = SRTGenerator()
+        has_word_timing = any(bool(item.get("words")) for item in sub_segments)
+        effective_subtitle_mode = srt_gen.resolve_phase1_export_mode(
+            settings.subtitle_mode.value,
+            has_text=bool(sub_segments),
+            has_word_timing=has_word_timing,
+        )
+        clip_srt_path: str | None = None
+        if effective_subtitle_mode != "off":
+            try:
+                subtitle_ext = (
+                    ".ass" if effective_subtitle_mode == "karaoke" else ".srt"
+                )
+                subtitle_path = str(
+                    (srt_dir / f"{safe_label}{subtitle_ext}").resolve()
+                )
+                clip_srt_path = srt_gen.generate(
+                    sub_segments,
+                    subtitle_path,
+                    mode=effective_subtitle_mode,
+                )
+            except Exception:
+                logger.warning(
+                    "Subtitle asset generation failed for %s, exporting without subtitles",
+                    safe_label,
+                    exc_info=True,
+                )
+                effective_subtitle_mode = "off"
+        logger.info("Clip %s subtitle preparation finished in %.2fs", safe_label, time.perf_counter() - subtitle_started_at)
+
+        cover_strategy = getattr(settings, "cover_strategy", "content_first")
+        video_speed = getattr(settings, "video_speed", 1.0)
+        export_resolution = getattr(settings, "export_resolution", "1080p")
+        cover_started_at = time.perf_counter()
+        cover_ts = select_cover_frame(
+            video_path=str(video_path),
+            clip_start=float(seg.get("start_time", 0.0)),
+            clip_end=float(seg.get("end_time", 0.0)),
+            strategy=cover_strategy,
+            output_path=thumbnail_path,
+            pre_sampled_frames=pre_sampled_frames,
+        )
+        thumbnail_precreated = Path(thumbnail_path).exists()
+        logger.info("Clip %s cover selection finished in %.2fs", safe_label, time.perf_counter() - cover_started_at)
+
+        ffmpeg = FFmpegBuilder()
+        selected_bgm = bgm_path if bgm_path else DEFAULT_BGM
+        export_started_at = time.perf_counter()
+        result = ffmpeg.process_clip(
+            input_path=str(video_path),
+            segment=seg,
+            srt_path=clip_srt_path,
+            bgm_path=selected_bgm,
+            watermark_path=DEFAULT_WATERMARK,
+            output_path=output_path,
+            thumbnail_path=thumbnail_path,
+            subtitle_mode=effective_subtitle_mode,
+            subtitle_position=settings.subtitle_position.value,
+            subtitle_template=settings.subtitle_template.value,
+            custom_position_y=settings.custom_position_y,
+            filler_cut_ranges=filler_cut_ranges or None,
+            cover_timestamp=cover_ts,
+            video_speed=video_speed,
+            export_resolution=export_resolution,
+            bgm_enabled=getattr(settings, "bgm_enabled", True),
+            bgm_volume=getattr(settings, "bgm_volume", 0.25),
+            original_volume=getattr(settings, "original_volume", 1.0),
+            thumbnail_precreated=thumbnail_precreated,
+        )
+        logger.info("Clip %s FFmpeg export finished in %.2fs", safe_label, time.perf_counter() - export_started_at)
+
+        meta_path = clips_dir / f"{safe_label}_meta.json"
+        meta_path.write_text(
+            json.dumps(
+                build_clip_metadata(seg, result), ensure_ascii=False, indent=2
+            )
+        )
+
+        logger.info("Clip %s total processing finished in %.2fs", safe_label, time.perf_counter() - clip_started_at)
+        return result
+    except Exception:
+        logger.exception("Failed to process clip %d: %s", idx, build_clip_basename(idx, ""))
+        return None
+
+
+def run_process_clips(task_id: str, task_dir: str) -> dict[str, Any]:
+    from app.tasks.pipeline import (
+        TaskStateMachine,
+        PipelineErrorHandler,
+        TempFileCleaner,
+        SRTGenerator,
+        FFmpegBuilder,
+        calculate_parallelism,
+        _load_task_settings,
+        _log_elapsed,
+        _find_video,
+    )
+
+    task_path = Path(task_dir)
+    settings = _load_task_settings(task_path)
+    sm = TaskStateMachine(task_dir=task_path)
+    err = PipelineErrorHandler(task_dir=task_path)
+    cleaner = TempFileCleaner()
+
+    process_started_at = time.perf_counter()
+    enriched_file = task_path / "enriched_segments.json"
+    if not enriched_file.exists():
+        logger.error("No enriched segments found: %s", enriched_file)
+        sm.transition("PROCESSING", "ERROR", message="No enriched segments found")
+        return {"clips_count": 0, "output_dir": str(task_path / "clips")}
+
+    segments = json.loads(enriched_file.read_text())
+    if not segments:
+        logger.warning("Empty segments for task %s", task_id)
+        sm.transition("PROCESSING", "COMPLETED", step="completed")
+        return {"clips_count": 0, "output_dir": str(task_path / "clips")}
+
+    # Filter out segments where person is not present (empty screen)
+    # Two-layer filter:
+    #   1. Overall person presence ratio must be >= 60%
+    #   2. No person-absent gap >= 8s at segment start
+    PERSON_OVERALL_THRESHOLD = 0.6
+    PERSON_START_GAP_SECONDS = 8.0
+    # person_presence.json is written to scenes/ subdir by ClothingChangeDetector
+    person_presence_file = task_path / "scenes" / "person_presence.json"
+    if person_presence_file.exists():
+        person_presence = json.loads(person_presence_file.read_text())
+        if person_presence:
+            filtered_segments = []
+            for seg in segments:
+                seg_start = seg.get("start_time", 0.0)
+                seg_end = seg.get("end_time", 0.0)
+                frames_in_seg = [
+                    p for p in person_presence
+                    if seg_start <= p["timestamp"] <= seg_end
+                ]
+                if frames_in_seg:
+                    person_ratio = sum(
+                        1 for p in frames_in_seg if p.get("person_present", True)
+                    ) / len(frames_in_seg)
+                else:
+                    person_ratio = 1.0  # no frame data → keep
+
+                # Layer 1: overall presence threshold
+                if person_ratio < PERSON_OVERALL_THRESHOLD:
+                    logger.info(
+                        "Skipping segment '%s' (%.1fs-%.1fs): person present in only %.0f%% of frames (threshold %.0f%%)",
+                        seg.get("product_name", ""),
+                        seg_start, seg_end, person_ratio * 100,
+                        PERSON_OVERALL_THRESHOLD * 100,
+                    )
+                    continue
+
+                # Layer 2: check for consecutive person-absent gap at segment start
+                # Find the first frame with person present
+                first_present_ts = None
+                for p in frames_in_seg:
+                    if p.get("person_present", False):
+                        first_present_ts = p["timestamp"]
+                        break
+                if first_present_ts is not None:
+                    start_gap = first_present_ts - seg_start
+                    if start_gap >= PERSON_START_GAP_SECONDS:
+                        logger.info(
+                            "Skipping segment '%s' (%.1fs-%.1fs): no person for first %.1fs (threshold %.1fs)",
+                            seg.get("product_name", ""),
+                            seg_start, seg_end, start_gap,
+                            PERSON_START_GAP_SECONDS,
+                        )
+                        continue
+                elif not frames_in_seg:
+                    pass  # no frame data → keep (handled above)
+                else:
+                    # All frames show no person → already caught by layer 1
+                    continue
+
+                filtered_segments.append(seg)
+            skipped = len(segments) - len(filtered_segments)
+            if skipped > 0:
+                logger.info("Person presence filter: %d/%d segments kept (%d empty-screen segments dropped)",
+                            len(filtered_segments), len(segments), skipped)
+            segments = filtered_segments
+    else:
+        logger.debug("No person_presence.json found, skipping person presence filter")
+
+    merge_count = getattr(settings, "merge_count", 1)
+    if merge_count > 1:
+        segments = _merge_segments(segments, merge_count)
+
+    video_path = _find_video(task_path)
+    if not video_path:
+        logger.error("No video file found in %s", task_dir)
+        sm.transition("PROCESSING", "ERROR", message="No video file found")
+        return {"clips_count": 0, "output_dir": str(task_path / "clips")}
+
+    clips_dir = task_path / "clips"
+    clips_dir.mkdir(parents=True, exist_ok=True)
+    srt_dir = task_path / "srt"
+    srt_dir.mkdir(parents=True, exist_ok=True)
+    covers_dir = task_path / "covers"
+    covers_dir.mkdir(parents=True, exist_ok=True)
+
+    transcript_file = task_path / "transcript.json"
+    transcript = []
+    if transcript_file.exists():
+        transcript = json.loads(transcript_file.read_text())
+
+    pre_sampled_frames: list[dict[str, Any]] = []
+    frames_index = task_path / "frames" / "frames.json"
+    if frames_index.exists():
+        pre_sampled_frames = json.loads(frames_index.read_text())
+        logger.info("Loaded %d pre-sampled frames for cover selection", len(pre_sampled_frames))
+
+    parallelism = calculate_parallelism()
+    clip_workers = int(min(parallelism["clip_workers"], len(segments)))
+
+    bgm_enabled = getattr(settings, "bgm_enabled", True)
+    bgm_map: dict[int, str] = {}
+    if bgm_enabled:
+        bgm_selector = BGMSelector.with_user_library(ASSETS_DIR / "bgm" / "bgm_library.json")
+        used_bgm_ids: set[str] = set()
+        for idx, seg in enumerate(segments):
+            selected = bgm_selector.select_for_segment(seg, used_bgm_ids)
+            bgm_map[idx] = selected
+
+    processed: list[dict[str, Any]] = []
+    if clip_workers > 1 and len(segments) > 1:
+        logger.info("Processing %d clips with %d workers", len(segments), clip_workers)
+        with ThreadPoolExecutor(max_workers=clip_workers) as executor:
+            futures = {}
+            for idx, seg in enumerate(segments):
+                future = executor.submit(
+                    _process_single_clip,
+                    idx, seg, video_path, clips_dir, srt_dir, covers_dir,
+                    transcript, settings, pre_sampled_frames, bgm_map.get(idx),
+                )
+                futures[future] = idx
+
+            for future in as_completed(futures):
+                idx = futures[future]
+                try:
+                    result = future.result()
+                    if result is not None:
+                        processed.append(result)
+                        logger.info(
+                            "Processed clip %d/%d: %s",
+                            idx + 1, len(segments), build_clip_basename(idx, ""),
+                        )
+                except Exception:
+                    logger.exception("Failed to process clip %d", idx)
+    else:
+        for idx, seg in enumerate(segments):
+            result = _process_single_clip(
+                idx, seg, video_path, clips_dir, srt_dir, covers_dir,
+                transcript, settings, pre_sampled_frames, bgm_map.get(idx),
+            )
+            if result is not None:
+                processed.append(result)
+                logger.info(
+                    "Processed clip %d/%d: %s",
+                    idx + 1, len(segments), build_clip_basename(idx, ""),
+                )
+
+    sm.transition("PROCESSING", "COMPLETED", step="completed")
+    _log_elapsed("process_clips", process_started_at)
+    cleaner.cleanup_frames(task_dir)
+
+    return {
+        "clips_count": len(processed),
+        "output_dir": str(clips_dir),
+    }
