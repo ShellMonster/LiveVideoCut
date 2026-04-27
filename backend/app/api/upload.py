@@ -9,8 +9,8 @@ from pathlib import Path
 from fastapi import APIRouter, Form, HTTPException, UploadFile
 from pydantic import ValidationError as PydanticValidationError
 
-from app.api.settings import SettingsRequest
-from app.services.validator import ValidationError, VideoValidator
+from app.api.settings import SENSITIVE_FIELDS, SettingsRequest
+from app.services.validator import MAX_FILE_SIZE, ValidationError, VideoValidator
 from app.tasks.pipeline import start_pipeline
 
 UPLOAD_DIR = Path("uploads")
@@ -85,10 +85,22 @@ async def upload_file(file: UploadFile, settings_json: str | None = Form(None)):
     task_dir = UPLOAD_DIR / task_id
     task_dir.mkdir(parents=True, exist_ok=True)
 
-    # 4. Save file
+    # 4. Save file (streaming write to avoid OOM on large videos)
     dest = task_dir / "original.mp4"
-    content = await file.read()
-    dest.write_bytes(content)
+    _CHUNK_SIZE = 1024 * 1024
+    with dest.open("wb") as f:
+        while chunk := await file.read(_CHUNK_SIZE):
+            f.write(chunk)
+
+    # 4.1 Validate actual file size on disk (Content-Length header can be spoofed)
+    actual_size = dest.stat().st_size
+    if actual_size > MAX_FILE_SIZE:
+        dest.unlink(missing_ok=True)
+        gb = actual_size / (1024**3)
+        raise HTTPException(
+            status_code=422,
+            detail=f"File too large: {gb:.1f}GB. Maximum size is 20GB.",
+        )
 
     # 5. Validate codec + audio with ffprobe on saved file
     file_path = str(dest)
@@ -109,11 +121,20 @@ async def upload_file(file: UploadFile, settings_json: str | None = Form(None)):
     meta_path.write_text(json.dumps(metadata, indent=2))
 
     settings_path = task_dir / "settings.json"
+    full_payload = resolved_settings.model_dump(mode="json")
+
+    safe_payload = {k: v for k, v in full_payload.items() if k not in SENSITIVE_FIELDS}
     settings_path.write_text(
-        json.dumps(
-            resolved_settings.model_dump(mode="json"), ensure_ascii=False, indent=2
-        )
+        json.dumps(safe_payload, ensure_ascii=False, indent=2)
     )
+
+    secrets_payload = {k: v for k, v in full_payload.items() if k in SENSITIVE_FIELDS and v}
+    if secrets_payload:
+        secrets_path = task_dir / "secrets.json"
+        secrets_path.write_text(
+            json.dumps(secrets_payload, ensure_ascii=False, indent=2)
+        )
+        secrets_path.chmod(0o600)
 
     # 7. Dispatch Celery task
     start_pipeline.delay(task_id, file_path)

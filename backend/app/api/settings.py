@@ -4,35 +4,15 @@ from urllib.parse import urlparse
 from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.config import (
+    DEFAULT_API_BASES,
+    DEFAULT_MODELS,
+    PROVIDER_HOST_HINTS,
+    PROVIDER_MODEL_PREFIXES,
+    VLMProvider,
+)
+
 router = APIRouter()
-
-QWEN_API_BASE = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-GLM_API_BASE = "https://open.bigmodel.cn/api/paas/v4"
-
-DEFAULT_API_BASES = {
-    "qwen": QWEN_API_BASE,
-    "glm": GLM_API_BASE,
-}
-
-DEFAULT_MODELS = {
-    "qwen": "qwen-vl-plus",
-    "glm": "glm-5v-turbo",
-}
-
-PROVIDER_HOST_HINTS = {
-    "qwen": ("dashscope.aliyuncs.com",),
-    "glm": ("open.bigmodel.cn",),
-}
-
-PROVIDER_MODEL_PREFIXES = {
-    "qwen": ("qwen-",),
-    "glm": ("glm-",),
-}
-
-
-class VLMProvider(str, Enum):
-    qwen = "qwen"
-    glm = "glm"
 
 
 class ReviewStrictness(str, Enum):
@@ -194,6 +174,9 @@ class SettingsRequest(BaseModel):
         self.api_base = _validate_api_base(provider, resolved_api_base)
         self.model = _validate_model(provider, resolved_model)
         return self
+
+
+SENSITIVE_FIELDS = frozenset({"api_key", "asr_api_key", "tos_ak", "tos_sk", "llm_api_key"})
 
 
 @router.post("/api/settings/validate")
