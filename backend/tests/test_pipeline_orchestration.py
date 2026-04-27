@@ -464,6 +464,9 @@ def test_enrich_segments_uses_task_snapshot_post_processing_controls(
         def cleanup_chunks(self, _task_dir: str) -> None:
             return None
 
+        def cleanup_frames(self, _task_dir: str) -> None:
+            return None
+
     class _FakeWhisperClient:
         def transcribe(self, _video_path: str) -> dict[str, object]:
             return {"segments": []}
@@ -555,6 +558,9 @@ def test_process_clips_off_skips_subtitle_generation_and_burn(monkeypatch, tmp_p
 
     class _FakeCleaner:
         def cleanup_srt(self, _task_dir: str) -> None:
+            return None
+
+        def cleanup_frames(self, _task_dir: str) -> None:
             return None
 
     class _FakeSRTGenerator:
@@ -649,6 +655,9 @@ def test_process_clips_basic_falls_back_to_no_subtitle_export_when_srt_generatio
         def cleanup_srt(self, _task_dir: str) -> None:
             return None
 
+        def cleanup_frames(self, _task_dir: str) -> None:
+            return None
+
     class _FakeSRTGenerator:
         def resolve_phase1_export_mode(
             self, requested_mode: str, has_text: bool, has_word_timing: bool = False
@@ -737,6 +746,9 @@ def test_process_clips_downgrades_karaoke_to_basic_and_threads_subtitle_settings
 
     class _FakeCleaner:
         def cleanup_srt(self, _task_dir: str) -> None:
+            return None
+
+        def cleanup_frames(self, _task_dir: str) -> None:
             return None
 
     class _FakeSRTGenerator:
@@ -833,6 +845,9 @@ def test_process_clips_writes_clip_metadata_for_listing(monkeypatch, tmp_path):
 
     class _FakeCleaner:
         def cleanup_srt(self, _task_dir: str) -> None:
+            return None
+
+        def cleanup_frames(self, _task_dir: str) -> None:
             return None
 
     class _FakeSRTGenerator:

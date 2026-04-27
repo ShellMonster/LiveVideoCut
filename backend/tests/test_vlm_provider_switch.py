@@ -57,7 +57,7 @@ def test_vlm_client_prefers_explicit_base_and_model_over_provider_defaults():
 
 
 def test_vlm_confirm_routes_provider_to_vlm_client_and_logs_selection(tmp_path, caplog):
-    caplog.set_level(logging.INFO, logger="app.tasks.pipeline")
+    caplog.set_level(logging.INFO, logger="app.tasks.stages.vlm_confirm")
     pipeline = _reload_pipeline_module()
     candidates_file = tmp_path / "candidates.json"
     candidates_file.write_text("[]")

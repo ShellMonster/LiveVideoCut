@@ -9,7 +9,7 @@ from httpx import ASGITransport, AsyncClient
 from app.main import app
 
 UPLOAD_DIR = Path("uploads")
-FIXTURE_TASK = "test-task-clips"
+FIXTURE_TASK = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 CLIPS_DIR = UPLOAD_DIR / FIXTURE_TASK / "clips"
 
 
@@ -62,7 +62,7 @@ async def test_list_clips(client):
 
 @pytest.mark.anyio
 async def test_list_clips_not_found(client):
-    resp = await client.get("/api/tasks/nonexistent/clips")
+    resp = await client.get("/api/tasks/00000000-0000-0000-0000-000000000000/clips")
     assert resp.status_code == 404
 
 

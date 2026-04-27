@@ -74,7 +74,10 @@ async def test_upload_persists_resolved_settings_snapshot(
     assert json.loads((task_dir / "meta.json").read_text()) == metadata
 
     settings_snapshot = json.loads((task_dir / "settings.json").read_text())
-    assert settings_snapshot["api_key"] == "glm-key"
+    # api_key 等敏感字段已从 settings.json 移到 secrets.json
+    assert "api_key" not in settings_snapshot
+    secrets_snapshot = json.loads((task_dir / "secrets.json").read_text())
+    assert secrets_snapshot["api_key"] == "glm-key"
     assert settings_snapshot["enable_vlm"] is True
     assert settings_snapshot["export_mode"] == "smart"
     assert settings_snapshot["vlm_provider"] == "glm"
@@ -147,8 +150,9 @@ async def test_upload_uses_env_api_key_when_settings_payload_has_blank_key(
     payload = response.json()
     task_dir = tmp_path / payload["task_id"]
     settings_snapshot = json.loads((task_dir / "settings.json").read_text())
-
-    assert settings_snapshot["api_key"] == "env-fallback-key"
+    # env-fallback-key 写入 secrets.json 而非 settings.json
+    secrets_snapshot = json.loads((task_dir / "secrets.json").read_text())
+    assert secrets_snapshot["api_key"] == "env-fallback-key"
     assert settings_snapshot["export_mode"] == "smart"
     assert queued == [(payload["task_id"], str(task_dir / "original.mp4"))]
 
@@ -215,6 +219,6 @@ async def test_upload_accepts_blank_api_key_when_vlm_disabled(
     settings_snapshot = json.loads((task_dir / "settings.json").read_text())
 
     assert settings_snapshot["enable_vlm"] is False
-    assert settings_snapshot["api_key"] == ""
+    assert "api_key" not in settings_snapshot
     assert settings_snapshot["export_mode"] == "no_vlm"
     assert queued == [(payload["task_id"], str(task_dir / "original.mp4"))]

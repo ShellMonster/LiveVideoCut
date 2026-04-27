@@ -7,7 +7,7 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _setup_assets(tmp_path, monkeypatch):
-    task_dir = tmp_path / "asset-task"
+    task_dir = tmp_path / "c3d4e5f6-a7b8-9012-cdef-234567890123"
     clips_dir = task_dir / "clips"
     covers_dir = task_dir / "covers"
     clips_dir.mkdir(parents=True)
@@ -77,15 +77,16 @@ async def test_system_resources_counts_task_states(client):
 
 @pytest.mark.anyio
 async def test_task_events_and_artifact_download(client):
-    events_response = await client.get("/api/tasks/asset-task/events")
+    tid = "c3d4e5f6-a7b8-9012-cdef-234567890123"
+    events_response = await client.get(f"/api/tasks/{tid}/events")
     assert events_response.status_code == 200
     assert any(event["file"] == "review.json" for event in events_response.json()["events"])
 
-    diagnostics_response = await client.get("/api/tasks/asset-task/diagnostics/export")
+    diagnostics_response = await client.get(f"/api/tasks/{tid}/diagnostics/export")
     assert diagnostics_response.status_code == 200
     assert diagnostics_response.headers["content-type"] == "application/json"
 
-    zip_response = await client.get("/api/tasks/asset-task/artifacts.zip")
+    zip_response = await client.get(f"/api/tasks/{tid}/artifacts.zip")
     assert zip_response.status_code == 200
     with zipfile.ZipFile(BytesIO(zip_response.content)) as zf:
         names = zf.namelist()

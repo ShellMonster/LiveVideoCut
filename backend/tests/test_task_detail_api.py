@@ -3,7 +3,7 @@ import json
 import pytest
 
 
-TASK_ID = "task-detail-fixture"
+TASK_ID = "b2c3d4e5-f6a7-8901-bcde-f12345678901"
 
 
 @pytest.fixture(autouse=True)
