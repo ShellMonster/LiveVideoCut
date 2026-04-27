@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from app.api import assets, clips, health, music, settings, system, tasks, upload
+from app.api.error_handler import register_error_handlers
 
 app = FastAPI(
     title="Live Stream AI Clipper",
@@ -15,3 +16,5 @@ app.include_router(clips.router)
 app.include_router(music.router)
 app.include_router(assets.router)
 app.include_router(system.router)
+
+register_error_handlers(app)
