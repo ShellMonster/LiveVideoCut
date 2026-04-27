@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom";
 import { UploadZone } from "@/components/UploadZone";
 import { cn } from "@/lib/utils";
 import { useTaskStore } from "@/stores/taskStore";
@@ -5,7 +6,8 @@ import { useSettingsStore } from "@/stores/settingsStore";
 import { stageLabels } from "../constants";
 import { ChecklistItem, Chip, Header } from "../shared";
 
-export function CreateProjectPage({ onCancel }: { onCancel: () => void }) {
+export function CreateProjectPage() {
+  const navigate = useNavigate();
   const settings = useSettingsStore();
   const uploadTaskId = useTaskStore((state) => state.taskId);
   const uploadStatus = useTaskStore((state) => state.status);
@@ -70,7 +72,7 @@ export function CreateProjectPage({ onCancel }: { onCancel: () => void }) {
         action={
           <>
             <button
-              onClick={onCancel}
+              onClick={() => navigate("/")}
               className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
             >
               取消

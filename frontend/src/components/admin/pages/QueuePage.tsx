@@ -1,27 +1,21 @@
+import { useNavigate } from "react-router-dom";
 import { Cpu, Eye, HardDrive, RefreshCw, Server, Trash2, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAdminContext } from "@/components/AdminDashboard";
+import { useTasks, useSystemResources, useTaskEvents, useDeleteTask, useRetryTask } from "@/hooks/useAdminQueries";
 import { stageLabels } from "../constants";
 import { classifyStatus, displayTaskName, formatDate, formatDuration, progressByStatus, resourcePercent, statusBadgeClass, statusLabel } from "../format";
 import { Header, IconButton, LogLine, MetricCard, ResourceLine } from "../shared";
-import type { DiagnosticReport, SystemResources, TaskItem } from "../types";
 
-export function QueuePage({
-  tasks,
-  onSelectTask,
-  onRetryTask,
-  onDeleteTask,
-  resources,
-  events,
-  onCreateProject,
-}: {
-  tasks: TaskItem[];
-  onSelectTask: (task: TaskItem) => void;
-  onRetryTask: (taskId: string) => void;
-  onDeleteTask: (taskId: string) => void;
-  resources: SystemResources | null;
-  events: DiagnosticReport["event_log"];
-  onCreateProject: () => void;
-}) {
+export function QueuePage() {
+  const navigate = useNavigate();
+  const { selectedTask, setSelectedTask } = useAdminContext();
+  const { data: tasks = [] } = useTasks();
+  const { data: resources } = useSystemResources();
+  const { data: events = [] } = useTaskEvents(selectedTask?.task_id);
+  const deleteTask = useDeleteTask();
+  const retryTask = useRetryTask();
+
   const waiting = resources?.queue.waiting ?? tasks.filter((task) => task.status === "UPLOADED").length;
   const processing = resources?.queue.active ?? tasks.filter((task) => classifyStatus(task.status) === "processing").length;
   const completed = resources?.queue.completed ?? tasks.filter((task) => task.status === "COMPLETED").length;
@@ -34,7 +28,7 @@ export function QueuePage({
         description="查看上传、抽帧、ASR、LLM 融合和导出任务的实时状态"
         action={
           <button
-            onClick={onCreateProject}
+            onClick={() => navigate("/create")}
             className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
           >
             <Upload size={16} />
@@ -63,7 +57,7 @@ export function QueuePage({
                 tasks.map((task) => (
                   <button
                     key={task.task_id}
-                    onClick={() => onSelectTask(task)}
+                    onClick={() => setSelectedTask(task)}
                     className="grid w-full gap-3 px-4 py-3 text-left hover:bg-slate-50 lg:grid-cols-[minmax(0,1.5fr)_140px_minmax(160px,1fr)_110px_100px_110px]"
                   >
                     <div className="min-w-0">
@@ -95,7 +89,7 @@ export function QueuePage({
                         label="重试"
                         onClick={(event) => {
                           event.stopPropagation();
-                          onRetryTask(task.task_id);
+                          void retryTask.mutateAsync(task.task_id);
                         }}
                         disabled={task.status !== "ERROR"}
                       />
@@ -105,7 +99,7 @@ export function QueuePage({
                         danger
                         onClick={(event) => {
                           event.stopPropagation();
-                          onDeleteTask(task.task_id);
+                          void deleteTask.mutateAsync(task.task_id).catch(() => {});
                         }}
                       />
                     </div>

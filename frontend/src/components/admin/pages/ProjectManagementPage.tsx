@@ -1,7 +1,10 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Eye, Film, Plus, Search, SlidersHorizontal, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ProgressBar } from "@/components/ProgressBar";
+import { useAdminContext } from "@/components/AdminDashboard";
+import { useTasks, useTaskSummary, useTaskDiagnostics, useDeleteTask } from "@/hooks/useAdminQueries";
 import {
   EmptyPreview,
   Header,
@@ -18,31 +21,15 @@ import {
   statusBadgeClass,
   statusLabel,
 } from "../format";
-import type { DiagnosticReport, TaskItem, TaskSummary } from "../types";
 
-export function ProjectManagementPage({
-  tasks,
-  loading,
-  selectedTask,
-  onSelectTask,
-  onDeleteTask,
-  onOpenReview,
-  onOpenAssets,
-  onCreateProject,
-  summary,
-  diagnostics,
-}: {
-  tasks: TaskItem[];
-  loading: boolean;
-  selectedTask: TaskItem | null;
-  onSelectTask: (task: TaskItem) => void;
-  onDeleteTask: (taskId: string) => void;
-  onOpenReview: () => void;
-  onOpenAssets: () => void;
-  onCreateProject: () => void;
-  summary: TaskSummary | null;
-  diagnostics: DiagnosticReport | null;
-}) {
+export function ProjectManagementPage() {
+  const navigate = useNavigate();
+  const { selectedTask, setSelectedTask } = useAdminContext();
+  const { data: tasks = [], isLoading: loading } = useTasks();
+  const { data: summary } = useTaskSummary(selectedTask?.task_id);
+  const { data: diagnostics } = useTaskDiagnostics(selectedTask?.task_id);
+  const deleteTask = useDeleteTask();
+
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const completedCount = tasks.filter((task) => task.status === "COMPLETED").length;
@@ -63,6 +50,10 @@ export function ProjectManagementPage({
     return matchesQuery && matchesStatus;
   });
 
+  const handleDeleteTask = (taskId: string) => {
+    void deleteTask.mutateAsync(taskId).catch(() => {});
+  };
+
   return (
     <>
       <Header
@@ -70,7 +61,7 @@ export function ProjectManagementPage({
         description="管理直播剪辑项目、处理状态和导出结果"
         action={
           <button
-            onClick={onCreateProject}
+            onClick={() => navigate("/create")}
             className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
           >
             <Plus size={16} />
@@ -148,7 +139,7 @@ export function ProjectManagementPage({
                           "cursor-pointer hover:bg-slate-50",
                           selectedTask?.task_id === task.task_id && "bg-blue-50/50",
                         )}
-                        onClick={() => onSelectTask(task)}
+                        onClick={() => setSelectedTask(task)}
                       >
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-3">
@@ -197,7 +188,7 @@ export function ProjectManagementPage({
                             <button
                               onClick={(event) => {
                                 event.stopPropagation();
-                                onDeleteTask(task.task_id);
+                                handleDeleteTask(task.task_id);
                               }}
                               className="rounded p-1.5 text-slate-300 hover:bg-red-50 hover:text-red-500"
                               aria-label="删除"
@@ -239,13 +230,13 @@ export function ProjectManagementPage({
                 </div>
                 <div className="flex gap-2">
                   <button
-                    onClick={onOpenReview}
+                    onClick={() => navigate("/review")}
                     className="flex-1 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
                   >
                     进入复核
                   </button>
                   <button
-                    onClick={onOpenAssets}
+                    onClick={() => navigate("/assets", { state: { projectId: selectedTask?.task_id } })}
                     className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                   >
                     到资产页下载

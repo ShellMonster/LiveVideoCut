@@ -1,37 +1,20 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useLocation } from "react-router-dom";
 import { Download, Eye, Film, Search } from "lucide-react";
-import { API_BASE, fetchJson } from "../api";
+import { useClipAssets } from "@/hooks/useAdminQueries";
+import { API_BASE } from "../api";
 import { formatBytes, formatDuration, reviewStatusLabel } from "../format";
 import { Header, MetricCard } from "../shared";
-import type { ClipAsset, ClipAssetsResponse } from "../types";
 
-export function AssetsPage({ selectedProjectId }: { selectedProjectId?: string }) {
-  const [assets, setAssets] = useState<ClipAsset[]>([]);
-  const [summary, setSummary] = useState<ClipAssetsResponse["summary"] | null>(null);
+export function AssetsPage() {
+  const location = useLocation();
+  const selectedProjectId = (location.state as { projectId?: string } | null)?.projectId;
   const [selectedClips, setSelectedClips] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [durationFilter, setDurationFilter] = useState("all");
 
-  useEffect(() => {
-    const controller = new AbortController();
-    const params = new URLSearchParams({ limit: "500" });
-    if (selectedProjectId) params.set("project_id", selectedProjectId);
-    if (statusFilter !== "all") params.set("status", statusFilter);
-    fetchJson<ClipAssetsResponse>(`${API_BASE}/api/assets/clips?${params.toString()}`, controller.signal)
-      .then((data) => {
-        if (controller.signal.aborted) return;
-        setAssets(data.items ?? []);
-        setSummary(data.summary ?? null);
-        setSelectedClips(new Set());
-      })
-      .catch(() => {
-        if (controller.signal.aborted) return;
-        setAssets([]);
-        setSummary(null);
-      });
-    return () => controller.abort();
-  }, [selectedProjectId, statusFilter]);
+  const { data: { items: assets = [], summary = null } = {} } = useClipAssets(selectedProjectId, statusFilter);
 
   const toggleClip = (clipId: string) => {
     setSelectedClips((current) => {

@@ -2,6 +2,8 @@ import { useState } from "react";
 import { ChevronRight, Download, Film, Play, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { VideoPreview } from "@/components/VideoPreview";
+import { useAdminContext } from "@/components/AdminDashboard";
+import { useTasks, useTaskClips, useTaskReview, usePatchReviewSegment, useReprocessSegment, useClipReprocessStatus } from "@/hooks/useAdminQueries";
 import { API_BASE } from "../api";
 import { clipJobStatusLabel, displayTaskName, formatDuration, reviewStatusLabel } from "../format";
 import {
@@ -13,40 +15,37 @@ import {
   TranscriptLine,
 } from "../shared";
 import type { ClipData } from "@/stores/taskStore";
-import type { ClipReprocessJob, ReviewData, ReviewSegment, TaskItem } from "../types";
+import type { ReviewSegment } from "../types";
 
-export function ReviewPage({
-  tasks,
-  selectedTask,
-  clips,
-  clipsLoading,
-  onSelectTask,
-  reviewData,
-  onPatchReviewSegment,
-  onReprocessSegment,
-  reprocessJobs,
-}: {
-  tasks: TaskItem[];
-  selectedTask: TaskItem | null;
-  clips: ClipData[];
-  clipsLoading: boolean;
-  onSelectTask: (task: TaskItem) => void;
-  reviewData: ReviewData | null;
-  onPatchReviewSegment: (segmentId: string, patch: Partial<ReviewSegment>) => void;
-  onReprocessSegment: (segmentId: string) => void;
-  reprocessJobs: Record<string, ClipReprocessJob>;
-}) {
+export function ReviewPage() {
+  const { selectedTask, setSelectedTask } = useAdminContext();
+  const { data: tasks = [] } = useTasks();
+  const { data: clips = [], isLoading: clipsLoading } = useTaskClips(
+    selectedTask?.task_id,
+    selectedTask?.status === "COMPLETED",
+  );
+  const { data: reviewData } = useTaskReview(selectedTask?.task_id);
+  const patchMutation = usePatchReviewSegment(selectedTask?.task_id);
+  const reprocessMutation = useReprocessSegment(selectedTask?.task_id);
+
   const [previewClip, setPreviewClip] = useState<ClipData | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const safeSelectedIndex = selectedIndex < Math.max(clips.length, reviewData?.segments.length ?? 0) ? selectedIndex : 0;
+
+  const segmentCount = Math.max(clips.length, reviewData?.segments.length ?? 0);
+  const safeSelectedIndex = selectedIndex < segmentCount ? selectedIndex : 0;
   const currentClip = clips[safeSelectedIndex] ?? clips[0] ?? null;
   const currentSegment = reviewData?.segments[safeSelectedIndex] ?? reviewData?.segments[0] ?? null;
+
+  const { data: currentJob } = useClipReprocessStatus(
+    selectedTask?.task_id,
+    currentSegment?.segment_id,
+  );
+
   const timelineDuration = Math.max(
     selectedTask?.video_duration_s ?? 0,
     ...(reviewData?.segments.map((segment) => segment.end_time) ?? [0]),
     currentClip?.end_time ?? 0,
   );
-  const currentJob = currentSegment ? reprocessJobs[currentSegment.segment_id] : undefined;
   const isCurrentReprocessing = currentJob?.status === "queued" || currentJob?.status === "running";
   const approvedClipIds = clips
     .filter((_clip, index) => reviewData?.segments[index]?.review_status === "approved")
@@ -57,6 +56,14 @@ export function ReviewPage({
       return line.end_time >= currentSegment.start_time && line.start_time <= currentSegment.end_time;
     })
     .slice(0, 6) ?? [];
+
+  const handlePatch = (segmentId: string, patch: Partial<ReviewSegment>) => {
+    patchMutation.mutate({ segmentId, patch: patch as Record<string, unknown> });
+  };
+
+  const handleReprocess = (segmentId: string) => {
+    reprocessMutation.mutate(segmentId);
+  };
 
   return (
     <>
@@ -93,7 +100,7 @@ export function ReviewPage({
                 value={selectedTask?.task_id || ""}
                 onChange={(event) => {
                   const next = tasks.find((task) => task.task_id === event.target.value);
-                  if (next) onSelectTask(next);
+                  if (next) setSelectedTask(next);
                 }}
               >
                 <option value="">选择项目</option>
@@ -194,25 +201,25 @@ export function ReviewPage({
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <button
-                    onClick={() => onPatchReviewSegment(currentSegment.segment_id, { review_status: "approved" })}
+                    onClick={() => handlePatch(currentSegment.segment_id, { review_status: "approved" })}
                     className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700"
                   >
                     通过
                   </button>
                   <button
-                    onClick={() => onPatchReviewSegment(currentSegment.segment_id, { review_status: "skipped" })}
+                    onClick={() => handlePatch(currentSegment.segment_id, { review_status: "skipped" })}
                     className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                   >
                     跳过
                   </button>
                   <button
-                    onClick={() => onPatchReviewSegment(currentSegment.segment_id, { review_status: "needs_adjustment" })}
+                    onClick={() => handlePatch(currentSegment.segment_id, { review_status: "needs_adjustment" })}
                     className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                   >
                     标记需调整
                   </button>
                   <button
-                    onClick={() => onReprocessSegment(currentSegment.segment_id)}
+                    onClick={() => handleReprocess(currentSegment.segment_id)}
                     disabled={isCurrentReprocessing}
                     className={cn(
                       "rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50",

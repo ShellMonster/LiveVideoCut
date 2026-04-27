@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pause, Play, RefreshCw, SlidersHorizontal, Trash2, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSettingsStore } from "@/stores/settingsStore";
-import { API_BASE, fetchJson } from "../api";
+import { API_BASE } from "../api";
+import { useMusicLibrary, useUploadTrack, useDeleteTrack, useSaveTrackTags } from "@/hooks/useAdminQueries";
 import { editableCategoryOptions, editableMoodOptions } from "../constants";
 import { formatDuration } from "../format";
 import {
@@ -19,9 +20,11 @@ import type { MusicTrack } from "../types";
 
 export function AdminMusicPage() {
   const bgmVolume = useSettingsStore((state) => state.bgmVolume);
-  const [tracks, setTracks] = useState<MusicTrack[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const { data: tracks = [], isLoading: loading, refetch: loadTracks } = useMusicLibrary();
+  const uploadTrack = useUploadTrack();
+  const deleteTrack = useDeleteTrack();
+  const saveTags = useSaveTrackTags();
+
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [audioProgress, setAudioProgress] = useState(0);
   const [selectedTrack, setSelectedTrack] = useState<MusicTrack | null>(null);
@@ -35,24 +38,6 @@ export function AdminMusicPage() {
   });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-
-  const loadTracks = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await fetchJson<MusicTrack[] | { tracks?: MusicTrack[] }>(`${API_BASE}/api/music/library`);
-      const nextTracks = Array.isArray(data) ? data : data.tracks ?? [];
-      setTracks(nextTracks);
-      setSelectedTrack((current) => nextTracks.find((track) => track.id === current?.id) ?? nextTracks[0] ?? null);
-    } catch {
-      setTracks([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadTracks();
-  }, [loadTracks]);
 
   useEffect(() => {
     if (!selectedTrack) {
@@ -86,42 +71,30 @@ export function AdminMusicPage() {
     audio.play().then(() => setPlayingId(track.id)).catch(() => setPlayingId(null));
   };
 
-  const uploadTrack = async (file: File) => {
-    const form = new FormData();
-    form.append("file", file);
-    await fetch(`${API_BASE}/api/music/upload`, { method: "POST", body: form });
-    await loadTracks();
+  const handleUpload = async (file: File) => {
+    await uploadTrack.mutateAsync(file);
+    const updated = tracks;
+    setSelectedTrack((current) => updated.find((t) => t.id === current?.id) ?? updated[0] ?? null);
   };
 
-  const deleteTrack = async (trackId: string) => {
-    if (!confirm("确定要删除这首用户曲目吗？")) return;
-    await fetch(`${API_BASE}/api/music/${trackId}`, { method: "DELETE" });
-    await loadTracks();
+  const handleDelete = async (trackId: string) => {
+    await deleteTrack.mutateAsync(trackId).catch(() => {});
   };
 
-  const saveTrackTags = async () => {
+  const handleSaveTags = async () => {
     if (!selectedTrack || selectedTrack.source !== "user") return;
-    setSaving(true);
-    try {
-      const resp = await fetch(`${API_BASE}/api/music/${selectedTrack.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: tagDraft.title.trim() || selectedTrack.title,
-          mood: tagDraft.mood,
-          categories: tagDraft.categories,
-          tempo: tagDraft.tempo,
-          energy: tagDraft.energy,
-          genre: tagDraft.genre.trim(),
-        }),
-      });
-      if (!resp.ok) return;
-      const updated = (await resp.json()) as MusicTrack;
-      setTracks((current) => current.map((track) => (track.id === updated.id ? updated : track)));
-      setSelectedTrack(updated);
-    } finally {
-      setSaving(false);
-    }
+    const updated = await saveTags.mutateAsync({
+      trackId: selectedTrack.id,
+      tags: {
+        title: tagDraft.title.trim() || selectedTrack.title,
+        mood: tagDraft.mood,
+        categories: tagDraft.categories,
+        tempo: tagDraft.tempo,
+        energy: tagDraft.energy,
+        genre: tagDraft.genre.trim(),
+      },
+    });
+    setSelectedTrack(updated);
   };
 
   return (
@@ -139,7 +112,7 @@ export function AdminMusicPage() {
               上传音乐
             </button>
             <button
-              onClick={loadTracks}
+              onClick={() => void loadTracks()}
               className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
             >
               <RefreshCw size={16} />
@@ -157,7 +130,7 @@ export function AdminMusicPage() {
           onChange={(event) => {
             const file = event.target.files?.[0];
             event.target.value = "";
-            if (file) void uploadTrack(file);
+            if (file) void handleUpload(file);
           }}
         />
         <audio
@@ -256,7 +229,7 @@ export function AdminMusicPage() {
                                 danger
                                 onClick={(event) => {
                                   event.stopPropagation();
-                                  void deleteTrack(track.id);
+                                  void handleDelete(track.id);
                                 }}
                               />
                             )}
@@ -326,14 +299,14 @@ export function AdminMusicPage() {
                       </div>
                       <InputField label="风格" value={tagDraft.genre} onChange={(genre) => setTagDraft({ ...tagDraft, genre })} />
                       <button
-                        onClick={saveTrackTags}
-                        disabled={saving}
+                        onClick={() => void handleSaveTags()}
+                        disabled={saveTags.isPending}
                         className={cn(
                           "w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700",
-                          saving && "cursor-not-allowed opacity-60",
+                          saveTags.isPending && "cursor-not-allowed opacity-60",
                         )}
                       >
-                        {saving ? "保存中..." : "保存标签"}
+                        {saveTags.isPending ? "保存中..." : "保存标签"}
                       </button>
                     </>
                   )}

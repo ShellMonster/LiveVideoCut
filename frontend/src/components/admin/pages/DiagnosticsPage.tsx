@@ -1,17 +1,15 @@
 import { Download, FileVideo } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAdminContext } from "@/components/AdminDashboard";
+import { useTaskDiagnostics } from "@/hooks/useAdminQueries";
 import { API_BASE } from "../api";
 import { formatDate, formatElapsed } from "../format";
 import { Header, MetricCard, Warning } from "../shared";
-import type { DiagnosticReport, TaskItem } from "../types";
 
-export function DiagnosticsPage({
-  selectedTask,
-  diagnostics,
-}: {
-  selectedTask: TaskItem | null;
-  diagnostics: DiagnosticReport | null;
-}) {
+export function DiagnosticsPage() {
+  const { selectedTask } = useAdminContext();
+  const { data: diagnostics } = useTaskDiagnostics(selectedTask?.task_id);
+
   const summary = diagnostics?.summary;
   const maxFunnel = Math.max(...(diagnostics?.funnel.map((item) => item.count) ?? [1]), 1);
   const taskId = selectedTask?.task_id;
