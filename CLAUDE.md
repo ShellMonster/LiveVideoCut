@@ -40,8 +40,8 @@
 
 ### 0. 前端架构
 
-前端为 **单页应用**，没有路由库（无 react-router），`App.tsx` 直接渲染 `AdminDashboard.tsx`（2721 行）。
-AdminDashboard 通过内部 `useState<PageKey>` 管理 7 个子页面：
+前端为 **单页应用**，没有路由库（无 react-router），`App.tsx` 直接渲染 `AdminDashboard.tsx`（330 行壳）。
+AdminDashboard 通过内部 `useState<PageKey>` 管理 8 个子页面，页面组件已拆分到 `admin/pages/` 目录：
 
 - **projects** — 项目管理（列表、搜索、筛选、详情侧栏、诊断事件）
 - **create** — 创建任务（上传 + 4 种预设：高质量字幕版/快速低成本版/全量候选调试版/只切不烧字幕版）
@@ -51,6 +51,8 @@ AdminDashboard 通过内部 `useState<PageKey>` 管理 7 个子页面：
 - **music** — 音乐库管理（标签编辑、播放/暂停、上传、删除）
 - **diagnostics** — 任务诊断（管线阶段、漏斗图、警告、事件日志、导出报告/artifacts.zip）
 - **settings** — 设置编辑器（侧栏+面板布局）
+
+`admin/` 目录结构：`api.ts`（API 调用）、`types.ts`（类型定义）、`format.ts`（格式化工具）、`constants.tsx`（常量）、`shared.tsx`（共享组件）、`pages/`（8 个页面组件）。
 
 独立的 `SettingsPage.tsx`、`MusicPage.tsx`、`HistoryPage.tsx` 是备选入口，当前 AdminDashboard 内建了对应版本。
 
@@ -456,11 +458,26 @@ docker-compose.yml 中 worker 启动参数：
 ### 前端
 
 - `frontend/src/App.tsx`               # 入口，渲染 AdminDashboard
-- `frontend/src/components/AdminDashboard.tsx`  # 主应用壳（7 页：项目/创建/队列/审核/资产/音乐/诊断/设置）
+- `frontend/src/components/AdminDashboard.tsx`  # 主应用壳（330 行，8 页状态机）
+- `frontend/src/components/admin/`     # 拆分后的子模块
+  - `api.ts`                           # API 调用封装
+  - `types.ts`                         # 类型定义（PageKey 等）
+  - `format.ts`                        # 格式化工具
+  - `constants.tsx`                    # 常量
+  - `shared.tsx`                       # 共享 UI 组件
+  - `pages/`                           # 8 个页面组件
+    - `ProjectManagementPage.tsx`      # 项目管理
+    - `CreateProjectPage.tsx`          # 创建任务
+    - `QueuePage.tsx`                  # 任务队列
+    - `ReviewPage.tsx`                 # 片段审核
+    - `AssetsPage.tsx`                 # 素材资产
+    - `MusicPage.tsx`                  # 音乐库
+    - `DiagnosticsPage.tsx`            # 诊断
+    - `SettingsPage.tsx`               # 设置
 - `frontend/src/components/UploadZone.tsx`
-- `frontend/src/components/SettingsPage.tsx`
-- `frontend/src/components/MusicPage.tsx`
-- `frontend/src/components/HistoryPage.tsx`
+- `frontend/src/components/SettingsPage.tsx`   # 独立设置页（备选入口）
+- `frontend/src/components/MusicPage.tsx`      # 独立音乐页（备选入口）
+- `frontend/src/components/HistoryPage.tsx`    # 独立历史页（备选入口）
 - `frontend/src/components/ToastViewport.tsx`
 - `frontend/src/hooks/useWebSocket.ts`
 - `frontend/src/stores/settingsStore.ts`

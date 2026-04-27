@@ -291,20 +291,36 @@ ASR 的 Provider 选择和 API Key 在 **前端设置页面** 中配置，保存
 │   │   │   ├── bgm_selector.py              # BGM 自动选曲
 │   │   │   ├── resource_detector.py          # 容器资源检测
 │   │   │   ├── siglip_encoder.py             # [legacy] FashionSigLIP 编码
+│   │   │   ├── adaptive_similarity.py   # [legacy] 自适应相似度
 │   │   │   ├── text_segment_analyzer.py        # LLM 文本边界分析
 │   │   │   ├── segment_fusion.py               # 两层树信号融合
 │   │   │   ├── boundary_snapper.py             # 句边界对齐
 │   │   │   └── boundary_refiner.py             # LLM 边界精修
 │   │   └── tasks/
 │   │       └── pipeline.py        # Celery 四阶段管线 + 单片段重处理
-│   └── tests/                     # 30 个测试文件
+│   └── tests/                     # 28 个测试文件
 └── frontend/
     ├── Dockerfile                 # Node 20 构建 + Nginx 运行
     ├── nginx.conf                 # Nginx (20G 上传 + WebSocket)
     ├── src/
     │   ├── App.tsx                # 入口，渲染 AdminDashboard
     │   ├── components/
-    │   │   ├── AdminDashboard.tsx # 主应用壳（7 页：项目/创建/队列/审核/资产/音乐/诊断/设置）
+    │   │   ├── AdminDashboard.tsx # 主应用壳（330 行，8 页状态机）
+    │   │   ├── admin/             # 拆分后的子模块
+    │   │   │   ├── api.ts         # API 调用封装
+    │   │   │   ├── types.ts       # 类型定义
+    │   │   │   ├── format.ts      # 格式化工具
+    │   │   │   ├── constants.tsx  # 常量
+    │   │   │   ├── shared.tsx     # 共享 UI 组件
+    │   │   │   └── pages/         # 8 个页面组件
+    │   │   │       ├── ProjectManagementPage.tsx
+    │   │   │       ├── CreateProjectPage.tsx
+    │   │   │       ├── QueuePage.tsx
+    │   │   │       ├── ReviewPage.tsx
+    │   │   │       ├── AssetsPage.tsx
+    │   │   │       ├── MusicPage.tsx
+    │   │   │       ├── DiagnosticsPage.tsx
+    │   │   │       └── SettingsPage.tsx
     │   │   ├── SettingsPage.tsx   # 独立设置页面（备选入口）
     │   │   ├── MusicPage.tsx      # 独立音乐库页面（备选入口）
     │   │   ├── HistoryPage.tsx    # 独立历史记录页面（备选入口）
