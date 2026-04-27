@@ -8,7 +8,7 @@ from typing import Any, cast
 
 from openai import OpenAI
 
-from app.api.settings import DEFAULT_API_BASES, DEFAULT_MODELS, VLMProvider
+from app.config import DEFAULT_API_BASES, DEFAULT_MODELS, VLMProvider
 
 logger = logging.getLogger(__name__)
 

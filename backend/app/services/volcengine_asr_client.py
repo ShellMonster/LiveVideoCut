@@ -18,6 +18,8 @@ from typing import Any
 import requests
 import tos
 
+from app.services.asr_errors import APIError, ASRTimeoutError, AuthError
+
 logger = logging.getLogger(__name__)
 
 _MAX_WAIT_SECONDS = 600
@@ -102,8 +104,9 @@ class VolcengineASRClient:
     ) -> list[dict[str, Any]]:
         """Transcribe audio file, return segments with word-level timestamps."""
         if not self._api_key:
-            logger.error("Volcengine ASR credentials not configured (api_key)")
-            return []
+            msg = "Volcengine ASR credentials not configured (api_key)"
+            logger.error(msg)
+            raise AuthError(msg, provider="volcengine")
 
         file_size_mb = os.path.getsize(audio_path) / 1024 / 1024
         logger.info("Submitting to Volcengine bigmodel: %s (%.1f MB)", audio_path, file_size_mb)
@@ -115,19 +118,19 @@ class VolcengineASRClient:
             # Step 2: upload to TOS and get presigned URL
             presigned_url, tos_key = self._upload_to_tos(submit_path)
             if not presigned_url:
-                return []
+                raise APIError("TOS upload failed, no presigned URL", provider="volcengine")
 
             # Step 3: submit to bigmodel
             request_id = self._submit(presigned_url)
             if not request_id:
-                return []
+                raise APIError("Volcengine bigmodel submit failed", provider="volcengine")
 
             logger.info("Volcengine bigmodel task submitted: %s", request_id)
 
             # Step 4: poll for result
             result = self._wait_for_result(request_id)
             if result is None:
-                return []
+                raise APIError(f"Volcengine bigmodel task {request_id} failed or timed out", provider="volcengine")
 
             # Step 5: parse
             return self._parse_result(result)
@@ -150,8 +153,9 @@ class VolcengineASRClient:
         response — no polling needed.  Generally faster and cheaper.
         """
         if not self._api_key:
-            logger.error("Volcengine ASR credentials not configured (api_key)")
-            return []
+            msg = "Volcengine ASR credentials not configured (api_key)"
+            logger.error(msg)
+            raise AuthError(msg, provider="volcengine")
 
         file_size_mb = os.path.getsize(audio_path) / 1024 / 1024
         logger.info("Submitting to Volcengine bigmodel FLASH: %s (%.1f MB)", audio_path, file_size_mb)
@@ -161,7 +165,7 @@ class VolcengineASRClient:
         try:
             presigned_url, tos_key = self._upload_to_tos(submit_path)
             if not presigned_url:
-                return []
+                raise APIError("TOS upload failed, no presigned URL", provider="volcengine")
 
             body = {
                 "user": {"uid": "1"},
@@ -184,21 +188,29 @@ class VolcengineASRClient:
                     timeout=600,
                 )
                 resp.raise_for_status()
+            except requests.exceptions.HTTPError as exc:
+                status = getattr(exc.response, "status_code", None)
+                msg = f"Volcengine bigmodel FLASH request failed: {exc}"
+                logger.error(msg)
+                if status in (401, 403):
+                    raise AuthError(msg, provider="volcengine") from exc
+                raise APIError(msg, provider="volcengine") from exc
+            except requests.exceptions.Timeout as exc:
+                msg = f"Volcengine bigmodel FLASH request timed out: {exc}"
+                logger.error(msg)
+                raise ASRTimeoutError(msg, provider="volcengine") from exc
             except Exception as exc:
                 logger.error("Volcengine bigmodel FLASH request failed: %s", exc)
-                return []
+                raise APIError(f"Volcengine bigmodel FLASH request failed: {exc}", provider="volcengine") from exc
 
             result = resp.json()
             code = result.get("code")
             message = result.get("message", "")
 
             if code is not None and code != 0:
-                logger.error(
-                    "Volcengine bigmodel FLASH returned error: code=%s message=%s",
-                    code,
-                    message,
-                )
-                return []
+                msg = f"Volcengine bigmodel FLASH returned error: code={code} message={message}"
+                logger.error(msg)
+                raise APIError(msg, provider="volcengine")
 
             logger.info("Volcengine bigmodel FLASH completed successfully")
             return self._parse_result(result)
@@ -219,8 +231,9 @@ class VolcengineASRClient:
         credentials are configured).
         """
         if not self._api_key:
-            logger.error("Volcengine ASR credentials not configured (api_key)")
-            return []
+            msg = "Volcengine ASR credentials not configured (api_key)"
+            logger.error(msg)
+            raise AuthError(msg, provider="volcengine")
 
         logger.info("transcribe_auto: trying FLASH mode first")
         result = self.transcribe_flash(audio_path)
@@ -300,7 +313,7 @@ class VolcengineASRClient:
 
         except Exception as exc:
             logger.error("TOS upload failed: %s", exc)
-            return None, tos_key  # return key so cleanup can still try
+            return None, tos_key
 
     def _cleanup_tos(self, tos_key: str) -> None:
         """Best-effort delete of TOS object."""
@@ -348,9 +361,20 @@ class VolcengineASRClient:
                 timeout=120,
             )
             resp.raise_for_status()
+        except requests.exceptions.HTTPError as exc:
+            status = getattr(exc.response, "status_code", None)
+            msg = f"Volcengine bigmodel submit failed: {exc}"
+            logger.error(msg)
+            if status in (401, 403):
+                raise AuthError(msg, provider="volcengine") from exc
+            raise APIError(msg, provider="volcengine") from exc
+        except requests.exceptions.Timeout as exc:
+            msg = f"Volcengine bigmodel submit timed out: {exc}"
+            logger.error(msg)
+            raise ASRTimeoutError(msg, provider="volcengine") from exc
         except Exception as exc:
             logger.error("Volcengine bigmodel submit failed: %s", exc)
-            return None
+            raise APIError(f"Volcengine bigmodel submit failed: {exc}", provider="volcengine") from exc
 
         # bigmodel submit returns empty JSON {} on success;
         # the request_id we generated IS the task identifier
@@ -406,25 +430,18 @@ class VolcengineASRClient:
                 if code == 2000:
                     time.sleep(_POLL_INTERVAL_SECONDS)
                     continue
-                logger.error(
-                    "Volcengine bigmodel task %s failed: code=%s message=%s",
-                    request_id,
-                    code,
-                    message,
-                )
-                return None
+                msg = f"Volcengine bigmodel task {request_id} failed: code={code} message={message}"
+                logger.error(msg)
+                raise APIError(msg, provider="volcengine")
 
             if result_text:
                 return result
 
             time.sleep(_POLL_INTERVAL_SECONDS)
 
-        logger.error(
-            "Volcengine bigmodel task %s timed out after %ds",
-            request_id,
-            _MAX_WAIT_SECONDS,
-        )
-        return None
+        msg = f"Volcengine bigmodel task {request_id} timed out after {_MAX_WAIT_SECONDS}s"
+        logger.error(msg)
+        raise ASRTimeoutError(msg, provider="volcengine")
 
     # ------------------------------------------------------------------
     # Result parsing

@@ -28,6 +28,8 @@ from typing import Any
 import requests
 import tos
 
+from app.services.asr_errors import APIError, ASRTimeoutError, AuthError
+
 logger = logging.getLogger(__name__)
 
 _MAX_WAIT_SECONDS = 600
@@ -106,8 +108,9 @@ class VolcengineVCClient:
     ) -> list[dict[str, Any]]:
         """Transcribe audio file, return segments with word-level timestamps."""
         if not self._api_key:
-            logger.error("Volcengine VC credentials not configured (api_key)")
-            return []
+            msg = "Volcengine VC credentials not configured (api_key)"
+            logger.error(msg)
+            raise AuthError(msg, provider="volcengine_vc")
 
         file_size_mb = os.path.getsize(audio_path) / 1024 / 1024
         logger.info("Submitting to Volcengine VC: %s (%.1f MB)", audio_path, file_size_mb)
@@ -119,19 +122,19 @@ class VolcengineVCClient:
             # Step 2: upload to TOS and get presigned URL
             presigned_url, tos_key = self._upload_to_tos(submit_path)
             if not presigned_url:
-                return []
+                raise APIError("TOS upload failed, no presigned URL", provider="volcengine_vc")
 
             # Step 3: submit to VC
             request_id = self._submit(presigned_url)
             if not request_id:
-                return []
+                raise APIError("Volcengine VC submit failed", provider="volcengine_vc")
 
             logger.info("Volcengine VC task submitted: %s", request_id)
 
             # Step 4: poll for result
             result = self._wait_for_result(request_id)
             if result is None:
-                return []
+                raise APIError(f"Volcengine VC task {request_id} failed or timed out", provider="volcengine_vc")
 
             # Step 5: parse
             return self._parse_result(result)
@@ -184,7 +187,7 @@ class VolcengineVCClient:
     def _upload_to_tos(self, audio_path: str) -> tuple[str | None, str | None]:
         """Upload audio to TOS, return (presigned_url, tos_key).
 
-        Returns (None, None) on failure.
+        Returns (None, tos_key) on failure so caller can attempt cleanup.
         """
         tos_key = f"audio/{uuid.uuid4().hex}.wav"
 
@@ -243,9 +246,20 @@ class VolcengineVCClient:
                 timeout=120,
             )
             resp.raise_for_status()
+        except requests.exceptions.HTTPError as exc:
+            status = getattr(exc.response, "status_code", None)
+            msg = f"Volcengine VC submit request failed: {exc}"
+            logger.error(msg)
+            if status in (401, 403):
+                raise AuthError(msg, provider="volcengine_vc") from exc
+            raise APIError(msg, provider="volcengine_vc") from exc
+        except requests.exceptions.Timeout as exc:
+            msg = f"Volcengine VC submit request timed out: {exc}"
+            logger.error(msg)
+            raise ASRTimeoutError(msg, provider="volcengine_vc") from exc
         except Exception as exc:
             logger.error("Volcengine VC submit request failed: %s", exc)
-            return None
+            raise APIError(f"Volcengine VC submit request failed: {exc}", provider="volcengine_vc") from exc
 
         result = resp.json()
         code = result.get("code")
@@ -255,12 +269,9 @@ class VolcengineVCClient:
         request_id = result.get("request_id") or result.get("id") or uuid.uuid4().hex
 
         if code is not None and code != 0:
-            logger.error(
-                "Volcengine VC submit returned error: code=%s message=%s",
-                code,
-                message,
-            )
-            return None
+            msg = f"Volcengine VC submit returned error: code={code} message={message}"
+            logger.error(msg)
+            raise APIError(msg, provider="volcengine_vc")
 
         logger.info(
             "Volcengine VC submit accepted (request_id=%s): %s",
@@ -316,25 +327,18 @@ class VolcengineVCClient:
                 if code == 2000:
                     time.sleep(_POLL_INTERVAL_SECONDS)
                     continue
-                logger.error(
-                    "Volcengine VC task %s failed: code=%s message=%s",
-                    request_id,
-                    code,
-                    message,
-                )
-                return None
+                msg = f"Volcengine VC task {request_id} failed: code={code} message={message}"
+                logger.error(msg)
+                raise APIError(msg, provider="volcengine_vc")
 
             if utterances:
                 return result
 
             time.sleep(_POLL_INTERVAL_SECONDS)
 
-        logger.error(
-            "Volcengine VC task %s timed out after %ds",
-            request_id,
-            _MAX_WAIT_SECONDS,
-        )
-        return None
+        msg = f"Volcengine VC task {request_id} timed out after {_MAX_WAIT_SECONDS}s"
+        logger.error(msg)
+        raise ASRTimeoutError(msg, provider="volcengine_vc")
 
     # ------------------------------------------------------------------
     # Result parsing

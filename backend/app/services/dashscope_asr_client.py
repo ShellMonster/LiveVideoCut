@@ -12,6 +12,8 @@ import tempfile
 import time
 from typing import Any
 
+from app.services.asr_errors import APIError, ASRTimeoutError, AuthError
+
 logger = logging.getLogger(__name__)
 
 # DashScope transcription may take minutes for long audio
@@ -55,8 +57,6 @@ class DashScopeASRClient:
         dashscope.api_key = self._api_key
 
         file_url = self._upload_file(audio_path)
-        if not file_url:
-            return []
 
         logger.info("Submitting transcription: model=%s", self.model)
         submit_resp = Transcription.async_call(
@@ -68,28 +68,23 @@ class DashScopeASRClient:
         )
 
         if submit_resp.status_code != 200:
-            logger.error(
-                "DashScope submit failed: status=%s code=%s msg=%s",
-                submit_resp.status_code,
-                submit_resp.code,
-                submit_resp.message,
-            )
-            return []
+            msg = f"Submit failed: status={submit_resp.status_code} code={submit_resp.code} msg={submit_resp.message}"
+            logger.error("DashScope %s", msg)
+            if submit_resp.status_code in (401, 403):
+                raise AuthError(msg, provider="dashscope")
+            raise APIError(msg, provider="dashscope")
 
         task_id = submit_resp.output.get("task_id", "")
         if not task_id:
-            logger.error("No task_id in DashScope response")
-            return []
+            raise APIError("No task_id in DashScope response", provider="dashscope")
 
         logger.info("DashScope task submitted: %s", task_id)
 
         result = self._wait_for_result(Transcription, task_id)
-        if result is None:
-            return []
 
         return self._fetch_and_parse(result)
 
-    def _upload_file(self, audio_path: str) -> str | None:
+    def _upload_file(self, audio_path: str) -> str:
         """Upload local file to DashScope Files API, return public URL."""
         from dashscope import Files
 
@@ -102,51 +97,36 @@ class DashScopeASRClient:
         )
 
         if upload_resp.status_code != 200:
-            logger.error(
-                "DashScope upload failed: status=%s code=%s msg=%s",
-                upload_resp.status_code,
-                upload_resp.code,
-                upload_resp.message,
-            )
-            return None
+            msg = f"Upload failed: status={upload_resp.status_code} code={upload_resp.code}"
+            if upload_resp.status_code in (401, 403):
+                raise AuthError(msg, provider="dashscope")
+            raise APIError(msg, provider="dashscope")
 
         uploaded = upload_resp.output.get("uploaded_files", [])
         if not uploaded:
-            logger.error("No uploaded_files in response")
-            return None
+            raise APIError("No uploaded_files in response", provider="dashscope")
 
         file_id = uploaded[0].get("file_id", "")
         if not file_id:
-            logger.error("No file_id in uploaded file")
-            return None
+            raise APIError("No file_id in uploaded file", provider="dashscope")
 
-        # Get the public URL for this file
         file_info = Files.get(file_id)
         if file_info.status_code != 200:
-            logger.error("Failed to get file info: %s", file_info.message)
-            return None
+            msg = f"Failed to get file info: {file_info.message}"
+            if file_info.status_code in (401, 403):
+                raise AuthError(msg, provider="dashscope")
+            raise APIError(msg, provider="dashscope")
 
         file_url = file_info.output.get("url", "")
         if not file_url:
-            logger.error("No URL in file info")
-            return None
+            raise APIError("No URL in file info", provider="dashscope")
 
         logger.info("File uploaded: file_id=%s", file_id)
-
-        # Schedule cleanup in background (best-effort)
         self._file_id_to_cleanup = file_id
 
         return file_url
 
-        # Step 2: Poll until complete
-        result = self._wait_for_result(Transcription, task_id)
-        if result is None:
-            return []
-
-        # Step 3: Fetch and parse transcription
-        return self._fetch_and_parse(result)
-
-    def _wait_for_result(self, transcription_cls: Any, task_id: str) -> Any | None:
+    def _wait_for_result(self, transcription_cls: Any, task_id: str) -> Any:
         """Poll DashScope for task completion."""
         start = time.time()
         while time.time() - start < _MAX_WAIT_SECONDS:
@@ -163,19 +143,12 @@ class DashScopeASRClient:
             if status == "SUCCEEDED":
                 return resp
             if status in ("FAILED", "CANCELED"):
-                logger.error(
-                    "DashScope task %s failed: %s",
-                    task_id,
-                    json.dumps(resp.output, ensure_ascii=False) if resp.output else "",
-                )
-                return None
+                detail = json.dumps(resp.output, ensure_ascii=False) if resp.output else ""
+                raise APIError(f"Task {task_id} {status}: {detail}", provider="dashscope")
 
             time.sleep(_POLL_INTERVAL_SECONDS)
 
-        logger.error(
-            "DashScope task %s timed out after %ds", task_id, _MAX_WAIT_SECONDS
-        )
-        return None
+        raise ASRTimeoutError(f"Task {task_id} timed out after {_MAX_WAIT_SECONDS}s", provider="dashscope")
 
     def _fetch_and_parse(self, resp: Any) -> list[dict[str, Any]]:
         """Download transcription JSON and parse into pipeline format."""
@@ -188,18 +161,15 @@ class DashScopeASRClient:
 
         transcription_url = results[0].get("transcription_url", "")
         if not transcription_url:
-            logger.error("No transcription_url in DashScope result")
-            return []
+            raise APIError("No transcription_url in DashScope result", provider="dashscope")
 
-        # Download the transcription JSON
         logger.info("Fetching transcription from: %s", transcription_url)
         try:
             req = urllib.request.Request(transcription_url)
             with urllib.request.urlopen(req, timeout=60) as f:
                 raw = json.loads(f.read().decode("utf-8"))
         except Exception as exc:
-            logger.error("Failed to fetch transcription: %s", exc)
-            return []
+            raise APIError(f"Failed to fetch transcription: {exc}", provider="dashscope") from exc
 
         return self._parse_dashscope_result(raw)
 
