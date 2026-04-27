@@ -1,5 +1,6 @@
 import io
 import json
+import re
 import zipfile
 from pathlib import Path
 
@@ -7,6 +8,9 @@ from fastapi import APIRouter
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 UPLOAD_DIR = Path("uploads")
+
+_TASK_ID_RE = re.compile(r"^[a-f0-9\-]{36}$", re.IGNORECASE)
+_CLIP_NAME_RE = re.compile(r"^clip_\d{3,}$")
 
 router = APIRouter()
 
@@ -44,6 +48,8 @@ def _collect_clips(clips_dir: Path) -> list[dict]:
 
 @router.get("/api/tasks/{task_id}/clips")
 async def list_clips(task_id: str):
+    if not _TASK_ID_RE.match(task_id):
+        return JSONResponse(status_code=400, content={"detail": "Invalid task_id format"})
     clips_dir = _clips_dir(task_id)
     if not clips_dir.exists():
         return JSONResponse(
@@ -56,6 +62,8 @@ async def list_clips(task_id: str):
 
 @router.get("/api/clips/{task_id}/{clip_name}/download")
 async def download_clip(task_id: str, clip_name: str):
+    if not _TASK_ID_RE.match(task_id) or not _CLIP_NAME_RE.match(clip_name):
+        return JSONResponse(status_code=400, content={"detail": "Invalid task_id or clip_name format"})
     video_path = _clips_dir(task_id) / f"{clip_name}.mp4"
     if not video_path.exists():
         return JSONResponse(status_code=404, content={"detail": "Clip not found"})
@@ -69,6 +77,8 @@ async def download_clip(task_id: str, clip_name: str):
 
 @router.get("/api/clips/{task_id}/{clip_name}/thumbnail")
 async def get_thumbnail(task_id: str, clip_name: str):
+    if not _TASK_ID_RE.match(task_id) or not _CLIP_NAME_RE.match(clip_name):
+        return JSONResponse(status_code=400, content={"detail": "Invalid task_id or clip_name format"})
     thumb_path = UPLOAD_DIR / task_id / "covers" / f"{clip_name}.jpg"
     if not thumb_path.exists():
         return JSONResponse(status_code=404, content={"detail": "Thumbnail not found"})
@@ -91,6 +101,8 @@ async def batch_download(ids: str = ""):
     clip_ids = [cid.strip() for cid in ids.split(",") if cid.strip()]
     if not clip_ids:
         return JSONResponse(status_code=400, content={"detail": "No valid clip ids"})
+    if len(clip_ids) > 20:
+        return JSONResponse(status_code=400, content={"detail": "Too many clip ids (max 20)"})
 
     def _generate_zip():
         buffer = io.BytesIO()
@@ -99,10 +111,12 @@ async def batch_download(ids: str = ""):
                 parts = clip_id.split("/")
                 if len(parts) != 2:
                     continue
-                task_id, clip_name = parts
-                video_path = _clips_dir(task_id) / f"{clip_name}.mp4"
+                tid, cname = parts
+                if not _TASK_ID_RE.match(tid) or not _CLIP_NAME_RE.match(cname):
+                    continue
+                video_path = _clips_dir(tid) / f"{cname}.mp4"
                 if video_path.exists():
-                    zf.write(str(video_path), arcname=f"{clip_name}.mp4")
+                    zf.write(str(video_path), arcname=f"{cname}.mp4")
         buffer.seek(0)
         yield buffer.read()
 

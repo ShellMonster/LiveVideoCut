@@ -3,19 +3,24 @@ import datetime
 import io
 import json
 import os
+import re
 import shutil
 import zipfile
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from starlette.responses import JSONResponse, StreamingResponse
 
+from app.api.settings import SENSITIVE_FIELDS
 from app.services.state_machine import TaskStateMachine
 from app.tasks.pipeline import reprocess_clip, start_pipeline
 
 UPLOAD_DIR = Path("uploads")
+
+_TASK_ID_RE = re.compile(r"^[a-f0-9\-]{36}$", re.IGNORECASE)
+_SEGMENT_ID_RE = re.compile(r"^clip_\d{3,}$")
 
 router = APIRouter()
 
@@ -40,6 +45,8 @@ def _read_json(path: Path, fallback: Any) -> Any:
 
 
 def _task_dir_or_404(task_id: str) -> Path | JSONResponse:
+    if not _TASK_ID_RE.match(task_id):
+        return JSONResponse(status_code=400, content={"detail": "Invalid task_id format"})
     task_dir = UPLOAD_DIR / task_id
     if not task_dir.exists():
         return JSONResponse(status_code=404, content={"detail": "Task not found"})
@@ -304,6 +311,8 @@ async def list_tasks(
 
 @router.delete("/api/tasks/{task_id}")
 async def delete_task(task_id: str):
+    if not _TASK_ID_RE.match(task_id):
+        return JSONResponse(status_code=400, content={"detail": "Invalid task_id format"})
     task_dir = UPLOAD_DIR / task_id
     if not task_dir.exists():
         return JSONResponse(status_code=404, content={"detail": "Task not found"})
@@ -313,6 +322,8 @@ async def delete_task(task_id: str):
 
 @router.get("/api/tasks/{task_id}")
 async def get_task_status(task_id: str):
+    if not _TASK_ID_RE.match(task_id):
+        return JSONResponse(status_code=400, content={"detail": "Invalid task_id format"})
     task_dir = UPLOAD_DIR / task_id
     if not task_dir.exists():
         return JSONResponse(status_code=404, content={"detail": "Task not found"})
@@ -367,7 +378,8 @@ async def get_task_diagnostics(task_id: str):
     ]
 
     warnings: list[dict[str, str]] = []
-    settings = _read_json(task_dir / "settings.json", {})
+    raw_settings = _read_json(task_dir / "settings.json", {})
+    settings = raw_settings if isinstance(raw_settings, dict) else {}
     if settings.get("subtitle_mode") == "karaoke" and settings.get("asr_provider") == "dashscope":
         warnings.append({
             "level": "warning",
@@ -441,6 +453,7 @@ async def download_task_artifacts(task_id: str, include_media: bool = Query(Fals
         "enriched_segments.json",
         "review.json",
     }
+    excluded_names = {"secrets.json"}
     allowed_suffixes = {"_meta.json", ".ass", ".srt"}
     media_suffixes = {".mp4", ".jpg", ".jpeg", ".png"}
 
@@ -450,6 +463,8 @@ async def download_task_artifacts(task_id: str, include_media: bool = Query(Fals
             if not path.is_file():
                 continue
             relative = path.relative_to(task_dir).as_posix()
+            if path.name in excluded_names:
+                continue
             if path.name in allowed_names or any(path.name.endswith(s) for s in allowed_suffixes):
                 zf.write(path, arcname=relative)
             elif include_media and path.suffix.lower() in media_suffixes:
@@ -471,7 +486,8 @@ async def get_task_review(task_id: str):
 
     enriched = _read_json(task_dir / "enriched_segments.json", [])
     transcript = _read_json(task_dir / "transcript.json", [])
-    settings = _read_json(task_dir / "settings.json", {})
+    raw_settings = _read_json(task_dir / "settings.json", {})
+    settings = {k: v for k, v in raw_settings.items() if k not in SENSITIVE_FIELDS} if isinstance(raw_settings, dict) else {}
     review = _load_review_state(task_dir)
     segment_reviews = review.get("segments", {})
     if not isinstance(segment_reviews, dict):
@@ -522,7 +538,7 @@ async def patch_review_segment(task_id: str, segment_id: str, patch: ReviewSegme
     if isinstance(task_dir, JSONResponse):
         return task_dir
 
-    if not segment_id.startswith("clip_"):
+    if not _SEGMENT_ID_RE.match(segment_id):
         return JSONResponse(status_code=400, content={"detail": "Invalid segment id"})
 
     review = _load_review_state(task_dir)
@@ -582,7 +598,7 @@ async def reprocess_task_clip(task_id: str, segment_id: str):
     if not isinstance(enriched, list):
         return JSONResponse(status_code=409, content={"detail": "No enriched segments found"})
 
-    if not segment_id.startswith("clip_"):
+    if not _SEGMENT_ID_RE.match(segment_id):
         return JSONResponse(status_code=400, content={"detail": "Invalid segment id"})
     try:
         idx = int(segment_id.replace("clip_", ""))
@@ -617,6 +633,9 @@ async def get_reprocess_task_clip(task_id: str, segment_id: str):
 
 @router.websocket("/ws/tasks/{task_id}")
 async def ws_task_progress(websocket: WebSocket, task_id: str):
+    if not _TASK_ID_RE.match(task_id):
+        await websocket.close(code=4000, reason="Invalid task_id format")
+        return
     task_dir = UPLOAD_DIR / task_id
     if not task_dir.exists():
         await websocket.close(code=4040, reason="Task not found")
