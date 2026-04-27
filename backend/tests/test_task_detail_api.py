@@ -155,3 +155,31 @@ async def test_retry_task_queues_pipeline(client, monkeypatch):
     assert queued
     assert queued[0][0] == TASK_ID
     assert queued[0][1].endswith(f"{TASK_ID}/original.mp4")
+
+
+@pytest.mark.anyio
+async def test_reprocess_clip_queues_single_segment(client, monkeypatch):
+    queued: list[tuple[str, str, str]] = []
+
+    class FakeResult:
+        id = "reprocess-id"
+
+    class FakeReprocessClip:
+        def delay(self, task_id: str, task_dir: str, segment_id: str) -> FakeResult:
+            queued.append((task_id, task_dir, segment_id))
+            return FakeResult()
+
+    monkeypatch.setattr("app.api.tasks.reprocess_clip", FakeReprocessClip())
+
+    response = await client.post(f"/api/tasks/{TASK_ID}/clips/clip_000/reprocess")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "queued"
+    assert queued
+    assert queued[0][0] == TASK_ID
+    assert queued[0][2] == "clip_000"
+
+    status_response = await client.get(f"/api/tasks/{TASK_ID}/clips/clip_000/reprocess")
+    assert status_response.status_code == 200
+    assert status_response.json()["job"]["status"] == "queued"
+    assert status_response.json()["job"]["celery_id"] == "reprocess-id"

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -49,6 +49,15 @@ import {
 } from "@/stores/settingsStore";
 
 const API_BASE = import.meta.env.VITE_API_URL || "";
+
+async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+  const resp = await fetch(url, { signal });
+  const contentType = resp.headers.get("content-type") || "";
+  if (!resp.ok || !contentType.includes("application/json")) {
+    throw new Error(`Unexpected response for ${url}`);
+  }
+  return (await resp.json()) as T;
+}
 
 type PageKey = "projects" | "create" | "queue" | "review" | "assets" | "music" | "diagnostics" | "settings";
 
@@ -123,6 +132,51 @@ interface MusicTrack {
   source: "user" | "built-in";
 }
 
+interface ClipAsset {
+  clip_id: string;
+  task_id: string;
+  segment_id: string;
+  product_name: string;
+  duration: number;
+  start_time: number;
+  end_time: number;
+  confidence: number;
+  review_status: ReviewSegment["review_status"];
+  file_size: number;
+  created_at: string;
+  video_url: string;
+  thumbnail_url: string;
+  has_video: boolean;
+  has_thumbnail: boolean;
+}
+
+interface ClipAssetsResponse {
+  items: ClipAsset[];
+  summary: {
+    total: number;
+    pending: number;
+    approved: number;
+    skipped: number;
+    needs_adjustment: number;
+    downloadable: number;
+    total_size: number;
+  };
+}
+
+interface SystemResources {
+  cpu_cores: number;
+  memory_gb: number;
+  clip_workers: number;
+  frame_workers: number;
+  queue: {
+    waiting: number;
+    active: number;
+    completed: number;
+    failed: number;
+  };
+  redis: string;
+}
+
 const navItems: { key: PageKey; label: string; icon: React.ElementType }[] = [
   { key: "projects", label: "项目总览", icon: LayoutDashboard },
   { key: "queue", label: "任务队列", icon: ListChecks },
@@ -187,6 +241,13 @@ function formatDate(dateStr?: string | null): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function formatBytes(bytes?: number): string {
+  if (!bytes || bytes <= 0) return "0MB";
+  const mb = bytes / (1024 * 1024);
+  if (mb < 1024) return `${mb.toFixed(mb >= 10 ? 0 : 1)}MB`;
+  return `${(mb / 1024).toFixed(1)}GB`;
 }
 
 function displayTaskName(task: TaskItem): string {
@@ -505,8 +566,12 @@ function ProjectManagementPage({
                   >
                     进入复核
                   </button>
-                  <button className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-                    下载全部
+                  <button
+                    disabled
+                    title="请到片段资产页选择真实片段后批量下载"
+                    className="flex-1 cursor-not-allowed rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-400"
+                  >
+                    到资产页下载
                   </button>
                 </div>
                 <div className="border-t border-slate-100 pt-3">
@@ -546,6 +611,34 @@ function MetricPill({ label, value }: { label: string; value: string }) {
 
 function CreateProjectPage({ onCancel }: { onCancel: () => void }) {
   const settings = useSettingsStore();
+  const applyPreset = (title: string) => {
+    if (title === "高质量字幕版") {
+      settings.setSettings({
+        exportMode: "smart",
+        asrProvider: "volcengine_vc",
+        subtitleMode: "karaoke",
+        bgmEnabled: true,
+        exportResolution: "1080p",
+      });
+    } else if (title === "快速低成本版") {
+      settings.setSettings({
+        exportMode: "no_vlm",
+        subtitleMode: "basic",
+        asrProvider: "dashscope",
+        bgmEnabled: false,
+      });
+    } else if (title === "全量候选调试版") {
+      settings.setSettings({
+        exportMode: "all_candidates",
+        subtitleMode: "basic",
+      });
+    } else if (title === "只切不烧字幕版") {
+      settings.setSettings({
+        subtitleMode: "off",
+        bgmEnabled: false,
+      });
+    }
+  };
   const presets = [
     {
       title: "高质量字幕版",
@@ -582,8 +675,12 @@ function CreateProjectPage({ onCancel }: { onCancel: () => void }) {
             >
               取消
             </button>
-            <button className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
-              开始处理
+            <button
+              disabled
+              title="选择文件后上传框会自动开始处理"
+              className="cursor-not-allowed rounded-lg bg-blue-100 px-3 py-2 text-sm font-medium text-blue-500"
+            >
+              选择文件后开始
             </button>
           </>
         }
@@ -616,10 +713,11 @@ function CreateProjectPage({ onCancel }: { onCancel: () => void }) {
               <h2 className="text-sm font-semibold text-slate-900">处理预设</h2>
               <div className="mt-4 grid gap-3 md:grid-cols-2">
                 {presets.map((preset) => (
-                  <div
+                  <button
                     key={preset.title}
+                    onClick={() => applyPreset(preset.title)}
                     className={cn(
-                      "rounded-lg border p-4",
+                      "rounded-lg border p-4 text-left",
                       preset.active ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-white",
                     )}
                   >
@@ -633,7 +731,7 @@ function CreateProjectPage({ onCancel }: { onCancel: () => void }) {
                       />
                     </div>
                     <p className="mt-2 text-xs leading-5 text-slate-500">{preset.desc}</p>
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>
@@ -658,8 +756,8 @@ function CreateProjectPage({ onCancel }: { onCancel: () => void }) {
               </div>
               <div className="mt-5 rounded-lg bg-slate-50 p-3">
                 <div className="text-xs text-slate-500">预计耗时</div>
-                <div className="mt-1 text-lg font-semibold text-slate-900">20-35 分钟</div>
-                <p className="mt-1 text-xs text-slate-400">实际取决于视频时长、ASR Provider 和导出片段数。</p>
+                <div className="mt-1 text-lg font-semibold text-slate-900">上传后估算</div>
+                <p className="mt-1 text-xs text-slate-400">系统会根据视频时长、ASR Provider 和导出配置估算耗时。</p>
               </div>
             </div>
           </aside>
@@ -691,15 +789,23 @@ function QueuePage({
   tasks,
   onSelectTask,
   onRetryTask,
+  onDeleteTask,
+  resources,
+  events,
+  onCreateProject,
 }: {
   tasks: TaskItem[];
   onSelectTask: (task: TaskItem) => void;
   onRetryTask: (taskId: string) => void;
+  onDeleteTask: (taskId: string) => void;
+  resources: SystemResources | null;
+  events: DiagnosticReport["event_log"];
+  onCreateProject: () => void;
 }) {
-  const waiting = tasks.filter((task) => task.status === "UPLOADED").length;
-  const processing = tasks.filter((task) => classifyStatus(task.status) === "processing").length;
-  const completed = tasks.filter((task) => task.status === "COMPLETED").length;
-  const failed = tasks.filter((task) => task.status === "ERROR").length;
+  const waiting = resources?.queue.waiting ?? tasks.filter((task) => task.status === "UPLOADED").length;
+  const processing = resources?.queue.active ?? tasks.filter((task) => classifyStatus(task.status) === "processing").length;
+  const completed = resources?.queue.completed ?? tasks.filter((task) => task.status === "COMPLETED").length;
+  const failed = resources?.queue.failed ?? tasks.filter((task) => task.status === "ERROR").length;
 
   return (
     <>
@@ -707,16 +813,13 @@ function QueuePage({
         title="任务队列"
         description="查看上传、抽帧、ASR、LLM 融合和导出任务的实时状态"
         action={
-          <>
-            <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
-              <Pause size={16} />
-              暂停队列
-            </button>
-            <button className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
-              <Upload size={16} />
-              上传视频
-            </button>
-          </>
+          <button
+            onClick={onCreateProject}
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            <Upload size={16} />
+            上传视频
+          </button>
         }
       />
       <main className="space-y-5 p-6">
@@ -725,7 +828,7 @@ function QueuePage({
           <MetricCard label="处理中" value={String(processing)} hint="正在执行流水线" />
           <MetricCard label="已完成" value={String(completed)} hint="可进入复核下载" />
           <MetricCard label="失败" value={String(failed)} hint="需要重试或诊断" />
-          <MetricCard label="Worker" value="2/2" hint="FFmpeg 并发实例" />
+          <MetricCard label="Worker" value={String(resources?.clip_workers ?? "—")} hint="FFmpeg 并发实例" />
         </section>
 
         <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
@@ -761,7 +864,9 @@ function QueuePage({
                       </div>
                       <span className="w-9 text-xs text-slate-400">{progressByStatus(task)}%</span>
                     </div>
-                    <div className="text-xs text-slate-500">CPU 68%</div>
+                    <div className="text-xs text-slate-500">
+                      {resources ? `${resources.clip_workers} workers` : "资源未知"}
+                    </div>
                     <div className="text-xs text-slate-500">{formatDuration(task.video_duration_s)}</div>
                     <div className="flex justify-end gap-1">
                       <IconButton icon={Eye} label="查看" />
@@ -774,7 +879,15 @@ function QueuePage({
                         }}
                         disabled={task.status !== "ERROR"}
                       />
-                      <IconButton icon={Trash2} label="删除" danger />
+                      <IconButton
+                        icon={Trash2}
+                        label="删除"
+                        danger
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onDeleteTask(task.task_id);
+                        }}
+                      />
                     </div>
                   </button>
                 ))
@@ -786,18 +899,25 @@ function QueuePage({
             <div className="rounded-lg border border-slate-200 bg-white p-4">
               <h2 className="text-sm font-semibold text-slate-900">Worker 资源</h2>
               <div className="mt-4 space-y-4">
-                <ResourceLine icon={Cpu} label="CPU" value="68%" tone="blue" />
-                <ResourceLine icon={HardDrive} label="内存" value="2.9GB / 4GB" tone="emerald" />
-                <ResourceLine icon={Server} label="FFmpeg 实例" value="2" tone="amber" />
+                <ResourceLine icon={Cpu} label="CPU 配额" value={resources ? `${resources.cpu_cores.toFixed(1)} cores` : "—"} tone="blue" />
+                <ResourceLine icon={HardDrive} label="内存上限" value={resources ? `${resources.memory_gb.toFixed(1)}GB` : "—"} tone="emerald" />
+                <ResourceLine icon={Server} label="FFmpeg 实例" value={String(resources?.clip_workers ?? "—")} tone="amber" />
               </div>
             </div>
             <div className="rounded-lg border border-slate-200 bg-white p-4">
               <h2 className="text-sm font-semibold text-slate-900">当前任务日志</h2>
               <div className="mt-3 space-y-2 font-mono text-xs text-slate-500">
-                <LogLine time="14:21:08" text="worker-1 开始处理 clip_003" />
-                <LogLine time="14:21:42" text="ASR submit+poll 返回成功" />
-                <LogLine time="14:22:18" text="FFmpeg export finished in 22.4s" />
-                <LogLine time="14:22:40" text="state.json 更新为 PROCESSING" />
+                {events.length > 0 ? (
+                  events.slice(-6).map((event) => (
+                    <LogLine
+                      key={`${event.time}-${event.file}`}
+                      time={formatDate(event.time)}
+                      text={`${event.stage}：${event.message}`}
+                    />
+                  ))
+                ) : (
+                  <p className="text-slate-400">暂无任务事件</p>
+                )}
               </div>
             </div>
           </aside>
@@ -876,6 +996,7 @@ function ReviewPage({
   onSelectTask,
   reviewData,
   onPatchReviewSegment,
+  onReprocessSegment,
 }: {
   tasks: TaskItem[];
   selectedTask: TaskItem | null;
@@ -884,10 +1005,14 @@ function ReviewPage({
   onSelectTask: (task: TaskItem) => void;
   reviewData: ReviewData | null;
   onPatchReviewSegment: (segmentId: string, patch: Partial<ReviewSegment>) => void;
+  onReprocessSegment: (segmentId: string) => void;
 }) {
   const [previewClip, setPreviewClip] = useState<ClipData | null>(null);
   const currentClip = clips[0] ?? null;
   const currentSegment = reviewData?.segments[0] ?? null;
+  const approvedClipIds = clips
+    .filter((_clip, index) => reviewData?.segments[index]?.review_status === "approved")
+    .map((clip) => clip.clip_id);
   const transcriptLines = reviewData?.transcript
     .filter((line) => {
       if (!currentSegment) return true;
@@ -902,11 +1027,21 @@ function ReviewPage({
         description="复核 AI 生成片段，调整标题、时间边界、封面和导出状态"
         action={
           <>
-            <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
+            <button
+              disabled
+              title="单项复核按钮会即时保存"
+              className="inline-flex cursor-not-allowed items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-400"
+            >
               <Save size={16} />
-              保存调整
+              自动保存
             </button>
-            <button className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
+            <button
+              onClick={() => {
+                if (approvedClipIds.length === 0) return;
+                window.open(`/api/clips/batch?ids=${approvedClipIds.join(",")}`, "_blank");
+              }}
+              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            >
               <Download size={16} />
               下载通过片段
             </button>
@@ -1038,11 +1173,10 @@ function ReviewPage({
                     设为封面
                   </button>
                   <button
-                    disabled
-                    className="cursor-not-allowed rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-400"
-                    title="单片段重导出需要独立 Celery 任务，后续阶段接入"
+                    onClick={() => onReprocessSegment(currentSegment.segment_id)}
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                   >
-                    重跑待接入
+                    重跑单片段
                   </button>
                 </div>
               </div>
@@ -1122,6 +1256,7 @@ function DiagnosticsPage({
 }) {
   const summary = diagnostics?.summary;
   const maxFunnel = Math.max(...(diagnostics?.funnel.map((item) => item.count) ?? [1]), 1);
+  const taskId = selectedTask?.task_id;
 
   return (
     <>
@@ -1130,13 +1265,27 @@ function DiagnosticsPage({
         description="理解片段生成、过滤、失败和耗时原因"
         action={
           <>
-            <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
+            <button
+              disabled={!taskId}
+              onClick={() => taskId && window.open(`${API_BASE}/api/tasks/${taskId}/diagnostics/export`, "_blank")}
+              className={cn(
+                "inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50",
+                !taskId && "cursor-not-allowed opacity-50",
+              )}
+            >
               <Download size={16} />
               导出报告
             </button>
-            <button className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
+            <button
+              disabled={!taskId}
+              onClick={() => taskId && window.open(`${API_BASE}/api/tasks/${taskId}/artifacts.zip`, "_blank")}
+              className={cn(
+                "inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700",
+                !taskId && "cursor-not-allowed opacity-50",
+              )}
+            >
               <FileVideo size={16} />
-              打开任务目录
+              下载诊断包
             </button>
           </>
         }
@@ -1234,16 +1383,17 @@ function DiagnosticsPage({
 }
 
 function AdminMusicPage() {
+  const bgmVolume = useSettingsStore((state) => state.bgmVolume);
   const [tracks, setTracks] = useState<MusicTrack[]>([]);
   const [loading, setLoading] = useState(true);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [selectedTrack, setSelectedTrack] = useState<MusicTrack | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadTracks = useCallback(async () => {
     setLoading(true);
     try {
-      const resp = await fetch(`${API_BASE}/api/music/library`);
-      const data = await resp.json();
+      const data = await fetchJson<MusicTrack[] | { tracks?: MusicTrack[] }>(`${API_BASE}/api/music/library`);
       const nextTracks = Array.isArray(data) ? data : data.tracks ?? [];
       setTracks(nextTracks);
       setSelectedTrack((current) => current ?? nextTracks[0] ?? null);
@@ -1267,6 +1417,19 @@ function AdminMusicPage() {
     setPlayingId((current) => (current === track.id ? null : track.id));
   };
 
+  const uploadTrack = async (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    await fetch(`${API_BASE}/api/music/upload`, { method: "POST", body: form });
+    await loadTracks();
+  };
+
+  const deleteTrack = async (trackId: string) => {
+    if (!confirm("确定要删除这首用户曲目吗？")) return;
+    await fetch(`${API_BASE}/api/music/${trackId}`, { method: "DELETE" });
+    await loadTracks();
+  };
+
   return (
     <>
       <Header
@@ -1274,7 +1437,10 @@ function AdminMusicPage() {
         description="管理内置曲库和用户上传 BGM，配置商品类型匹配标签"
         action={
           <>
-            <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+            >
               <Upload size={16} />
               上传音乐
             </button>
@@ -1289,11 +1455,22 @@ function AdminMusicPage() {
         }
       />
       <main className="space-y-5 p-6">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".mp3,audio/mpeg"
+          className="hidden"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            if (file) void uploadTrack(file);
+          }}
+        />
         <section className="grid gap-4 lg:grid-cols-4">
           <MetricCard label="我的音乐" value={String(userCount)} hint="用户上传曲目" />
           <MetricCard label="内置曲目" value={String(builtInCount)} hint="系统预置 BGM" />
           <MetricCard label="已匹配分类" value={String(categoryCount)} hint="商品类型标签" />
-          <MetricCard label="默认音量" value="25%" hint="导出混音配置" />
+          <MetricCard label="默认音量" value={`${Math.round(bgmVolume * 100)}%`} hint="导出混音配置" />
         </section>
 
         <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -1358,8 +1535,18 @@ function AdminMusicPage() {
                         <td className="px-4 py-3 text-slate-500">{formatDuration(track.duration_s)}</td>
                         <td className="px-4 py-3">
                           <div className="flex justify-end gap-1">
-                            <IconButton icon={SlidersHorizontal} label="编辑" />
-                            {track.source === "user" && <IconButton icon={Trash2} label="删除" danger />}
+                            <IconButton icon={SlidersHorizontal} label="编辑" disabled />
+                            {track.source === "user" && (
+                              <IconButton
+                                icon={Trash2}
+                                label="删除"
+                                danger
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void deleteTrack(track.id);
+                                }}
+                              />
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1375,7 +1562,10 @@ function AdminMusicPage() {
               <Upload className="mx-auto h-7 w-7 text-slate-300" />
               <h2 className="mt-3 text-sm font-semibold text-slate-900">上传 MP3</h2>
               <p className="mt-1 text-xs text-slate-500">支持 20MB 以内 MP3，上传后补充匹配标签。</p>
-              <button className="mt-4 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="mt-4 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+              >
                 选择文件
               </button>
             </div>
@@ -1390,8 +1580,12 @@ function AdminMusicPage() {
                     <Field label="节奏" value={selectedTrack.tempo || "medium"} />
                     <Field label="能量" value={selectedTrack.energy || "medium"} />
                   </div>
-                  <button className="w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
-                    保存标签
+                  <button
+                    disabled
+                    title="请选择曲目后在后续版本接入标签编辑表单"
+                    className="w-full cursor-not-allowed rounded-lg bg-blue-100 px-3 py-2 text-sm font-medium text-blue-500"
+                  >
+                    标签编辑待启用
                   </button>
                 </div>
               ) : (
@@ -1413,7 +1607,7 @@ function AdminMusicPage() {
                   <div className="h-1.5 w-1/3 rounded-full bg-blue-500" />
                 </div>
               </div>
-              <span className="text-xs text-slate-400">音量 30%</span>
+              <span className="text-xs text-slate-400">音量 {Math.round(bgmVolume * 100)}%</span>
             </div>
           </div>
         )}
@@ -1446,30 +1640,26 @@ function Warning({ text }: { text: string }) {
   );
 }
 
-function AssetsPage({ tasks }: { tasks: TaskItem[] }) {
-  const [clips, setClips] = useState<ClipData[]>([]);
+function AssetsPage() {
+  const [assets, setAssets] = useState<ClipAsset[]>([]);
+  const [summary, setSummary] = useState<ClipAssetsResponse["summary"] | null>(null);
   const [selectedClips, setSelectedClips] = useState<Set<string>>(new Set());
-  const completedTasks = useMemo(
-    () => tasks.filter((task) => task.status === "COMPLETED"),
-    [tasks],
-  );
 
   useEffect(() => {
-    if (completedTasks.length === 0) return;
     const controller = new AbortController();
-    Promise.all(
-      completedTasks.map((task) =>
-        fetch(`${API_BASE}/api/tasks/${task.task_id}/clips`, { signal: controller.signal })
-          .then((resp) => resp.json())
-          .then((data: ClipListResponse) => data.clips ?? [])
-          .catch(() => []),
-      ),
-    )
-      .then((groups) => {
-        if (!controller.signal.aborted) setClips(groups.flat());
+    fetchJson<ClipAssetsResponse>(`${API_BASE}/api/assets/clips?limit=500`, controller.signal)
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        setAssets(data.items ?? []);
+        setSummary(data.summary ?? null);
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setAssets([]);
+        setSummary(null);
       });
     return () => controller.abort();
-  }, [completedTasks]);
+  }, []);
 
   const toggleClip = (clipId: string) => {
     setSelectedClips((current) => {
@@ -1487,10 +1677,19 @@ function AssetsPage({ tasks }: { tasks: TaskItem[] }) {
         description="浏览、筛选、批量下载和复用已生成的短视频片段"
         action={
           <>
-            <button className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
+            <button
+              onClick={() => window.open(`${API_BASE}/api/assets/clips?limit=500`, "_blank")}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+            >
               导出清单
             </button>
-            <button className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
+            <button
+              onClick={() => {
+                if (selectedClips.size === 0) return;
+                window.open(`/api/clips/batch?ids=${Array.from(selectedClips).join(",")}`, "_blank");
+              }}
+              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            >
               <Download size={16} />
               批量下载
             </button>
@@ -1513,24 +1712,20 @@ function AssetsPage({ tasks }: { tasks: TaskItem[] }) {
         </section>
 
         <section className="grid gap-4 lg:grid-cols-4">
-          <MetricCard label="全部片段" value={String(clips.length)} hint="跨项目统计" />
-          <MetricCard label="待复核" value="42" hint="等待人工确认" />
-          <MetricCard label="已通过" value={String(Math.max(0, clips.length - 1))} hint="可交付片段" />
-          <MetricCard label="可下载" value={String(clips.length)} hint="文件存在的片段" />
+          <MetricCard label="全部片段" value={String(summary?.total ?? assets.length)} hint="跨项目统计" />
+          <MetricCard label="待复核" value={String(summary?.pending ?? 0)} hint="等待人工确认" />
+          <MetricCard label="已通过" value={String(summary?.approved ?? 0)} hint="可交付片段" />
+          <MetricCard label="可下载" value={String(summary?.downloadable ?? 0)} hint="文件存在的片段" />
         </section>
 
         <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
           <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
-            {completedTasks.length === 0 ? (
-              <div className="col-span-full rounded-lg border border-dashed border-slate-200 bg-white py-16 text-center text-sm text-slate-400">
-                暂无已完成项目，请先完成项目处理。
-              </div>
-            ) : clips.length === 0 ? (
+            {assets.length === 0 ? (
               <div className="col-span-full rounded-lg border border-dashed border-slate-200 bg-white py-16 text-center text-sm text-slate-400">
                 暂无片段资产，请先完成项目处理。
               </div>
             ) : (
-              clips.map((clip, index) => (
+              assets.map((clip) => (
                 <div key={clip.clip_id} className="overflow-hidden rounded-lg border border-slate-200 bg-white">
                   <div className="relative aspect-video bg-slate-100">
                     {clip.has_thumbnail ? (
@@ -1552,7 +1747,7 @@ function AssetsPage({ tasks }: { tasks: TaskItem[] }) {
                       {formatDuration(clip.duration)}
                     </span>
                     <span className="absolute right-2 top-2 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                      {index % 4 === 0 ? "待复核" : "已通过"}
+                      {reviewStatusLabel(clip.review_status)}
                     </span>
                   </div>
                   <div className="p-3">
@@ -1584,10 +1779,22 @@ function AssetsPage({ tasks }: { tasks: TaskItem[] }) {
               <div className="mt-1 text-2xl font-semibold text-slate-900">{selectedClips.size}</div>
             </div>
             <div className="mt-4 space-y-2 text-sm text-slate-500">
-              <div className="flex justify-between"><span>总时长</span><span>{selectedClips.size * 45}s</span></div>
-              <div className="flex justify-between"><span>预计 ZIP</span><span>{selectedClips.size * 18}MB</span></div>
+              <div className="flex justify-between">
+                <span>总时长</span>
+                <span>{formatDuration(assets.filter((clip) => selectedClips.has(clip.clip_id)).reduce((sum, clip) => sum + clip.duration, 0))}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>预计 ZIP</span>
+                <span>{formatBytes(assets.filter((clip) => selectedClips.has(clip.clip_id)).reduce((sum, clip) => sum + clip.file_size, 0))}</span>
+              </div>
             </div>
-            <button className="mt-5 w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
+            <button
+              onClick={() => {
+                if (selectedClips.size === 0) return;
+                window.open(`/api/clips/batch?ids=${Array.from(selectedClips).join(",")}`, "_blank");
+              }}
+              className="mt-5 w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            >
               下载所选
             </button>
             <button
@@ -1968,6 +2175,8 @@ export function AdminDashboard() {
   const [selectedSummary, setSelectedSummary] = useState<TaskSummary | null>(null);
   const [selectedDiagnostics, setSelectedDiagnostics] = useState<DiagnosticReport | null>(null);
   const [selectedReview, setSelectedReview] = useState<ReviewData | null>(null);
+  const [resources, setResources] = useState<SystemResources | null>(null);
+  const [selectedEvents, setSelectedEvents] = useState<DiagnosticReport["event_log"]>([]);
   const [clipsLoading, setClipsLoading] = useState(false);
   const { taskId, status, currentState, error } = useTaskStore();
   useTaskProgress(taskId);
@@ -1975,8 +2184,7 @@ export function AdminDashboard() {
   const loadTasks = useCallback(async () => {
     setTasksLoading(true);
     try {
-      const resp = await fetch(`${API_BASE}/api/tasks?offset=0&limit=100`);
-      const data = (await resp.json()) as TaskListResponse;
+      const data = await fetchJson<TaskListResponse>(`${API_BASE}/api/tasks?offset=0&limit=100`);
       const nextTasks = data.items ?? [];
       setTasks(nextTasks);
       setSelectedTask((current) => current ?? nextTasks[0] ?? null);
@@ -1992,13 +2200,24 @@ export function AdminDashboard() {
   }, [loadTasks, taskId, status, currentState]);
 
   useEffect(() => {
+    const controller = new AbortController();
+    fetchJson<SystemResources>(`${API_BASE}/api/system/resources`, controller.signal)
+      .then((data) => {
+        if (!controller.signal.aborted) setResources(data);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setResources(null);
+      });
+    return () => controller.abort();
+  }, [tasks]);
+
+  useEffect(() => {
     if (!selectedTask || selectedTask.status !== "COMPLETED") {
       return;
     }
     const controller = new AbortController();
-    fetch(`${API_BASE}/api/tasks/${selectedTask.task_id}/clips`, { signal: controller.signal })
-      .then((resp) => resp.json())
-      .then((data: ClipListResponse) => setSelectedTaskClips(data.clips ?? []))
+    fetchJson<ClipListResponse>(`${API_BASE}/api/tasks/${selectedTask.task_id}/clips`, controller.signal)
+      .then((data) => setSelectedTaskClips(data.clips ?? []))
       .catch(() => {
         if (!controller.signal.aborted) setSelectedTaskClips([]);
       })
@@ -2015,21 +2234,24 @@ export function AdminDashboard() {
     const controller = new AbortController();
 
     Promise.all([
-      fetch(`${API_BASE}/api/tasks/${selectedTask.task_id}/summary`, { signal: controller.signal }).then((resp) => resp.json()),
-      fetch(`${API_BASE}/api/tasks/${selectedTask.task_id}/diagnostics`, { signal: controller.signal }).then((resp) => resp.json()),
-      fetch(`${API_BASE}/api/tasks/${selectedTask.task_id}/review`, { signal: controller.signal }).then((resp) => resp.json()),
+      fetchJson<TaskSummary>(`${API_BASE}/api/tasks/${selectedTask.task_id}/summary`, controller.signal),
+      fetchJson<DiagnosticReport>(`${API_BASE}/api/tasks/${selectedTask.task_id}/diagnostics`, controller.signal),
+      fetchJson<ReviewData>(`${API_BASE}/api/tasks/${selectedTask.task_id}/review`, controller.signal),
+      fetchJson<{ events: DiagnosticReport["event_log"] }>(`${API_BASE}/api/tasks/${selectedTask.task_id}/events`, controller.signal),
     ])
-      .then(([summary, diagnostics, review]) => {
+      .then(([summary, diagnostics, review, events]) => {
         if (controller.signal.aborted) return;
         setSelectedSummary(summary);
         setSelectedDiagnostics(diagnostics);
         setSelectedReview(review);
+        setSelectedEvents(events.events ?? []);
       })
       .catch(() => {
         if (controller.signal.aborted) return;
         setSelectedSummary(null);
         setSelectedDiagnostics(null);
         setSelectedReview(null);
+        setSelectedEvents([]);
       });
     return () => controller.abort();
   }, [selectedTask]);
@@ -2069,9 +2291,18 @@ export function AdminDashboard() {
         },
       );
       if (!resp.ok) return;
-      const reviewResp = await fetch(`${API_BASE}/api/tasks/${selectedTask.task_id}/review`);
-      const review = (await reviewResp.json()) as ReviewData;
+      const review = await fetchJson<ReviewData>(`${API_BASE}/api/tasks/${selectedTask.task_id}/review`);
       setSelectedReview(review);
+    },
+    [selectedTask],
+  );
+
+  const reprocessSegment = useCallback(
+    async (segmentId: string) => {
+      if (!selectedTask) return;
+      await fetch(`${API_BASE}/api/tasks/${selectedTask.task_id}/clips/${segmentId}/reprocess`, {
+        method: "POST",
+      });
     },
     [selectedTask],
   );
@@ -2099,7 +2330,17 @@ export function AdminDashboard() {
           />
         )}
         {page === "create" && <CreateProjectPage onCancel={() => setPage("projects")} />}
-        {page === "queue" && <QueuePage tasks={tasks} onSelectTask={setSelectedTask} onRetryTask={retryTask} />}
+        {page === "queue" && (
+          <QueuePage
+            tasks={tasks}
+            onSelectTask={setSelectedTask}
+            onRetryTask={retryTask}
+            onDeleteTask={deleteTask}
+            resources={resources}
+            events={selectedEvents}
+            onCreateProject={() => setPage("create")}
+          />
+        )}
         {page === "review" && (
           <ReviewPage
             tasks={tasks}
@@ -2109,9 +2350,10 @@ export function AdminDashboard() {
             onSelectTask={setSelectedTask}
             reviewData={selectedReview}
             onPatchReviewSegment={patchReviewSegment}
+            onReprocessSegment={reprocessSegment}
           />
         )}
-        {page === "assets" && <AssetsPage tasks={tasks} />}
+        {page === "assets" && <AssetsPage />}
         {page === "music" && <AdminMusicPage />}
         {page === "diagnostics" && <DiagnosticsPage selectedTask={selectedTask} diagnostics={selectedDiagnostics} />}
         {page === "settings" && <AdminSettingsPage />}

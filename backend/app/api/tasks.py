@@ -1,17 +1,19 @@
 import asyncio
 import datetime
+import io
 import json
 import os
 import shutil
+import zipfile
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, StreamingResponse
 
 from app.services.state_machine import TaskStateMachine
-from app.tasks.pipeline import start_pipeline
+from app.tasks.pipeline import reprocess_clip, start_pipeline
 
 UPLOAD_DIR = Path("uploads")
 
@@ -79,6 +81,20 @@ def _write_review_state(task_dir: Path, review: dict[str, Any]) -> None:
     )
 
 
+def _write_clip_job_api(task_dir: Path, segment_id: str, payload: dict[str, Any]) -> None:
+    jobs_path = task_dir / "clip_jobs.json"
+    jobs = _read_json(jobs_path, {})
+    if not isinstance(jobs, dict):
+        jobs = {}
+    current = jobs.get(segment_id, {})
+    if not isinstance(current, dict):
+        current = {}
+    current.update(payload)
+    current["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    jobs[segment_id] = current
+    jobs_path.write_text(json.dumps(jobs, ensure_ascii=False, indent=2))
+
+
 def _segment_id(index: int) -> str:
     return f"clip_{index:03d}"
 
@@ -109,6 +125,39 @@ def _summary_from_task_dir(task_dir: Path) -> dict[str, Any]:
         "person_presence_frames": len(person_presence) if isinstance(person_presence, list) else 0,
         "artifact_status": _collect_artifact_status(task_dir),
     }
+
+
+def _diagnostic_event_log(task_dir: Path) -> list[dict[str, str]]:
+    event_log = []
+    for label, path in [
+        ("任务状态", task_dir / "state.json"),
+        ("任务元数据", task_dir / "meta.json"),
+        ("任务设置", task_dir / "settings.json"),
+        ("候选边界", task_dir / "candidates.json"),
+        ("场景分段", task_dir / "scenes" / "scenes.json"),
+        ("人物出现", task_dir / "scenes" / "person_presence.json"),
+        ("VLM确认", task_dir / "vlm" / "confirmed_segments.json"),
+        ("转写文本", task_dir / "transcript.json"),
+        ("文本边界", task_dir / "text_boundaries.json"),
+        ("融合候选", task_dir / "fused_candidates.json"),
+        ("有效分段", task_dir / "enriched_segments.json"),
+        ("复核状态", task_dir / "review.json"),
+    ]:
+        if path.exists():
+            stat = path.stat()
+            event_log.append(
+                {
+                    "time": datetime.datetime.fromtimestamp(
+                        stat.st_mtime, tz=datetime.timezone.utc
+                    ).isoformat(),
+                    "stage": label,
+                    "level": "INFO",
+                    "message": f"{label} 文件已生成",
+                    "file": path.relative_to(task_dir).as_posix(),
+                }
+            )
+    event_log.sort(key=lambda item: item["time"])
+    return event_log
 
 
 @router.get("/api/tasks")
@@ -295,26 +344,6 @@ async def get_task_diagnostics(task_id: str):
             "message": state.get("message", "任务执行失败"),
         })
 
-    event_log = []
-    for label, path in [
-        ("候选边界", task_dir / "candidates.json"),
-        ("转写文本", task_dir / "transcript.json"),
-        ("融合候选", task_dir / "fused_candidates.json"),
-        ("有效分段", task_dir / "enriched_segments.json"),
-        ("复核状态", task_dir / "review.json"),
-    ]:
-        if path.exists():
-            stat = path.stat()
-            event_log.append({
-                "time": datetime.datetime.fromtimestamp(
-                    stat.st_mtime, tz=datetime.timezone.utc
-                ).isoformat(),
-                "stage": label,
-                "level": "INFO",
-                "message": f"{label} 文件已生成",
-                "file": path.relative_to(task_dir).as_posix(),
-            })
-
     return {
         "task_id": task_id,
         "state": state,
@@ -322,8 +351,75 @@ async def get_task_diagnostics(task_id: str):
         "pipeline": pipeline,
         "funnel": funnel,
         "warnings": warnings,
-        "event_log": event_log,
+        "event_log": _diagnostic_event_log(task_dir),
     }
+
+
+@router.get("/api/tasks/{task_id}/events")
+async def get_task_events(task_id: str):
+    task_dir = _task_dir_or_404(task_id)
+    if isinstance(task_dir, JSONResponse):
+        return task_dir
+    return {"task_id": task_id, "events": _diagnostic_event_log(task_dir)}
+
+
+@router.get("/api/tasks/{task_id}/diagnostics/export")
+async def export_task_diagnostics(task_id: str):
+    task_dir = _task_dir_or_404(task_id)
+    if isinstance(task_dir, JSONResponse):
+        return task_dir
+
+    diagnostics = await get_task_diagnostics(task_id)
+    if isinstance(diagnostics, JSONResponse):
+        return diagnostics
+
+    content = json.dumps(diagnostics, ensure_ascii=False, indent=2).encode("utf-8")
+    return StreamingResponse(
+        io.BytesIO(content),
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="{task_id}-diagnostics.json"'
+        },
+    )
+
+
+@router.get("/api/tasks/{task_id}/artifacts.zip")
+async def download_task_artifacts(task_id: str, include_media: bool = Query(False)):
+    task_dir = _task_dir_or_404(task_id)
+    if isinstance(task_dir, JSONResponse):
+        return task_dir
+
+    allowed_names = {
+        "meta.json",
+        "settings.json",
+        "state.json",
+        "candidates.json",
+        "transcript.json",
+        "text_boundaries.json",
+        "fused_candidates.json",
+        "enriched_segments.json",
+        "review.json",
+    }
+    allowed_suffixes = {"_meta.json", ".ass", ".srt"}
+    media_suffixes = {".mp4", ".jpg", ".jpeg", ".png"}
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for path in task_dir.rglob("*"):
+            if not path.is_file():
+                continue
+            relative = path.relative_to(task_dir).as_posix()
+            if path.name in allowed_names or any(path.name.endswith(s) for s in allowed_suffixes):
+                zf.write(path, arcname=relative)
+            elif include_media and path.suffix.lower() in media_suffixes:
+                zf.write(path, arcname=relative)
+
+    buffer.seek(0)
+    return StreamingResponse(
+        buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{task_id}-artifacts.zip"'},
+    )
 
 
 @router.get("/api/tasks/{task_id}/review")
@@ -433,6 +529,49 @@ async def retry_task(task_id: str):
     )
     start_pipeline.delay(task_id, str(original))
     return {"task_id": task_id, "status": "queued"}
+
+
+@router.post("/api/tasks/{task_id}/clips/{segment_id}/reprocess")
+async def reprocess_task_clip(task_id: str, segment_id: str):
+    task_dir = _task_dir_or_404(task_id)
+    if isinstance(task_dir, JSONResponse):
+        return task_dir
+
+    enriched = _read_json(task_dir / "enriched_segments.json", [])
+    if not isinstance(enriched, list):
+        return JSONResponse(status_code=409, content={"detail": "No enriched segments found"})
+
+    if not segment_id.startswith("clip_"):
+        return JSONResponse(status_code=400, content={"detail": "Invalid segment id"})
+    try:
+        idx = int(segment_id.replace("clip_", ""))
+    except ValueError:
+        return JSONResponse(status_code=400, content={"detail": "Invalid segment id"})
+    if idx < 0 or idx >= len(enriched):
+        return JSONResponse(status_code=404, content={"detail": "Segment not found"})
+
+    _write_clip_job_api(
+        task_dir,
+        segment_id,
+        {
+            "status": "queued",
+            "queued_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "error": "",
+        },
+    )
+    result = reprocess_clip.delay(task_id, str(task_dir), segment_id)
+    _write_clip_job_api(task_dir, segment_id, {"celery_id": result.id})
+    return {"task_id": task_id, "segment_id": segment_id, "status": "queued", "celery_id": result.id}
+
+
+@router.get("/api/tasks/{task_id}/clips/{segment_id}/reprocess")
+async def get_reprocess_task_clip(task_id: str, segment_id: str):
+    task_dir = _task_dir_or_404(task_id)
+    if isinstance(task_dir, JSONResponse):
+        return task_dir
+    jobs = _read_json(task_dir / "clip_jobs.json", {})
+    job = jobs.get(segment_id, {}) if isinstance(jobs, dict) else {}
+    return {"task_id": task_id, "segment_id": segment_id, "job": job if isinstance(job, dict) else {}}
 
 
 @router.websocket("/ws/tasks/{task_id}")

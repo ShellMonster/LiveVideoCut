@@ -5,6 +5,7 @@ import logging
 import os
 import subprocess
 import time
+import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, cast
@@ -1088,3 +1089,121 @@ def process_clips(self, task_id: str, task_dir: str) -> dict[str, Any]:
     except Exception as exc:
         err.handle_error("EXPORT_FAILED", str(exc), current_state="PROCESSING")
         raise self.retry(exc=exc, countdown=2**self.request.retries)
+
+
+def _read_json_file(path: Path, fallback: Any) -> Any:
+    if not path.exists():
+        return fallback
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return fallback
+
+
+def _write_clip_job(task_path: Path, segment_id: str, payload: dict[str, Any]) -> None:
+    jobs_path = task_path / "clip_jobs.json"
+    jobs = _read_json_file(jobs_path, {})
+    if not isinstance(jobs, dict):
+        jobs = {}
+    current = jobs.get(segment_id, {})
+    if not isinstance(current, dict):
+        current = {}
+    current.update(payload)
+    current["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    jobs[segment_id] = current
+    jobs_path.write_text(json.dumps(jobs, ensure_ascii=False, indent=2))
+
+
+def _load_review_segment(task_path: Path, segment_id: str) -> tuple[int, dict[str, Any]]:
+    if not segment_id.startswith("clip_"):
+        raise ValueError("Invalid segment id")
+    idx = int(segment_id.replace("clip_", ""))
+    segments = _read_json_file(task_path / "enriched_segments.json", [])
+    if not isinstance(segments, list) or idx >= len(segments):
+        raise ValueError(f"Segment not found: {segment_id}")
+    segment = dict(segments[idx])
+
+    review = _read_json_file(task_path / "review.json", {})
+    overrides = {}
+    if isinstance(review, dict):
+        review_segments = review.get("segments", {})
+        if isinstance(review_segments, dict) and isinstance(review_segments.get(segment_id), dict):
+            overrides = review_segments[segment_id]
+    segment.update(overrides)
+    return idx, segment
+
+
+@celery_app.task(bind=True, max_retries=1)
+def reprocess_clip(self, task_id: str, task_dir: str, segment_id: str) -> dict[str, Any]:
+    task_path = Path(task_dir)
+    try:
+        _write_clip_job(
+            task_path,
+            segment_id,
+            {
+                "status": "running",
+                "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "error": "",
+            },
+        )
+
+        settings = _load_task_settings(task_path)
+        video_path = _find_video(task_path)
+        if not video_path:
+            raise FileNotFoundError("No video file found")
+
+        idx, segment = _load_review_segment(task_path, segment_id)
+        transcript = _read_json_file(task_path / "transcript.json", [])
+        if not isinstance(transcript, list):
+            transcript = []
+
+        frames_index = task_path / "frames" / "frames.json"
+        pre_sampled_frames = _read_json_file(frames_index, [])
+        if not isinstance(pre_sampled_frames, list):
+            pre_sampled_frames = []
+
+        clips_dir = task_path / "clips"
+        srt_dir = task_path / "srt"
+        covers_dir = task_path / "covers"
+        clips_dir.mkdir(parents=True, exist_ok=True)
+        srt_dir.mkdir(parents=True, exist_ok=True)
+        covers_dir.mkdir(parents=True, exist_ok=True)
+
+        bgm_selector = BGMSelector.with_user_library(ASSETS_DIR / "bgm" / "bgm_library.json")
+        result = _process_single_clip(
+            idx,
+            segment,
+            video_path,
+            clips_dir,
+            srt_dir,
+            covers_dir,
+            transcript,
+            settings,
+            pre_sampled_frames,
+            bgm_selector,
+            set(),
+        )
+        if result is None:
+            raise RuntimeError("Clip export failed")
+
+        _write_clip_job(
+            task_path,
+            segment_id,
+            {
+                "status": "completed",
+                "finished_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "error": "",
+            },
+        )
+        return {"task_id": task_id, "segment_id": segment_id, "status": "completed"}
+    except Exception as exc:
+        _write_clip_job(
+            task_path,
+            segment_id,
+            {
+                "status": "failed",
+                "finished_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "error": str(exc),
+            },
+        )
+        raise
