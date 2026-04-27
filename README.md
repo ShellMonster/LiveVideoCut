@@ -210,9 +210,29 @@ docker compose up -d
 | `PYPI_INDEX_URL` | Python PyPI 镜像源 | 空 |
 | `NPM_REGISTRY` | Node.js NPM 镜像源 | 空 |
 
+### 火山引擎 / TOS 配置
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `VOLCENGINE_ASR_API_KEY` | 火山引擎 ASR API Key | 空 |
+| `TOS_AK` | 火山 TOS Access Key | 空 |
+| `TOS_SK` | 火山 TOS Secret Key | 空 |
+| `TOS_BUCKET` | TOS Bucket 名称 | `mp3-srt` |
+| `TOS_REGION` | TOS Region | `cn-beijing` |
+| `TOS_ENDPOINT` | TOS Endpoint | `tos-cn-beijing.volces.com` |
+
+### LLM 文本分析配置
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `LLM_API_KEY` | LLM API Key | 空 |
+| `LLM_API_BASE` | LLM API 地址 | 空 |
+| `LLM_MODEL` | LLM 模型名称 | 空 |
+| `LLM_TYPE` | API 类型 | `openai` |
+
 ### ASR 配置
 
-ASR 相关配置（火山引擎、DashScope 的 API Key 等）在 **前端设置页面** 中配置，保存在浏览器 localStorage，随上传任务一起提交到后端。
+ASR 的 Provider 选择和 API Key 在 **前端设置页面** 中配置，保存在浏览器 localStorage，随上传任务一起提交到后端。后端凭据（TOS AK/SK 等）通过 `.env` 环境变量注入。
 
 ## 项目结构
 
@@ -240,10 +260,12 @@ ASR 相关配置（火山引擎、DashScope 的 API Key 等）在 **前端设置
 │   │   ├── api/                  # API 路由
 │   │   │   ├── health.py         # 健康检查
 │   │   │   ├── upload.py         # 视频上传
-│   │   │   ├── tasks.py          # 任务状态 + WebSocket + 历史列表 + 删除
-│   │   │   ├── clips.py          # 片段列表 / 下载
+│   │   │   ├── tasks.py          # 任务 CRUD + WebSocket + 诊断 + 审核 + 重试 + 重处理
+│   │   │   ├── clips.py          # 片段列表 / 下载 / 批量下载 / 缩略图
 │   │   │   ├── settings.py       # 设置模型与校验
-│   │   │   └── music.py          # 音乐库 API
+│   │   │   ├── music.py          # 音乐库 API
+│   │   │   ├── assets.py         # 跨任务素材资产浏览
+│   │   │   └── system.py         # 系统资源监控
 │   │   ├── services/             # 业务逻辑
 │   │   │   ├── clothing_change_detector.py   # 换衣检测 (主链路)
 │   │   │   ├── clothing_segmenter.py         # 服装分段 (主链路)
@@ -269,34 +291,38 @@ ASR 相关配置（火山引擎、DashScope 的 API Key 等）在 **前端设置
 │   │   │   ├── bgm_selector.py              # BGM 自动选曲
 │   │   │   ├── resource_detector.py          # 容器资源检测
 │   │   │   ├── siglip_encoder.py             # [legacy] FashionSigLIP 编码
-│   │   │   └── adaptive_similarity.py        # [legacy] 自适应相似度
+│   │   │   ├── text_segment_analyzer.py        # LLM 文本边界分析
+│   │   │   ├── segment_fusion.py               # 两层树信号融合
+│   │   │   ├── boundary_snapper.py             # 句边界对齐
+│   │   │   └── boundary_refiner.py             # LLM 边界精修
 │   │   └── tasks/
-│   │       └── pipeline.py        # Celery 四阶段管线
-│   └── tests/                     # 测试
+│   │       └── pipeline.py        # Celery 四阶段管线 + 单片段重处理
+│   └── tests/                     # 30 个测试文件
 └── frontend/
-    ├── Dockerfile                 # Node 构建 + Nginx 运行
+    ├── Dockerfile                 # Node 20 构建 + Nginx 运行
     ├── nginx.conf                 # Nginx (20G 上传 + WebSocket)
     ├── src/
-    │   ├── App.tsx
+    │   ├── App.tsx                # 入口，渲染 AdminDashboard
     │   ├── components/
-    │   │   ├── UploadZone.tsx     # 上传区域
-    │   │   ├── SettingsPage.tsx  # 独立设置页面
-│   │   ├── MusicPage.tsx    # 音乐库浏览页面
-│   │   ├── HistoryPage.tsx   # 历史记录列表页面
-    │   │   ├── ProgressBar.tsx    # 进度条
-    │   │   ├── ResultGrid.tsx     # 结果网格
-    │   │   ├── VideoPreview.tsx   # 视频预览
+    │   │   ├── AdminDashboard.tsx # 主应用壳（7 页：项目/创建/队列/审核/资产/音乐/诊断/设置）
+    │   │   ├── SettingsPage.tsx   # 独立设置页面（备选入口）
+    │   │   ├── MusicPage.tsx      # 独立音乐库页面（备选入口）
+    │   │   ├── HistoryPage.tsx    # 独立历史记录页面（备选入口）
+    │   │   ├── UploadZone.tsx     # 拖拽上传区域
+    │   │   ├── ProgressBar.tsx    # 管线进度条（8 阶段）
+    │   │   ├── ResultGrid.tsx     # 片段结果网格
+    │   │   ├── VideoPreview.tsx   # 视频预览弹窗
     │   │   ├── ErrorCard.tsx      # 错误卡片
     │   │   ├── ToastViewport.tsx  # Toast 通知
-    │   │   └── ui/                # 基础 UI 组件
+    │   │   └── ui/dialog.tsx      # 自定义 Dialog 组件
     │   ├── hooks/
-    │   │   └── useWebSocket.ts    # WebSocket 连接
+    │   │   └── useWebSocket.ts    # WebSocket 进度推送
     │   ├── stores/
-    │   │   ├── settingsStore.ts   # 设置状态
+    │   │   ├── settingsStore.ts   # 设置状态（44 字段, localStorage）
     │   │   ├── taskStore.ts       # 任务状态
     │   │   └── toastStore.ts      # 通知状态
     │   └── lib/
-    │       └── utils.ts           # 工具函数
+    │       └── utils.ts           # cn() 工具函数
     └── package.json
 ```
 
@@ -402,7 +428,7 @@ karaoke 模式的实现要点：
 | 设置 | 说明 | 默认值 |
 |------|------|--------|
 | `bgm_enabled` | 是否开启背景音乐 | `true` |
-| `bgm_volume` | BGM 音量（0-1） | 0.3 |
+| `bgm_volume` | BGM 音量（0-1） | 0.25 |
 | `original_volume` | 原声音量（0-2） | 1.0 |
 
 ### 用户音乐库（前端上传）
@@ -471,7 +497,7 @@ uploads/<task_id>/
 | 封面预抽帧复用 | `visual_prescreen` 写出 `frames/frames.json`，`process_clips` 优先复用已抽帧做封面评分；预抽帧不足时才用 FFmpeg 补足候选，导出完成后递归清理 `frames/` |
 | FFmpeg x264 优化 | `rc-lookahead=5:bframes=1:ref=1` 降低每实例 ~100MB 内存 |
 | FFmpeg 线程限制 | `-threads 4 -filter_threads 2` 避免内存膨胀 |
-| Celery 资源回收 | `--max-tasks-per-child=10 --max-memory-per-child=3GB` |
+| Celery 资源回收 | `--max-tasks-per-child=100 --max-memory-per-child=3GB` |
 | 任务超时保护 | 软超时 30min / 硬超时 60min |
 
 实测数据（20 分钟直播视频，9 clips）：

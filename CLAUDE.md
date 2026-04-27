@@ -13,7 +13,7 @@
 
 不要只看 README，当前代码的真实运行架构如下：
 
-- 前端：React + TypeScript + Vite + Tailwind
+- 前端：React 19 + TypeScript 6 + Vite 8 + Tailwind CSS 4 + Zustand 5（无路由库，AdminDashboard 单组件状态机管理 7 个子页面）
 - 后端 API：FastAPI
 - 异步任务：Celery
 - 队列/状态：Redis
@@ -37,6 +37,22 @@
 
 
 ## 用户侧主流程
+
+### 0. 前端架构
+
+前端为 **单页应用**，没有路由库（无 react-router），`App.tsx` 直接渲染 `AdminDashboard.tsx`（2721 行）。
+AdminDashboard 通过内部 `useState<PageKey>` 管理 7 个子页面：
+
+- **projects** — 项目管理（列表、搜索、筛选、详情侧栏、诊断事件）
+- **create** — 创建任务（上传 + 4 种预设：高质量字幕版/快速低成本版/全量候选调试版/只切不烧字幕版）
+- **queue** — 任务队列（实时状态、Worker 资源 CPU/内存/Redis、重试/删除）
+- **review** — 片段审核（approve/skip/needs_adjustment/reprocess、字幕显示、批量下载）
+- **assets** — 跨项目素材资产浏览器（多选、批量下载、文件大小估算）
+- **music** — 音乐库管理（标签编辑、播放/暂停、上传、删除）
+- **diagnostics** — 任务诊断（管线阶段、漏斗图、警告、事件日志、导出报告/artifacts.zip）
+- **settings** — 设置编辑器（侧栏+面板布局）
+
+独立的 `SettingsPage.tsx`、`MusicPage.tsx`、`HistoryPage.tsx` 是备选入口，当前 AdminDashboard 内建了对应版本。
 
 ### 1. 前端设置
 
@@ -84,8 +100,12 @@
   - 失败时静默跳过，不阻塞管线
 - BGM 设置：
   - `bgm_enabled`：是否开启背景音乐（默认 `true`）
-  - `bgm_volume`：BGM 音量（0-1，默认 0.3）
+  - `bgm_volume`：BGM 音量（0-1，默认 0.25）
   - `original_volume`：原声音量（0-2，默认 1.0）
+- ASR 设置：
+  - `asr_provider`：`dashscope` / `volcengine` / `volcengine_vc`（默认 `volcengine_vc`）
+  - `asr_api_key`：ASR API Key（火山引擎共用）
+  - TOS 配置：`tos_ak` / `tos_sk` / `tos_bucket` / `tos_region` / `tos_endpoint`
 
 这些设置保存在前端 Zustand store + localStorage 中，只影响之后新上传的任务。
 
@@ -248,7 +268,7 @@
 
 docker-compose.yml 中 worker 启动参数：
 - `--concurrency=1` — 单进程，为 FFmpeg 留资源（AWS 生产指南推荐）
-- `--max-tasks-per-child=10` — 处理 10 个任务后回收进程（避免内存高水位泄漏）
+- `--max-tasks-per-child=100` — 处理 100 个任务后回收进程（避免内存高水位泄漏）
 - `--max-memory-per-child=3000000` — 3GB 内存上限后回收（4GB 容器的 75%）
 - `--prefetch-multiplier=1` — 只拉取 1 个任务（长耗时任务必须设 1）
 - `-Ofair` — 公平调度
@@ -407,10 +427,12 @@ docker-compose.yml 中 worker 启动参数：
 ### 后端
 
 - `backend/app/api/upload.py`
-- `backend/app/api/tasks.py`
-- `backend/app/api/clips.py`
-- `backend/app/api/clips.py`
+- `backend/app/api/tasks.py`           # 任务 CRUD + WebSocket + 诊断 + 审核 + 重试 + 重处理
+- `backend/app/api/clips.py`           # 片段列表 / 下载 / 批量下载 / 缩略图
 - `backend/app/api/settings.py`
+- `backend/app/api/music.py`
+- `backend/app/api/assets.py`          # 跨任务素材资产浏览
+- `backend/app/api/system.py`          # 系统资源监控
 - `backend/app/tasks/pipeline.py`
 - `backend/app/services/dashscope_asr_client.py`
 - `backend/app/services/volcengine_asr_client.py`
@@ -430,11 +452,11 @@ docker-compose.yml 中 worker 启动参数：
 - `backend/app/services/boundary_snapper.py`
 - `backend/app/services/boundary_refiner.py`
 - `backend/app/services/bgm_selector.py`
-- `backend/app/api/music.py`
 
 ### 前端
 
-- `frontend/src/App.tsx`
+- `frontend/src/App.tsx`               # 入口，渲染 AdminDashboard
+- `frontend/src/components/AdminDashboard.tsx`  # 主应用壳（7 页：项目/创建/队列/审核/资产/音乐/诊断/设置）
 - `frontend/src/components/UploadZone.tsx`
 - `frontend/src/components/SettingsPage.tsx`
 - `frontend/src/components/MusicPage.tsx`
@@ -514,7 +536,7 @@ docker compose logs -f worker
 
 ```bash
 cd backend
-pytest tests/test_srt_generator.py tests/test_ffmpeg_builder.py
+pytest tests/
 ```
 
 
@@ -578,3 +600,4 @@ VC 贵 3 倍但效果最好，适合对字幕质量有要求的场景。
 - `BGMSelector.with_user_library()` 加载双库，`_resolve_track_path()` 先查用户目录再查内置目录
 - FFmpeg `amix` 滤镜已加 `normalize=0:dropout_transition=0`，修复语音被自动降低音量的 bug
 - `bgm_enabled=False` 时跳过 BGM 输入和 amix 混音，FFmpeg 命令不含 bgm 相关参数
+- `process_clips` 新增单片段重处理支持：`POST /api/tasks/{id}/clips/{segment_id}/reprocess` 用于审核后重新导出单个片段
