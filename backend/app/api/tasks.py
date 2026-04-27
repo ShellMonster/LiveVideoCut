@@ -160,6 +160,42 @@ def _diagnostic_event_log(task_dir: Path) -> list[dict[str, str]]:
     return event_log
 
 
+def _artifact_mtime(task_dir: Path, relative_path: str) -> float | None:
+    path = task_dir / relative_path
+    if path.is_dir():
+        mtimes = [item.stat().st_mtime for item in path.iterdir()]
+        return max(mtimes) if mtimes else path.stat().st_mtime
+    if path.exists():
+        return path.stat().st_mtime
+    return None
+
+
+def _pipeline_timing(task_dir: Path, pipeline: list[dict[str, Any]]) -> dict[str, Any]:
+    meta_mtime = _artifact_mtime(task_dir, "meta.json")
+    previous_mtime = meta_mtime
+    total_end = meta_mtime
+
+    for item in pipeline:
+        artifact = str(item["artifact"]).rstrip("/")
+        mtime = _artifact_mtime(task_dir, artifact)
+        if mtime is not None:
+            total_end = max(total_end or mtime, mtime)
+
+        if mtime is not None and previous_mtime is not None and mtime >= previous_mtime:
+            item["duration_s"] = round(mtime - previous_mtime, 3)
+        else:
+            item["duration_s"] = None
+
+        if mtime is not None:
+            previous_mtime = mtime
+
+    total_elapsed = None
+    if meta_mtime is not None and total_end is not None and total_end >= meta_mtime:
+        total_elapsed = round(total_end - meta_mtime, 3)
+
+    return {"pipeline": pipeline, "total_elapsed_s": total_elapsed}
+
+
 @router.get("/api/tasks")
 async def list_tasks(
     offset: int = Query(0, ge=0),
@@ -319,6 +355,7 @@ async def get_task_diagnostics(task_id: str):
         {"stage": "LLM融合", "status": "done" if artifacts["fused_candidates"] else "skipped", "artifact": "fused_candidates.json"},
         {"stage": "导出", "status": "done" if summary["clips_count"] > 0 else "pending", "artifact": "clips/"},
     ]
+    timing = _pipeline_timing(task_dir, pipeline)
 
     funnel = [
         {"label": "原始候选", "count": summary["candidates_count"]},
@@ -351,7 +388,8 @@ async def get_task_diagnostics(task_id: str):
         "task_id": task_id,
         "state": state,
         "summary": summary,
-        "pipeline": pipeline,
+        "pipeline": timing["pipeline"],
+        "total_elapsed_s": timing["total_elapsed_s"],
         "funnel": funnel,
         "warnings": warnings,
         "event_log": _diagnostic_event_log(task_dir),

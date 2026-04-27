@@ -98,11 +98,12 @@ interface TaskSummary {
 }
 
 interface DiagnosticReport {
-  pipeline: { stage: string; status: string; artifact: string }[];
+  pipeline: { stage: string; status: string; artifact: string; duration_s?: number | null }[];
   funnel: { label: string; count: number }[];
   warnings: { level: string; message: string }[];
   event_log: { time: string; stage: string; level: string; message: string; file: string }[];
   summary: TaskSummary;
+  total_elapsed_s?: number | null;
 }
 
 interface ReviewSegment {
@@ -271,6 +272,16 @@ function formatBytes(bytes?: number): string {
   return `${(mb / 1024).toFixed(1)}GB`;
 }
 
+function formatElapsed(seconds?: number | null): string {
+  if (seconds == null || seconds < 0) return "—";
+  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.round(seconds % 60);
+  if (minutes < 60) return `${minutes}m ${rest}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
+
 function displayTaskName(task: TaskItem): string {
   return task.display_name || task.original_filename || "未命名直播项目";
 }
@@ -297,6 +308,11 @@ function progressByStatus(task: TaskItem): number {
   const idx = order.indexOf(task.status);
   if (idx < 0) return 18;
   return Math.max(10, Math.round(((idx + 1) / order.length) * 100));
+}
+
+function resourcePercent(value?: number, max?: number): number | undefined {
+  if (!value || !max || max <= 0) return undefined;
+  return Math.min(100, Math.max(4, Math.round((value / max) * 100)));
 }
 
 function Sidebar({
@@ -424,10 +440,25 @@ function ProjectManagementPage({
   summary: TaskSummary | null;
   diagnostics: DiagnosticReport | null;
 }) {
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const completedCount = tasks.filter((task) => task.status === "COMPLETED").length;
   const processingCount = tasks.filter((task) => classifyStatus(task.status) === "processing").length;
   const failedCount = tasks.filter((task) => task.status === "ERROR").length;
   const clipCount = tasks.reduce((sum, task) => sum + (task.clip_count || 0), 0);
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredTasks = tasks.filter((task) => {
+    const matchesQuery =
+      !normalizedQuery ||
+      [displayTaskName(task), task.original_filename, task.task_id]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(normalizedQuery));
+    const matchesStatus =
+      statusFilter === "all" ||
+      (statusFilter === "processing" && classifyStatus(task.status) === "processing") ||
+      task.status === statusFilter;
+    return matchesQuery && matchesStatus;
+  });
 
   return (
     <>
@@ -455,13 +486,29 @@ function ProjectManagementPage({
         <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-              <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-400">
+              <label className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
                 <Search size={16} />
-                <span>搜索项目 / 文件名 / 商品关键词</span>
-              </div>
-              <button className="ml-3 inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="搜索项目 / 文件名 / 任务 ID"
+                  className="min-w-0 flex-1 bg-transparent text-slate-700 outline-none placeholder:text-slate-400"
+                />
+              </label>
+              <select
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value)}
+                className="ml-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600"
+              >
+                <option value="all">全部状态</option>
+                <option value="processing">处理中</option>
+                <option value="COMPLETED">已完成</option>
+                <option value="ERROR">失败</option>
+                <option value="UPLOADED">已上传</option>
+              </select>
+              <button onClick={() => { setQuery(""); setStatusFilter("all"); }} className="ml-2 inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
                 <SlidersHorizontal size={16} />
-                筛选
+                重置
               </button>
             </div>
             <div className="overflow-x-auto">
@@ -484,14 +531,14 @@ function ProjectManagementPage({
                         加载项目中...
                       </td>
                     </tr>
-                  ) : tasks.length === 0 ? (
+                  ) : filteredTasks.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
-                        还没有项目，点击新建项目上传直播录像。
+                        没有匹配的项目。
                       </td>
                     </tr>
                   ) : (
-                    tasks.map((task) => (
+                    filteredTasks.map((task) => (
                       <tr
                         key={task.task_id}
                         className={cn(
@@ -638,6 +685,10 @@ function MetricPill({ label, value }: { label: string; value: string }) {
 
 function CreateProjectPage({ onCancel }: { onCancel: () => void }) {
   const settings = useSettingsStore();
+  const uploadTaskId = useTaskStore((state) => state.taskId);
+  const uploadStatus = useTaskStore((state) => state.status);
+  const uploadProgress = useTaskStore((state) => state.progress);
+  const uploadState = useTaskStore((state) => state.currentState);
   const applyPreset = (title: string) => {
     if (title === "高质量字幕版") {
       settings.setSettings({
@@ -781,9 +832,13 @@ function CreateProjectPage({ onCancel }: { onCancel: () => void }) {
                 <ChecklistItem label="设置校验" />
               </div>
               <div className="mt-5 rounded-lg bg-slate-50 p-3">
-                <div className="text-xs text-slate-500">预计耗时</div>
-                <div className="mt-1 text-lg font-semibold text-slate-900">上传后估算</div>
-                <p className="mt-1 text-xs text-slate-400">系统会根据视频时长、ASR Provider 和导出配置估算耗时。</p>
+                <div className="text-xs text-slate-500">当前上传任务</div>
+                <div className="mt-1 text-lg font-semibold text-slate-900">
+                  {uploadTaskId ? `${stageLabels[uploadState] || uploadStatus} · ${uploadProgress}%` : "等待选择文件"}
+                </div>
+                <p className="mt-1 break-all text-xs text-slate-400">
+                  {uploadTaskId || "选择 MP4 后会显示真实上传进度和后端流水线状态。"}
+                </p>
               </div>
             </div>
           </aside>
@@ -891,7 +946,7 @@ function QueuePage({
                       <span className="w-9 text-xs text-slate-400">{progressByStatus(task)}%</span>
                     </div>
                     <div className="text-xs text-slate-500">
-                      {resources ? `${resources.clip_workers} workers` : "资源未知"}
+                      {resources ? `${resources.clip_workers} workers` : "等待资源"}
                     </div>
                     <div className="text-xs text-slate-500">{formatDuration(task.video_duration_s)}</div>
                     <div className="flex justify-end gap-1">
@@ -925,9 +980,9 @@ function QueuePage({
             <div className="rounded-lg border border-slate-200 bg-white p-4">
               <h2 className="text-sm font-semibold text-slate-900">Worker 资源</h2>
               <div className="mt-4 space-y-4">
-                <ResourceLine icon={Cpu} label="CPU 配额" value={resources ? `${resources.cpu_cores.toFixed(1)} cores` : "—"} tone="blue" />
-                <ResourceLine icon={HardDrive} label="内存上限" value={resources ? `${resources.memory_gb.toFixed(1)}GB` : "—"} tone="emerald" />
-                <ResourceLine icon={Server} label="FFmpeg 实例" value={String(resources?.clip_workers ?? "—")} tone="amber" />
+                <ResourceLine icon={Cpu} label="CPU 配额" value={resources ? `${resources.cpu_cores.toFixed(1)} cores` : "—"} tone="blue" percent={resourcePercent(resources?.cpu_cores, 16)} />
+                <ResourceLine icon={HardDrive} label="内存上限" value={resources ? `${resources.memory_gb.toFixed(1)}GB` : "—"} tone="emerald" percent={resourcePercent(resources?.memory_gb, 16)} />
+                <ResourceLine icon={Server} label="FFmpeg 实例" value={String(resources?.clip_workers ?? "—")} tone="amber" percent={resourcePercent(resources?.clip_workers, 4)} />
                 <ResourceLine icon={Server} label="Redis 状态" value={resources?.redis ?? "—"} tone={resources?.redis === "ok" ? "emerald" : "amber"} />
               </div>
             </div>
@@ -988,11 +1043,13 @@ function ResourceLine({
   label,
   value,
   tone,
+  percent,
 }: {
   icon: React.ElementType;
   label: string;
   value: string;
   tone: "blue" | "emerald" | "amber";
+  percent?: number;
 }) {
   const barClass = {
     blue: "bg-blue-500",
@@ -1009,7 +1066,7 @@ function ResourceLine({
         <span className="font-medium text-slate-900">{value}</span>
       </div>
       <div className="h-1.5 rounded-full bg-slate-100">
-        <div className={cn("h-1.5 w-2/3 rounded-full", barClass)} />
+        <div className={cn("h-1.5 rounded-full", barClass)} style={{ width: `${percent ?? 100}%` }} />
       </div>
     </div>
   );
@@ -1037,8 +1094,15 @@ function ReviewPage({
   reprocessJobs: Record<string, ClipReprocessJob>;
 }) {
   const [previewClip, setPreviewClip] = useState<ClipData | null>(null);
-  const currentClip = clips[0] ?? null;
-  const currentSegment = reviewData?.segments[0] ?? null;
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const safeSelectedIndex = selectedIndex < Math.max(clips.length, reviewData?.segments.length ?? 0) ? selectedIndex : 0;
+  const currentClip = clips[safeSelectedIndex] ?? clips[0] ?? null;
+  const currentSegment = reviewData?.segments[safeSelectedIndex] ?? reviewData?.segments[0] ?? null;
+  const timelineDuration = Math.max(
+    selectedTask?.video_duration_s ?? 0,
+    ...(reviewData?.segments.map((segment) => segment.end_time) ?? [0]),
+    currentClip?.end_time ?? 0,
+  );
   const currentJob = currentSegment ? reprocessJobs[currentSegment.segment_id] : undefined;
   const isCurrentReprocessing = currentJob?.status === "queued" || currentJob?.status === "running";
   const approvedClipIds = clips
@@ -1109,15 +1173,14 @@ function ReviewPage({
             </div>
             <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
               <span>{currentClip ? `${formatDuration(currentClip.start_time)} - ${formatDuration(currentClip.end_time)}` : "00:00 - 00:00"}</span>
-              <span>速度 1.0x · 音量 80%</span>
+              <span>{timelineDuration > 0 ? `源视频 ${formatDuration(timelineDuration)} · ${reviewData?.segments.length ?? 0} 段` : "等待片段数据"}</span>
             </div>
-            <div className="mt-4 h-12 rounded-lg bg-slate-50 p-2">
-              <div className="relative h-full rounded bg-slate-200">
-                <div className="absolute left-[18%] top-0 h-full w-[24%] rounded bg-blue-500/80" />
-                <div className="absolute left-[46%] top-0 h-full w-[18%] rounded bg-emerald-500/80" />
-                <div className="absolute left-[70%] top-0 h-full w-[12%] rounded bg-amber-400/90" />
-              </div>
-            </div>
+            <SegmentTimeline
+              segments={reviewData?.segments ?? []}
+              duration={timelineDuration}
+              selectedIndex={safeSelectedIndex}
+              onSelect={setSelectedIndex}
+            />
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-white">
@@ -1133,8 +1196,14 @@ function ReviewPage({
                 {clips.map((clip, index) => (
                   <button
                     key={clip.clip_id}
-                    onClick={() => setPreviewClip(clip)}
-                    className="overflow-hidden rounded-lg border border-slate-200 bg-white text-left hover:border-blue-200 hover:shadow-sm"
+                    onClick={() => {
+                      setSelectedIndex(index);
+                      setPreviewClip(clip);
+                    }}
+                    className={cn(
+                      "overflow-hidden rounded-lg border bg-white text-left hover:border-blue-200 hover:shadow-sm",
+                      safeSelectedIndex === index ? "border-blue-300 ring-2 ring-blue-100" : "border-slate-200",
+                    )}
                   >
                     <div className="relative aspect-video bg-slate-100">
                       {clip.has_thumbnail ? (
@@ -1197,7 +1266,7 @@ function ReviewPage({
                     onClick={() => onPatchReviewSegment(currentSegment.segment_id, { review_status: "needs_adjustment" })}
                     className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                   >
-                    设为封面
+                    标记需调整
                   </button>
                   <button
                     onClick={() => onReprocessSegment(currentSegment.segment_id)}
@@ -1262,6 +1331,53 @@ function Field({ label, value }: { label: string; value: string }) {
         defaultValue={value}
       />
     </label>
+  );
+}
+
+function SegmentTimeline({
+  segments,
+  duration,
+  selectedIndex,
+  onSelect,
+}: {
+  segments: ReviewSegment[];
+  duration: number;
+  selectedIndex: number;
+  onSelect: (index: number) => void;
+}) {
+  if (!segments.length || duration <= 0) {
+    return (
+      <div className="mt-4 rounded-lg bg-slate-50 p-3 text-xs text-slate-400">
+        暂无可绘制的片段时间轴
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 rounded-lg bg-slate-50 p-2">
+      <div className="relative h-12 rounded bg-slate-200">
+        {segments.map((segment, index) => {
+          const left = Math.max(0, Math.min(100, (segment.start_time / duration) * 100));
+          const width = Math.max(1, Math.min(100 - left, ((segment.end_time - segment.start_time) / duration) * 100));
+          return (
+            <button
+              key={segment.segment_id}
+              onClick={() => onSelect(index)}
+              title={`${segment.product_name || segment.segment_id} ${formatDuration(segment.start_time)}-${formatDuration(segment.end_time)}`}
+              className={cn(
+                "absolute top-1 h-10 rounded transition-colors",
+                selectedIndex === index ? "bg-blue-600" : "bg-blue-400/70 hover:bg-blue-500",
+              )}
+              style={{ left: `${left}%`, width: `${width}%` }}
+            />
+          );
+        })}
+      </div>
+      <div className="mt-2 flex justify-between text-xs text-slate-400">
+        <span>0:00</span>
+        <span>{formatDuration(duration)}</span>
+      </div>
+    </div>
   );
 }
 
@@ -1348,7 +1464,7 @@ function DiagnosticsPage({
       />
       <main className="space-y-5 p-6">
         <section className="grid gap-4 lg:grid-cols-5">
-          <MetricCard label="总耗时" value="—" hint="后续接入阶段耗时记录" />
+          <MetricCard label="总耗时" value={formatElapsed(diagnostics?.total_elapsed_s)} hint="按产物生成时间推导" />
           <MetricCard label="候选片段" value={String(summary?.candidates_count ?? 0)} hint="视觉预筛输出" />
           <MetricCard label="VLM确认" value={String(summary?.confirmed_count ?? 0)} hint="智能模式复核" />
           <MetricCard label="最终导出" value={String(summary?.clips_count ?? selectedTask?.clip_count ?? 0)} hint="clips 目录统计" />
@@ -1365,6 +1481,7 @@ function DiagnosticsPage({
                   <span className="text-xs font-medium text-slate-700">{item.stage}</span>
                 </div>
                 <div className="mt-2 truncate text-xs font-mono text-slate-500">{item.artifact}</div>
+                <div className="mt-2 text-xs font-medium text-slate-600">{formatElapsed(item.duration_s)}</div>
               </div>
             ))}
             {!diagnostics?.pipeline.length && (
@@ -1444,6 +1561,7 @@ function AdminMusicPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
+  const [audioProgress, setAudioProgress] = useState(0);
   const [selectedTrack, setSelectedTrack] = useState<MusicTrack | null>(null);
   const [tagDraft, setTagDraft] = useState({
     title: "",
@@ -1454,6 +1572,7 @@ function AdminMusicPage() {
     genre: "",
   });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const loadTracks = useCallback(async () => {
     setLoading(true);
@@ -1494,7 +1613,15 @@ function AdminMusicPage() {
 
   const togglePlay = (track: MusicTrack) => {
     setSelectedTrack(track);
-    setPlayingId((current) => (current === track.id ? null : track.id));
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (playingId === track.id) {
+      audio.pause();
+      setPlayingId(null);
+      return;
+    }
+    audio.src = `${API_BASE}/api/music/${track.id}/audio`;
+    audio.play().then(() => setPlayingId(track.id)).catch(() => setPlayingId(null));
   };
 
   const uploadTrack = async (file: File) => {
@@ -1569,6 +1696,17 @@ function AdminMusicPage() {
             const file = event.target.files?.[0];
             event.target.value = "";
             if (file) void uploadTrack(file);
+          }}
+        />
+        <audio
+          ref={audioRef}
+          onTimeUpdate={(event) => {
+            const audio = event.currentTarget;
+            setAudioProgress(audio.duration ? Math.min(100, (audio.currentTime / audio.duration) * 100) : 0);
+          }}
+          onEnded={() => {
+            setPlayingId(null);
+            setAudioProgress(0);
           }}
         />
         <section className="grid gap-4 lg:grid-cols-4">
@@ -1748,13 +1886,13 @@ function AdminMusicPage() {
         {selectedTrack && (
           <div className="rounded-lg border border-slate-200 bg-white p-3">
             <div className="flex items-center gap-3">
-              <button className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-600 text-white">
+              <button onClick={() => togglePlay(selectedTrack)} className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-600 text-white">
                 {playingId === selectedTrack.id ? <Pause size={16} /> : <Play size={16} />}
               </button>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium text-slate-900">{selectedTrack.title}</div>
                 <div className="mt-2 h-1.5 rounded-full bg-slate-100">
-                  <div className="h-1.5 w-1/3 rounded-full bg-blue-500" />
+                  <div className="h-1.5 rounded-full bg-blue-500" style={{ width: `${playingId === selectedTrack.id ? audioProgress : 0}%` }} />
                 </div>
               </div>
               <span className="text-xs text-slate-400">音量 {Math.round(bgmVolume * 100)}%</span>
@@ -1840,11 +1978,15 @@ function AssetsPage({ selectedProjectId }: { selectedProjectId?: string }) {
   const [assets, setAssets] = useState<ClipAsset[]>([]);
   const [summary, setSummary] = useState<ClipAssetsResponse["summary"] | null>(null);
   const [selectedClips, setSelectedClips] = useState<Set<string>>(new Set());
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [durationFilter, setDurationFilter] = useState("all");
 
   useEffect(() => {
     const controller = new AbortController();
     const params = new URLSearchParams({ limit: "500" });
     if (selectedProjectId) params.set("project_id", selectedProjectId);
+    if (statusFilter !== "all") params.set("status", statusFilter);
     fetchJson<ClipAssetsResponse>(`${API_BASE}/api/assets/clips?${params.toString()}`, controller.signal)
       .then((data) => {
         if (controller.signal.aborted) return;
@@ -1858,7 +2000,7 @@ function AssetsPage({ selectedProjectId }: { selectedProjectId?: string }) {
         setSummary(null);
       });
     return () => controller.abort();
-  }, [selectedProjectId]);
+  }, [selectedProjectId, statusFilter]);
 
   const toggleClip = (clipId: string) => {
     setSelectedClips((current) => {
@@ -1868,6 +2010,20 @@ function AssetsPage({ selectedProjectId }: { selectedProjectId?: string }) {
       return next;
     });
   };
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleAssets = assets.filter((clip) => {
+    const matchesQuery =
+      !normalizedQuery ||
+      [clip.product_name, clip.task_id, clip.clip_id, clip.segment_id].some((value) =>
+        value.toLowerCase().includes(normalizedQuery),
+      );
+    const matchesDuration =
+      durationFilter === "all" ||
+      (durationFilter === "short" && clip.duration < 30) ||
+      (durationFilter === "medium" && clip.duration >= 30 && clip.duration <= 90) ||
+      (durationFilter === "long" && clip.duration > 90);
+    return matchesQuery && matchesDuration;
+  });
 
   return (
     <>
@@ -1902,15 +2058,28 @@ function AssetsPage({ selectedProjectId }: { selectedProjectId?: string }) {
       <main className="space-y-5 p-6">
         <section className="rounded-lg border border-slate-200 bg-white p-4">
           <div className="flex flex-wrap gap-3">
-            <div className="flex min-w-72 flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-400">
+            <label className="flex min-w-72 flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
               <Search size={16} />
-              <span>搜索商品名 / 项目 / 文件名</span>
-            </div>
-            {["全部状态", "全部项目", "全部时长", "最近 30 天"].map((label) => (
-              <button key={label} className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
-                {label}
-              </button>
-            ))}
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="搜索商品名 / 项目 / 片段 ID"
+                className="min-w-0 flex-1 bg-transparent text-slate-700 outline-none placeholder:text-slate-400"
+              />
+            </label>
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+              <option value="all">全部状态</option>
+              <option value="pending">待复核</option>
+              <option value="approved">已通过</option>
+              <option value="skipped">已跳过</option>
+              <option value="needs_adjustment">需调整</option>
+            </select>
+            <select value={durationFilter} onChange={(event) => setDurationFilter(event.target.value)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+              <option value="all">全部时长</option>
+              <option value="short">30 秒内</option>
+              <option value="medium">30-90 秒</option>
+              <option value="long">90 秒以上</option>
+            </select>
           </div>
         </section>
 
@@ -1923,12 +2092,12 @@ function AssetsPage({ selectedProjectId }: { selectedProjectId?: string }) {
 
         <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
           <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
-            {assets.length === 0 ? (
+            {visibleAssets.length === 0 ? (
               <div className="col-span-full rounded-lg border border-dashed border-slate-200 bg-white py-16 text-center text-sm text-slate-400">
-                暂无片段资产，请先完成项目处理。
+                暂无匹配片段资产。
               </div>
             ) : (
-              assets.map((clip) => (
+              visibleAssets.map((clip) => (
                 <div key={clip.clip_id} className="overflow-hidden rounded-lg border border-slate-200 bg-white">
                   <div className="relative aspect-video bg-slate-100">
                     {clip.has_thumbnail ? (
