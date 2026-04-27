@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Check, Info, Save, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -61,21 +61,6 @@ export function AdminSettingsPage() {
   const savedSnapshot = useMemo(() => JSON.stringify(initialDraft(settings)), [settings]);
   const draftSnapshot = useMemo(() => JSON.stringify(draft), [draft]);
   const hasUnsavedChanges = savedSnapshot !== draftSnapshot;
-
-  useEffect(() => {
-    const syncActiveSection = () => {
-      const currentSection = sectionTabs.reduce((current, _tab, index) => {
-        const element = document.getElementById(`settings-section-${index}`);
-        if (!element) return current;
-        return element.getBoundingClientRect().top <= 140 ? index : current;
-      }, 0);
-      setActiveSection(currentSection);
-    };
-
-    syncActiveSection();
-    window.addEventListener("scroll", syncActiveSection, { passive: true });
-    return () => window.removeEventListener("scroll", syncActiveSection);
-  }, []);
 
   const updateDraft = (partial: Partial<SettingsDraft>) => {
     setDraft((current) => ({ ...current, ...partial }));
@@ -170,9 +155,8 @@ export function AdminSettingsPage() {
         <section className="min-w-0 space-y-5">
           <div className="flex flex-wrap gap-2 rounded-lg border border-slate-200 bg-white p-2">
             {sectionTabs.map((tab, index) => (
-              <a
+              <button
                 key={tab}
-                href={`#settings-section-${index}`}
                 onClick={() => setActiveSection(index)}
                 className={cn(
                   "rounded-md px-3 py-2 text-sm font-medium hover:bg-slate-50",
@@ -180,10 +164,11 @@ export function AdminSettingsPage() {
                 )}
               >
                 {tab}
-              </a>
+              </button>
             ))}
           </div>
 
+          {activeSection === 0 && (
           <SettingsCard
             id="settings-section-0"
             title="处理预设"
@@ -221,7 +206,9 @@ export function AdminSettingsPage() {
               />
             </div>
           </SettingsCard>
+          )}
 
+          {activeSection === 1 && (
           <SettingsCard
             id="settings-section-1"
             title="AI 服务"
@@ -284,7 +271,9 @@ export function AdminSettingsPage() {
               <Notice text="当前导出模式不会调用 VLM，Provider、Model 和 VLM API Key 会保留但不会用于新任务。" />
             )}
           </SettingsCard>
+          )}
 
+          {activeSection === 2 && (
           <SettingsCard
             id="settings-section-2"
             title="字幕与转写"
@@ -410,7 +399,9 @@ export function AdminSettingsPage() {
               </div>
             )}
           </SettingsCard>
+          )}
 
+          {activeSection === 3 && (
           <SettingsCard
             id="settings-section-3"
             title="切分策略"
@@ -486,7 +477,9 @@ export function AdminSettingsPage() {
               />
             </div>
           </SettingsCard>
+          )}
 
+          {activeSection === 4 && (
           <SettingsCard
             id="settings-section-4"
             title="导出与音频"
@@ -547,7 +540,9 @@ export function AdminSettingsPage() {
               )}
             </div>
           </SettingsCard>
+          )}
 
+          {activeSection === 5 && (
           <SettingsCard
             id="settings-section-5"
             title="高级参数"
@@ -593,6 +588,7 @@ export function AdminSettingsPage() {
               </div>
             )}
           </SettingsCard>
+          )}
         </section>
 
         <aside className="space-y-5 xl:sticky xl:top-6 xl:self-start">
