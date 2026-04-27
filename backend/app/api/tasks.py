@@ -200,6 +200,8 @@ async def list_tasks(
         created_at = meta.get("created_at", "")
         original_filename = meta.get("original_filename", "")
         video_duration_s = meta.get("duration")
+        settings = _read_json(Path(entry.path) / "settings.json", {})
+        asr_provider = settings.get("asr_provider", "") if isinstance(settings, dict) else ""
 
         clips_dir = os.path.join(entry.path, "clips")
         clip_count = 0
@@ -242,6 +244,7 @@ async def list_tasks(
             "original_filename": original_filename,
             "display_name": display_name,
             "video_duration_s": video_duration_s,
+            "asr_provider": asr_provider,
             "clip_count": clip_count,
             "thumbnail_url": thumbnail_url,
         })

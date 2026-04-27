@@ -70,6 +70,7 @@ interface TaskItem {
   original_filename?: string | null;
   display_name?: string | null;
   video_duration_s?: number;
+  asr_provider?: string;
   clip_count: number;
   thumbnail_url?: string | null;
 }
@@ -177,6 +178,16 @@ interface SystemResources {
   redis: string;
 }
 
+interface ClipReprocessJob {
+  status?: "queued" | "running" | "completed" | "failed";
+  celery_id?: string;
+  queued_at?: string;
+  started_at?: string;
+  finished_at?: string;
+  error?: string;
+  updated_at?: string;
+}
+
 const navItems: { key: PageKey; label: string; icon: React.ElementType }[] = [
   { key: "projects", label: "项目总览", icon: LayoutDashboard },
   { key: "queue", label: "任务队列", icon: ListChecks },
@@ -206,6 +217,16 @@ const stageLabels: Record<string, string> = {
   COMPLETED: "完成",
   ERROR: "失败",
 };
+
+const asrProviderLabels: Record<string, string> = {
+  volcengine_vc: "火山 VC",
+  volcengine_flash: "火山极速",
+  volcengine: "火山标准",
+  dashscope: "DashScope",
+};
+
+const editableMoodOptions = ["bright", "casual", "warm", "luxury", "energetic", "soft", "clean", "elegant"];
+const editableCategoryOptions = ["default", "dress", "coat", "pants", "skirt", "shoes", "bag", "accessory", "beauty", "home"];
 
 function classifyStatus(raw: string): keyof typeof statusMap {
   if (raw === "COMPLETED") return "completed";
@@ -252,6 +273,11 @@ function formatBytes(bytes?: number): string {
 
 function displayTaskName(task: TaskItem): string {
   return task.display_name || task.original_filename || "未命名直播项目";
+}
+
+function displayAsrProvider(provider?: string): string {
+  if (!provider) return "—";
+  return asrProviderLabels[provider] ?? provider;
 }
 
 function progressByStatus(task: TaskItem): number {
@@ -316,12 +342,12 @@ function Sidebar({
         <div className="rounded-lg bg-slate-50 p-3">
           <div className="flex items-center gap-2 text-xs font-medium text-slate-700">
             <Server size={14} />
-            Worker 运行正常
+            Worker 资源
           </div>
           <div className="mt-2 h-1.5 rounded-full bg-slate-200">
-            <div className="h-1.5 w-2/3 rounded-full bg-emerald-500" />
+            <div className="h-1.5 w-full rounded-full bg-slate-300" />
           </div>
-          <p className="mt-2 text-xs text-slate-400">2 个 FFmpeg 实例可用</p>
+          <p className="mt-2 text-xs text-slate-400">在任务队列页查看实时资源</p>
         </div>
       </div>
     </aside>
@@ -382,6 +408,7 @@ function ProjectManagementPage({
   onSelectTask,
   onDeleteTask,
   onOpenReview,
+  onOpenAssets,
   onCreateProject,
   summary,
   diagnostics,
@@ -392,6 +419,7 @@ function ProjectManagementPage({
   onSelectTask: (task: TaskItem) => void;
   onDeleteTask: (taskId: string) => void;
   onOpenReview: () => void;
+  onOpenAssets: () => void;
   onCreateProject: () => void;
   summary: TaskSummary | null;
   diagnostics: DiagnosticReport | null;
@@ -509,7 +537,7 @@ function ProjectManagementPage({
                           </div>
                         </td>
                         <td className="px-4 py-3 text-slate-600">{task.clip_count || 0}</td>
-                        <td className="px-4 py-3 text-slate-600">火山 VC</td>
+                        <td className="px-4 py-3 text-slate-600">{displayAsrProvider(task.asr_provider)}</td>
                         <td className="px-4 py-3 text-slate-500">{formatDate(task.created_at)}</td>
                         <td className="px-4 py-3">
                           <div className="flex justify-end gap-1">
@@ -567,9 +595,8 @@ function ProjectManagementPage({
                     进入复核
                   </button>
                   <button
-                    disabled
-                    title="请到片段资产页选择真实片段后批量下载"
-                    className="flex-1 cursor-not-allowed rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-400"
+                    onClick={onOpenAssets}
+                    className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                   >
                     到资产页下载
                   </button>
@@ -676,11 +703,10 @@ function CreateProjectPage({ onCancel }: { onCancel: () => void }) {
               取消
             </button>
             <button
-              disabled
-              title="选择文件后上传框会自动开始处理"
-              className="cursor-not-allowed rounded-lg bg-blue-100 px-3 py-2 text-sm font-medium text-blue-500"
+              onClick={() => document.querySelector<HTMLElement>(".upload-zone")?.click()}
+              className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
             >
-              选择文件后开始
+              选择文件开始
             </button>
           </>
         }
@@ -828,7 +854,7 @@ function QueuePage({
           <MetricCard label="处理中" value={String(processing)} hint="正在执行流水线" />
           <MetricCard label="已完成" value={String(completed)} hint="可进入复核下载" />
           <MetricCard label="失败" value={String(failed)} hint="需要重试或诊断" />
-          <MetricCard label="Worker" value={String(resources?.clip_workers ?? "—")} hint="FFmpeg 并发实例" />
+          <MetricCard label="Redis" value={resources?.redis === "ok" ? "正常" : resources?.redis ? "异常" : "—"} hint={resources?.redis ?? "队列连接状态"} />
         </section>
 
         <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
@@ -902,6 +928,7 @@ function QueuePage({
                 <ResourceLine icon={Cpu} label="CPU 配额" value={resources ? `${resources.cpu_cores.toFixed(1)} cores` : "—"} tone="blue" />
                 <ResourceLine icon={HardDrive} label="内存上限" value={resources ? `${resources.memory_gb.toFixed(1)}GB` : "—"} tone="emerald" />
                 <ResourceLine icon={Server} label="FFmpeg 实例" value={String(resources?.clip_workers ?? "—")} tone="amber" />
+                <ResourceLine icon={Server} label="Redis 状态" value={resources?.redis ?? "—"} tone={resources?.redis === "ok" ? "emerald" : "amber"} />
               </div>
             </div>
             <div className="rounded-lg border border-slate-200 bg-white p-4">
@@ -997,6 +1024,7 @@ function ReviewPage({
   reviewData,
   onPatchReviewSegment,
   onReprocessSegment,
+  reprocessJobs,
 }: {
   tasks: TaskItem[];
   selectedTask: TaskItem | null;
@@ -1006,10 +1034,13 @@ function ReviewPage({
   reviewData: ReviewData | null;
   onPatchReviewSegment: (segmentId: string, patch: Partial<ReviewSegment>) => void;
   onReprocessSegment: (segmentId: string) => void;
+  reprocessJobs: Record<string, ClipReprocessJob>;
 }) {
   const [previewClip, setPreviewClip] = useState<ClipData | null>(null);
   const currentClip = clips[0] ?? null;
   const currentSegment = reviewData?.segments[0] ?? null;
+  const currentJob = currentSegment ? reprocessJobs[currentSegment.segment_id] : undefined;
+  const isCurrentReprocessing = currentJob?.status === "queued" || currentJob?.status === "running";
   const approvedClipIds = clips
     .filter((_clip, index) => reviewData?.segments[index]?.review_status === "approved")
     .map((clip) => clip.clip_id);
@@ -1027,18 +1058,14 @@ function ReviewPage({
         description="复核 AI 生成片段，调整标题、时间边界、封面和导出状态"
         action={
           <>
-            <button
-              disabled
-              title="单项复核按钮会即时保存"
-              className="inline-flex cursor-not-allowed items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-400"
-            >
+            <span className="inline-flex items-center gap-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
               <Save size={16} />
               自动保存
-            </button>
+            </span>
             <button
               onClick={() => {
                 if (approvedClipIds.length === 0) return;
-                window.open(`/api/clips/batch?ids=${approvedClipIds.join(",")}`, "_blank");
+                window.open(`${API_BASE}/api/clips/batch?ids=${approvedClipIds.join(",")}`, "_blank");
               }}
               className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
             >
@@ -1174,11 +1201,30 @@ function ReviewPage({
                   </button>
                   <button
                     onClick={() => onReprocessSegment(currentSegment.segment_id)}
-                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    disabled={isCurrentReprocessing}
+                    className={cn(
+                      "rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50",
+                      isCurrentReprocessing && "cursor-not-allowed opacity-60",
+                    )}
                   >
-                    重跑单片段
+                    {isCurrentReprocessing ? "重导出中" : "重跑单片段"}
                   </button>
                 </div>
+                {currentJob?.status && (
+                  <div
+                    className={cn(
+                      "rounded-lg p-3 text-xs",
+                      currentJob.status === "failed"
+                        ? "bg-red-50 text-red-700"
+                        : currentJob.status === "completed"
+                          ? "bg-emerald-50 text-emerald-700"
+                          : "bg-blue-50 text-blue-700",
+                    )}
+                  >
+                    单片段重导出：{clipJobStatusLabel(currentJob.status)}
+                    {currentJob.error ? `，${currentJob.error}` : ""}
+                  </div>
+                )}
               </div>
             ) : (
               <p className="mt-4 text-sm text-slate-400">暂无可编辑片段</p>
@@ -1236,6 +1282,16 @@ function reviewStatusLabel(status: ReviewSegment["review_status"]): string {
     needs_adjustment: "需调整",
   };
   return labels[status] ?? "待复核";
+}
+
+function clipJobStatusLabel(status: NonNullable<ClipReprocessJob["status"]>): string {
+  const labels: Record<NonNullable<ClipReprocessJob["status"]>, string> = {
+    queued: "排队中",
+    running: "处理中",
+    completed: "已完成",
+    failed: "失败",
+  };
+  return labels[status] ?? status;
 }
 
 function TranscriptLine({ time, text }: { time: string; text: string }) {
@@ -1386,8 +1442,17 @@ function AdminMusicPage() {
   const bgmVolume = useSettingsStore((state) => state.bgmVolume);
   const [tracks, setTracks] = useState<MusicTrack[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [selectedTrack, setSelectedTrack] = useState<MusicTrack | null>(null);
+  const [tagDraft, setTagDraft] = useState({
+    title: "",
+    mood: [] as string[],
+    categories: [] as string[],
+    tempo: "medium",
+    energy: "medium",
+    genre: "",
+  });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadTracks = useCallback(async () => {
@@ -1396,7 +1461,7 @@ function AdminMusicPage() {
       const data = await fetchJson<MusicTrack[] | { tracks?: MusicTrack[] }>(`${API_BASE}/api/music/library`);
       const nextTracks = Array.isArray(data) ? data : data.tracks ?? [];
       setTracks(nextTracks);
-      setSelectedTrack((current) => current ?? nextTracks[0] ?? null);
+      setSelectedTrack((current) => nextTracks.find((track) => track.id === current?.id) ?? nextTracks[0] ?? null);
     } catch {
       setTracks([]);
     } finally {
@@ -1407,6 +1472,21 @@ function AdminMusicPage() {
   useEffect(() => {
     void loadTracks();
   }, [loadTracks]);
+
+  useEffect(() => {
+    if (!selectedTrack) {
+      setTagDraft({ title: "", mood: [], categories: [], tempo: "medium", energy: "medium", genre: "" });
+      return;
+    }
+    setTagDraft({
+      title: selectedTrack.title,
+      mood: selectedTrack.mood,
+      categories: selectedTrack.categories,
+      tempo: selectedTrack.tempo || "medium",
+      energy: selectedTrack.energy || "medium",
+      genre: selectedTrack.genre || "",
+    });
+  }, [selectedTrack]);
 
   const userCount = tracks.filter((track) => track.source === "user").length;
   const builtInCount = tracks.filter((track) => track.source === "built-in").length;
@@ -1428,6 +1508,31 @@ function AdminMusicPage() {
     if (!confirm("确定要删除这首用户曲目吗？")) return;
     await fetch(`${API_BASE}/api/music/${trackId}`, { method: "DELETE" });
     await loadTracks();
+  };
+
+  const saveTrackTags = async () => {
+    if (!selectedTrack || selectedTrack.source !== "user") return;
+    setSaving(true);
+    try {
+      const resp = await fetch(`${API_BASE}/api/music/${selectedTrack.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: tagDraft.title.trim() || selectedTrack.title,
+          mood: tagDraft.mood,
+          categories: tagDraft.categories,
+          tempo: tagDraft.tempo,
+          energy: tagDraft.energy,
+          genre: tagDraft.genre.trim(),
+        }),
+      });
+      if (!resp.ok) return;
+      const updated = (await resp.json()) as MusicTrack;
+      setTracks((current) => current.map((track) => (track.id === updated.id ? updated : track)));
+      setSelectedTrack(updated);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -1535,7 +1640,15 @@ function AdminMusicPage() {
                         <td className="px-4 py-3 text-slate-500">{formatDuration(track.duration_s)}</td>
                         <td className="px-4 py-3">
                           <div className="flex justify-end gap-1">
-                            <IconButton icon={SlidersHorizontal} label="编辑" disabled />
+                            <IconButton
+                              icon={SlidersHorizontal}
+                              label="编辑"
+                              disabled={track.source !== "user"}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSelectedTrack(track);
+                              }}
+                            />
                             {track.source === "user" && (
                               <IconButton
                                 icon={Trash2}
@@ -1573,20 +1686,57 @@ function AdminMusicPage() {
               <h2 className="text-sm font-semibold text-slate-900">标签编辑</h2>
               {selectedTrack ? (
                 <div className="mt-4 space-y-4">
-                  <Field label="标题" value={selectedTrack.title} />
-                  <TagGroup label="Mood" values={selectedTrack.mood.length ? selectedTrack.mood : ["bright", "casual"]} />
-                  <TagGroup label="商品分类" values={selectedTrack.categories.length ? selectedTrack.categories : ["default"]} />
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="节奏" value={selectedTrack.tempo || "medium"} />
-                    <Field label="能量" value={selectedTrack.energy || "medium"} />
-                  </div>
-                  <button
-                    disabled
-                    title="请选择曲目后在后续版本接入标签编辑表单"
-                    className="w-full cursor-not-allowed rounded-lg bg-blue-100 px-3 py-2 text-sm font-medium text-blue-500"
-                  >
-                    标签编辑待启用
-                  </button>
+                  {selectedTrack.source !== "user" ? (
+                    <>
+                      <Field label="标题" value={selectedTrack.title} />
+                      <TagGroup label="Mood" values={selectedTrack.mood.length ? selectedTrack.mood : ["—"]} />
+                      <TagGroup label="商品分类" values={selectedTrack.categories.length ? selectedTrack.categories : ["default"]} />
+                      <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
+                        内置曲目只读；上传到我的音乐后可编辑标签。
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <InputField label="标题" value={tagDraft.title} onChange={(title) => setTagDraft({ ...tagDraft, title })} />
+                      <MultiSelectField
+                        label="Mood"
+                        options={editableMoodOptions}
+                        values={tagDraft.mood}
+                        onChange={(mood) => setTagDraft({ ...tagDraft, mood })}
+                      />
+                      <MultiSelectField
+                        label="商品分类"
+                        options={editableCategoryOptions}
+                        values={tagDraft.categories}
+                        onChange={(categories) => setTagDraft({ ...tagDraft, categories })}
+                      />
+                      <div className="grid grid-cols-2 gap-3">
+                        <SelectField
+                          label="节奏"
+                          value={tagDraft.tempo}
+                          onChange={(tempo) => setTagDraft({ ...tagDraft, tempo })}
+                          options={["slow", "medium", "fast"]}
+                        />
+                        <SelectField
+                          label="能量"
+                          value={tagDraft.energy}
+                          onChange={(energy) => setTagDraft({ ...tagDraft, energy })}
+                          options={["low", "medium", "high"]}
+                        />
+                      </div>
+                      <InputField label="风格" value={tagDraft.genre} onChange={(genre) => setTagDraft({ ...tagDraft, genre })} />
+                      <button
+                        onClick={saveTrackTags}
+                        disabled={saving}
+                        className={cn(
+                          "w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700",
+                          saving && "cursor-not-allowed opacity-60",
+                        )}
+                      >
+                        {saving ? "保存中..." : "保存标签"}
+                      </button>
+                    </>
+                  )}
                 </div>
               ) : (
                 <p className="mt-4 text-sm text-slate-400">选择曲目后编辑标签</p>
@@ -1631,6 +1781,52 @@ function TagGroup({ label, values }: { label: string; values: string[] }) {
   );
 }
 
+function MultiSelectField({
+  label,
+  options,
+  values,
+  onChange,
+}: {
+  label: string;
+  options: string[];
+  values: string[];
+  onChange: (values: string[]) => void;
+}) {
+  const toggle = (option: string) => {
+    if (values.includes(option)) {
+      onChange(values.filter((value) => value !== option));
+      return;
+    }
+    onChange([...values, option]);
+  };
+
+  return (
+    <div>
+      <div className="mb-2 text-xs text-slate-500">{label}</div>
+      <div className="flex flex-wrap gap-2">
+        {options.map((option) => {
+          const checked = values.includes(option);
+          return (
+            <button
+              key={option}
+              type="button"
+              onClick={() => toggle(option)}
+              className={cn(
+                "rounded-full px-2 py-1 text-xs font-medium ring-1",
+                checked
+                  ? "bg-blue-50 text-blue-700 ring-blue-100"
+                  : "bg-white text-slate-500 ring-slate-200 hover:bg-slate-50",
+              )}
+            >
+              {option}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function Warning({ text }: { text: string }) {
   return (
     <div className="flex gap-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
@@ -1640,18 +1836,21 @@ function Warning({ text }: { text: string }) {
   );
 }
 
-function AssetsPage() {
+function AssetsPage({ selectedProjectId }: { selectedProjectId?: string }) {
   const [assets, setAssets] = useState<ClipAsset[]>([]);
   const [summary, setSummary] = useState<ClipAssetsResponse["summary"] | null>(null);
   const [selectedClips, setSelectedClips] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const controller = new AbortController();
-    fetchJson<ClipAssetsResponse>(`${API_BASE}/api/assets/clips?limit=500`, controller.signal)
+    const params = new URLSearchParams({ limit: "500" });
+    if (selectedProjectId) params.set("project_id", selectedProjectId);
+    fetchJson<ClipAssetsResponse>(`${API_BASE}/api/assets/clips?${params.toString()}`, controller.signal)
       .then((data) => {
         if (controller.signal.aborted) return;
         setAssets(data.items ?? []);
         setSummary(data.summary ?? null);
+        setSelectedClips(new Set());
       })
       .catch(() => {
         if (controller.signal.aborted) return;
@@ -1659,7 +1858,7 @@ function AssetsPage() {
         setSummary(null);
       });
     return () => controller.abort();
-  }, []);
+  }, [selectedProjectId]);
 
   const toggleClip = (clipId: string) => {
     setSelectedClips((current) => {
@@ -1678,7 +1877,11 @@ function AssetsPage() {
         action={
           <>
             <button
-              onClick={() => window.open(`${API_BASE}/api/assets/clips?limit=500`, "_blank")}
+              onClick={() => {
+                const params = new URLSearchParams({ limit: "500" });
+                if (selectedProjectId) params.set("project_id", selectedProjectId);
+                window.open(`${API_BASE}/api/assets/clips?${params.toString()}`, "_blank");
+              }}
               className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
             >
               导出清单
@@ -1686,7 +1889,7 @@ function AssetsPage() {
             <button
               onClick={() => {
                 if (selectedClips.size === 0) return;
-                window.open(`/api/clips/batch?ids=${Array.from(selectedClips).join(",")}`, "_blank");
+                window.open(`${API_BASE}/api/clips/batch?ids=${Array.from(selectedClips).join(",")}`, "_blank");
               }}
               className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
             >
@@ -1791,7 +1994,7 @@ function AssetsPage() {
             <button
               onClick={() => {
                 if (selectedClips.size === 0) return;
-                window.open(`/api/clips/batch?ids=${Array.from(selectedClips).join(",")}`, "_blank");
+                window.open(`${API_BASE}/api/clips/batch?ids=${Array.from(selectedClips).join(",")}`, "_blank");
               }}
               className="mt-5 w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
             >
@@ -2177,6 +2380,8 @@ export function AdminDashboard() {
   const [selectedReview, setSelectedReview] = useState<ReviewData | null>(null);
   const [resources, setResources] = useState<SystemResources | null>(null);
   const [selectedEvents, setSelectedEvents] = useState<DiagnosticReport["event_log"]>([]);
+  const [reprocessJobs, setReprocessJobs] = useState<Record<string, ClipReprocessJob>>({});
+  const [assetProjectId, setAssetProjectId] = useState<string | undefined>();
   const [clipsLoading, setClipsLoading] = useState(false);
   const { taskId, status, currentState, error } = useTaskStore();
   useTaskProgress(taskId);
@@ -2213,9 +2418,12 @@ export function AdminDashboard() {
 
   useEffect(() => {
     if (!selectedTask || selectedTask.status !== "COMPLETED") {
+      setSelectedTaskClips([]);
+      setClipsLoading(false);
       return;
     }
     const controller = new AbortController();
+    setClipsLoading(true);
     fetchJson<ClipListResponse>(`${API_BASE}/api/tasks/${selectedTask.task_id}/clips`, controller.signal)
       .then((data) => setSelectedTaskClips(data.clips ?? []))
       .catch(() => {
@@ -2229,6 +2437,11 @@ export function AdminDashboard() {
 
   useEffect(() => {
     if (!selectedTask) {
+      setSelectedSummary(null);
+      setSelectedDiagnostics(null);
+      setSelectedReview(null);
+      setSelectedEvents([]);
+      setReprocessJobs({});
       return;
     }
     const controller = new AbortController();
@@ -2245,6 +2458,7 @@ export function AdminDashboard() {
         setSelectedDiagnostics(diagnostics);
         setSelectedReview(review);
         setSelectedEvents(events.events ?? []);
+        setReprocessJobs({});
       })
       .catch(() => {
         if (controller.signal.aborted) return;
@@ -2255,6 +2469,64 @@ export function AdminDashboard() {
       });
     return () => controller.abort();
   }, [selectedTask]);
+
+  useEffect(() => {
+    if (!selectedTask || !selectedReview?.segments.length) return;
+    const controller = new AbortController();
+    Promise.all(
+      selectedReview.segments.map(async (segment) => {
+        const data = await fetchJson<{ job: ClipReprocessJob }>(
+          `${API_BASE}/api/tasks/${selectedTask.task_id}/clips/${segment.segment_id}/reprocess`,
+          controller.signal,
+        );
+        return [segment.segment_id, data.job] as const;
+      }),
+    )
+      .then((entries) => {
+        if (controller.signal.aborted) return;
+        const jobs = Object.fromEntries(entries.filter(([, job]) => job.status));
+        setReprocessJobs(jobs);
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [selectedTask, selectedReview?.segments]);
+
+  useEffect(() => {
+    if (!selectedTask) return;
+    const activeSegmentIds = Object.entries(reprocessJobs)
+      .filter(([, job]) => job.status === "queued" || job.status === "running")
+      .map(([segmentId]) => segmentId);
+    if (activeSegmentIds.length === 0) return;
+
+    const timer = window.setInterval(() => {
+      void Promise.all(
+        activeSegmentIds.map(async (segmentId) => {
+          const data = await fetchJson<{ job: ClipReprocessJob }>(
+            `${API_BASE}/api/tasks/${selectedTask.task_id}/clips/${segmentId}/reprocess`,
+          );
+          return [segmentId, data.job] as const;
+        }),
+      ).then(async (entries) => {
+        setReprocessJobs((current) => {
+          const next = { ...current };
+          entries.forEach(([segmentId, job]) => {
+            next[segmentId] = job;
+          });
+          return next;
+        });
+        if (entries.some(([, job]) => job.status === "completed")) {
+          const [clipsData, reviewData] = await Promise.all([
+            fetchJson<ClipListResponse>(`${API_BASE}/api/tasks/${selectedTask.task_id}/clips`),
+            fetchJson<ReviewData>(`${API_BASE}/api/tasks/${selectedTask.task_id}/review`),
+          ]);
+          setSelectedTaskClips(clipsData.clips ?? []);
+          setSelectedReview(reviewData);
+        }
+      }).catch(() => undefined);
+    }, 2500);
+
+    return () => window.clearInterval(timer);
+  }, [selectedTask, reprocessJobs]);
 
   const deleteTask = useCallback(
     async (taskIdToDelete: string) => {
@@ -2300,14 +2572,31 @@ export function AdminDashboard() {
   const reprocessSegment = useCallback(
     async (segmentId: string) => {
       if (!selectedTask) return;
-      await fetch(`${API_BASE}/api/tasks/${selectedTask.task_id}/clips/${segmentId}/reprocess`, {
+      setReprocessJobs((current) => ({
+        ...current,
+        [segmentId]: { ...(current[segmentId] ?? {}), status: "queued" },
+      }));
+      const resp = await fetch(`${API_BASE}/api/tasks/${selectedTask.task_id}/clips/${segmentId}/reprocess`, {
         method: "POST",
       });
+      if (!resp.ok) {
+        setReprocessJobs((current) => ({
+          ...current,
+          [segmentId]: { ...(current[segmentId] ?? {}), status: "failed", error: "请求失败" },
+        }));
+        return;
+      }
+      const data = (await resp.json()) as { status?: ClipReprocessJob["status"]; celery_id?: string };
+      setReprocessJobs((current) => ({
+        ...current,
+        [segmentId]: { ...(current[segmentId] ?? {}), status: data.status ?? "queued", celery_id: data.celery_id },
+      }));
     },
     [selectedTask],
   );
 
   const handlePageChange = (nextPage: PageKey) => {
+    if (nextPage === "assets") setAssetProjectId(undefined);
     setPage(nextPage);
   };
 
@@ -2324,6 +2613,10 @@ export function AdminDashboard() {
             onSelectTask={setSelectedTask}
             onDeleteTask={deleteTask}
             onOpenReview={() => setPage("review")}
+            onOpenAssets={() => {
+              setAssetProjectId(selectedTask?.task_id);
+              setPage("assets");
+            }}
             onCreateProject={() => setPage("create")}
             summary={selectedSummary}
             diagnostics={selectedDiagnostics}
@@ -2351,9 +2644,10 @@ export function AdminDashboard() {
             reviewData={selectedReview}
             onPatchReviewSegment={patchReviewSegment}
             onReprocessSegment={reprocessSegment}
+            reprocessJobs={reprocessJobs}
           />
         )}
-        {page === "assets" && <AssetsPage />}
+        {page === "assets" && <AssetsPage selectedProjectId={assetProjectId} />}
         {page === "music" && <AdminMusicPage />}
         {page === "diagnostics" && <DiagnosticsPage selectedTask={selectedTask} diagnostics={selectedDiagnostics} />}
         {page === "settings" && <AdminSettingsPage />}

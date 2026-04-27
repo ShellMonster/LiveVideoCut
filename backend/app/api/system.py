@@ -1,12 +1,15 @@
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
+from redis import Redis, RedisError
 
 from app.services.resource_detector import calculate_parallelism
 
 UPLOAD_DIR = Path("uploads")
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 router = APIRouter()
 
@@ -18,6 +21,20 @@ def _read_json(path: Path, fallback: Any) -> Any:
         return json.loads(path.read_text())
     except (json.JSONDecodeError, OSError):
         return fallback
+
+
+def _redis_status() -> str:
+    client: Redis | None = None
+    try:
+        client = Redis.from_url(REDIS_URL, socket_connect_timeout=0.5, socket_timeout=0.5)
+        return "ok" if client.ping() else "error"
+    except RedisError as exc:
+        return f"error: {exc.__class__.__name__}"
+    except OSError as exc:
+        return f"error: {exc.__class__.__name__}"
+    finally:
+        if client is not None:
+            client.close()
 
 
 @router.get("/api/system/resources")
@@ -51,5 +68,5 @@ async def get_system_resources():
         "clip_workers": resources["clip_workers"],
         "frame_workers": resources["frame_workers"],
         "queue": queue,
-        "redis": "unknown",
+        "redis": _redis_status(),
     }
