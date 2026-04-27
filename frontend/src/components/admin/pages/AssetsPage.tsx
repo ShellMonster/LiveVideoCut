@@ -148,7 +148,10 @@ export function AssetsPage() {
                         <Download size={15} />
                         下载
                       </a>
-                      <button className="rounded-lg border border-slate-200 px-3 py-2 text-slate-600 hover:bg-slate-50">
+                      <button
+                        onClick={() => window.open(clip.video_url, "_blank")}
+                        className="rounded-lg border border-slate-200 px-3 py-2 text-slate-600 hover:bg-slate-50"
+                      >
                         <Eye size={15} />
                       </button>
                     </div>

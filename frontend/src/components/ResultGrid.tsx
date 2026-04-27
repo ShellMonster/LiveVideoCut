@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTaskStore, type ClipData } from "@/stores/taskStore";
 import { VideoPreview } from "./VideoPreview";
+import { API_BASE } from "./admin/api";
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -130,7 +131,7 @@ export function ResultGrid() {
   const handleBatchDownload = () => {
     if (selectedClips.size === 0) return;
     const ids = Array.from(selectedClips).join(",");
-    window.open(`/api/clips/batch?ids=${ids}`, "_blank");
+    window.open(`${API_BASE}/api/clips/batch?ids=${ids}`, "_blank");
   };
 
   return (

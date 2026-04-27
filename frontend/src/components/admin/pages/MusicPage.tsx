@@ -72,9 +72,8 @@ export function AdminMusicPage() {
   };
 
   const handleUpload = async (file: File) => {
-    await uploadTrack.mutateAsync(file);
-    const updated = tracks;
-    setSelectedTrack((current) => updated.find((t) => t.id === current?.id) ?? updated[0] ?? null);
+    const newTrack = await uploadTrack.mutateAsync(file);
+    setSelectedTrack(newTrack ?? null);
   };
 
   const handleDelete = async (trackId: string) => {

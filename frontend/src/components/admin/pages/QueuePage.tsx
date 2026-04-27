@@ -83,7 +83,16 @@ export function QueuePage() {
                     </div>
                     <div className="text-xs text-slate-500">{formatDuration(task.video_duration_s)}</div>
                     <div className="flex justify-end gap-1">
-                      <IconButton icon={Eye} label="查看" />
+                      <IconButton
+                        icon={Eye}
+                        label="查看"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setSelectedTask(task);
+                          if (task.status === "COMPLETED") navigate("/assets");
+                          else navigate("/review");
+                        }}
+                      />
                       <IconButton
                         icon={RefreshCw}
                         label="重试"

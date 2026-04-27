@@ -1,16 +1,17 @@
 import type React from "react";
 import {
   AlertTriangle,
-  Bell,
   Check,
+  Cpu,
   Film,
+  HardDrive,
   Scissors,
   Server,
-  UserCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { navItems } from "./constants";
-import { formatDuration } from "./format";
+import { formatDuration, resourcePercent } from "./format";
+import { useSystemResources } from "@/hooks/useAdminQueries";
 import type { PageKey, ReviewSegment } from "./types";
 
 export function Sidebar({
@@ -20,6 +21,7 @@ export function Sidebar({
   page: PageKey;
   onPageChange: (page: PageKey) => void;
 }) {
+  const { data: resources } = useSystemResources();
   return (
     <aside className="flex h-screen w-64 shrink-0 flex-col border-r border-slate-200 bg-white">
       <div className="flex h-16 items-center gap-3 border-b border-slate-100 px-5">
@@ -58,10 +60,12 @@ export function Sidebar({
             <Server size={14} />
             Worker 资源
           </div>
-          <div className="mt-2 h-1.5 rounded-full bg-slate-200">
-            <div className="h-1.5 w-full rounded-full bg-slate-300" />
+          <div className="mt-3 space-y-3">
+            <ResourceLine icon={Cpu} label="CPU 配额" value={resources ? `${resources.cpu_cores.toFixed(1)} cores` : "—"} tone="blue" percent={resourcePercent(resources?.cpu_cores, 16)} />
+            <ResourceLine icon={HardDrive} label="内存上限" value={resources ? `${resources.memory_gb.toFixed(1)}GB` : "—"} tone="emerald" percent={resourcePercent(resources?.memory_gb, 16)} />
+            <ResourceLine icon={Server} label="FFmpeg 实例" value={String(resources?.clip_workers ?? "—")} tone="amber" percent={resourcePercent(resources?.clip_workers, 4)} />
+            <ResourceLine icon={Server} label="Redis 状态" value={resources?.redis ?? "—"} tone={resources?.redis === "ok" ? "emerald" : "amber"} />
           </div>
-          <p className="mt-2 text-xs text-slate-400">在任务队列页查看实时资源</p>
         </div>
       </div>
     </aside>
@@ -85,12 +89,6 @@ export function Header({
       </div>
       <div className="flex items-center gap-2">
         {action}
-        <button className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="通知">
-          <Bell size={18} />
-        </button>
-        <button className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="账号">
-          <UserCircle size={20} />
-        </button>
       </div>
     </header>
   );
@@ -124,10 +122,20 @@ export function MetricPill({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function ChecklistItem({ label }: { label: string }) {
+export function ChecklistItem({ label, state = "done" }: { label: string; state?: "done" | "pending" | "checking" }) {
+  const iconMap = {
+    done: <Check className="h-4 w-4 text-emerald-500" />,
+    pending: <div className="h-4 w-4 rounded-full border-2 border-slate-300" />,
+    checking: <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />,
+  };
+  const textMap = {
+    done: "text-slate-600",
+    pending: "text-slate-400",
+    checking: "text-blue-600",
+  };
   return (
-    <div className="flex items-center gap-2 text-slate-600">
-      <Check className="h-4 w-4 text-emerald-500" />
+    <div className={cn("flex items-center gap-2", textMap[state])}>
+      {iconMap[state]}
       {label}
     </div>
   );
@@ -199,7 +207,7 @@ export function ResourceLine({
         <span className="font-medium text-slate-900">{value}</span>
       </div>
       <div className="h-1.5 rounded-full bg-slate-100">
-        <div className={cn("h-1.5 rounded-full", barClass)} style={{ width: `${percent ?? 100}%` }} />
+        {percent !== undefined && <div className={cn("h-1.5 rounded-full", barClass)} style={{ width: `${Math.min(100, Math.max(0, percent))}%` }} />}
       </div>
     </div>
   );
@@ -209,10 +217,9 @@ export function Field({ label, value }: { label: string; value: string }) {
   return (
     <label className="block">
       <span className="mb-1 block text-xs text-slate-500">{label}</span>
-      <input
-        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:border-blue-400 focus:outline-none"
-        defaultValue={value}
-      />
+      <div className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
+        {value}
+      </div>
     </label>
   );
 }

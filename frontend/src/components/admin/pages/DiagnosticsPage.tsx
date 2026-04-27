@@ -1,13 +1,14 @@
 import { Download, FileVideo } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAdminContext } from "@/components/AdminDashboard";
-import { useTaskDiagnostics } from "@/hooks/useAdminQueries";
+import { useTaskDiagnostics, useTasks } from "@/hooks/useAdminQueries";
 import { API_BASE } from "../api";
-import { formatDate, formatElapsed } from "../format";
+import { displayTaskName, formatDate, formatElapsed } from "../format";
 import { Header, MetricCard, Warning } from "../shared";
 
 export function DiagnosticsPage() {
-  const { selectedTask } = useAdminContext();
+  const { selectedTask, setSelectedTask } = useAdminContext();
+  const { data: tasks = [] } = useTasks();
   const { data: diagnostics } = useTaskDiagnostics(selectedTask?.task_id);
 
   const summary = diagnostics?.summary;
@@ -47,6 +48,25 @@ export function DiagnosticsPage() {
         }
       />
       <main className="space-y-5 p-6">
+        <div className="flex items-center gap-2 text-xs text-slate-500">
+          <span>当前项目</span>
+          <select
+            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700"
+            value={selectedTask?.task_id || ""}
+            onChange={(event) => {
+              const next = tasks.find((task) => task.task_id === event.target.value);
+              if (next) setSelectedTask(next);
+            }}
+          >
+            <option value="">选择项目</option>
+            {tasks.map((task) => (
+              <option key={task.task_id} value={task.task_id}>
+                {displayTaskName(task)}
+              </option>
+            ))}
+          </select>
+        </div>
+
         <section className="grid gap-4 lg:grid-cols-5">
           <MetricCard label="总耗时" value={formatElapsed(diagnostics?.total_elapsed_s)} hint="按产物生成时间推导" />
           <MetricCard label="候选片段" value={String(summary?.candidates_count ?? 0)} hint="视觉预筛输出" />

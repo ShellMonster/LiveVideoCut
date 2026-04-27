@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronRight, Download, Film, Play, Save } from "lucide-react";
+import { ChevronRight, Download, Film, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { VideoPreview } from "@/components/VideoPreview";
 import { useAdminContext } from "@/components/AdminDashboard";
@@ -72,9 +72,8 @@ export function ReviewPage() {
         description="复核 AI 生成片段，调整标题、时间边界、封面和导出状态"
         action={
           <>
-            <span className="inline-flex items-center gap-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-              <Save size={16} />
-              自动保存
+            <span className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+              操作实时生效
             </span>
             <button
               onClick={() => {

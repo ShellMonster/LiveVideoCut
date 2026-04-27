@@ -72,7 +72,7 @@ export function ProjectManagementPage() {
       <main className="space-y-5 p-6">
         <section className="grid gap-4 lg:grid-cols-4">
           <MetricCard label="处理中项目" value={String(processingCount)} hint="实时任务队列" />
-          <MetricCard label="今日完成" value={String(completedCount)} hint="按本地任务记录统计" />
+          <MetricCard label="已完成" value={String(completedCount)} hint="按本地任务记录统计" />
           <MetricCard label="失败任务" value={String(failedCount)} hint="需要检查诊断日志" />
           <MetricCard label="导出片段" value={String(clipCount)} hint="累计可下载短视频" />
         </section>

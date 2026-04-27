@@ -150,10 +150,10 @@ export function CreateProjectPage() {
                 <Chip label={settings.bgmEnabled ? "BGM开启" : "BGM关闭"} tone="emerald" />
               </div>
               <div className="mt-5 space-y-3 text-sm">
-                <ChecklistItem label="格式校验" />
-                <ChecklistItem label="编码校验" />
-                <ChecklistItem label="音频流" />
-                <ChecklistItem label="设置校验" />
+                <ChecklistItem label="格式校验" state={uploadTaskId ? "done" : "pending"} />
+                <ChecklistItem label="编码校验" state={uploadTaskId ? "done" : "pending"} />
+                <ChecklistItem label="音频流" state={uploadTaskId ? (uploadStatus === "uploading" ? "checking" : "done") : "pending"} />
+                <ChecklistItem label="设置校验" state={uploadTaskId ? "done" : "pending"} />
               </div>
               <div className="mt-5 rounded-lg bg-slate-50 p-3">
                 <div className="text-xs text-slate-500">当前上传任务</div>
