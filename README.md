@@ -138,7 +138,7 @@ graph TD
 
 | 层级 | 技术 |
 |------|------|
-| 前端 | React 19 + TypeScript 6 + Vite 8 + Tailwind CSS 4 + Zustand 5 |
+| 前端 | React 19 + TypeScript 6 + Vite 8 + Tailwind CSS 4 + Zustand 5 + react-router-dom + TanStack Query |
 | 后端 API | FastAPI + Uvicorn |
 | 异步任务 | Celery + Redis |
 | 换衣检测 | YOLOv8 (ONNX, 46类) + MediaPipe Selfie (TFLite, 6类) + HSV + 分区域 HSV + ORB 纹理 + 多信号独立 EMA + 滞后阈值 |
@@ -296,16 +296,24 @@ ASR 的 Provider 选择和 API Key 在 **前端设置页面** 中配置，保存
 │   │   │   ├── segment_fusion.py               # 两层树信号融合
 │   │   │   ├── boundary_snapper.py             # 句边界对齐
 │   │   │   └── boundary_refiner.py             # LLM 边界精修
+│   │   ├── config.py               # VLM 共享常量（Provider、默认 API 地址等）
 │   │   └── tasks/
-│   │       └── pipeline.py        # Celery 四阶段管线 + 单片段重处理
-│   └── tests/                     # 28 个测试文件
+│   │       ├── pipeline.py        # 薄编排器（~310 行）+ Celery task 定义
+│   │       ├── shared.py          # 跨 stage 共享工具
+│   │       └── stages/            # 四阶段模块（纯函数，无 Celery 依赖）
+│   │           ├── visual_prescreen.py
+│   │           ├── vlm_confirm.py
+│   │           ├── enrich_segments.py
+│   │           └── process_clips.py
+│   └── tests/                     # 29 个测试文件
 └── frontend/
     ├── Dockerfile                 # Node 20 构建 + Nginx 运行
     ├── nginx.conf                 # Nginx (20G 上传 + WebSocket)
     ├── src/
     │   ├── App.tsx                # 入口，渲染 AdminDashboard
+    │   ├── router.tsx             # react-router-dom 路由配置
     │   ├── components/
-    │   │   ├── AdminDashboard.tsx # 主应用壳（330 行，8 页状态机）
+    │   │   ├── AdminDashboard.tsx # 主应用壳（98 行 layout shell）
     │   │   ├── admin/             # 拆分后的子模块
     │   │   │   ├── api.ts         # API 调用封装
     │   │   │   ├── types.ts       # 类型定义
@@ -321,9 +329,6 @@ ASR 的 Provider 选择和 API Key 在 **前端设置页面** 中配置，保存
     │   │   │       ├── MusicPage.tsx
     │   │   │       ├── DiagnosticsPage.tsx
     │   │   │       └── SettingsPage.tsx
-    │   │   ├── SettingsPage.tsx   # 独立设置页面（备选入口）
-    │   │   ├── MusicPage.tsx      # 独立音乐库页面（备选入口）
-    │   │   ├── HistoryPage.tsx    # 独立历史记录页面（备选入口）
     │   │   ├── UploadZone.tsx     # 拖拽上传区域
     │   │   ├── ProgressBar.tsx    # 管线进度条（8 阶段）
     │   │   ├── ResultGrid.tsx     # 片段结果网格
@@ -332,6 +337,7 @@ ASR 的 Provider 选择和 API Key 在 **前端设置页面** 中配置，保存
     │   │   ├── ToastViewport.tsx  # Toast 通知
     │   │   └── ui/dialog.tsx      # 自定义 Dialog 组件
     │   ├── hooks/
+    │   │   ├── useAdminQueries.ts # TanStack Query hooks（15 个）
     │   │   └── useWebSocket.ts    # WebSocket 进度推送
     │   ├── stores/
     │   │   ├── settingsStore.ts   # 设置状态（44 字段, localStorage）
@@ -484,7 +490,8 @@ Docker 重建后生效。
 uploads/<task_id>/
 ├── original.mp4                  # 原始上传视频
 ├── meta.json                     # 视频元数据
-├── settings.json                 # 任务设置
+├── settings.json                 # 任务设置（不含敏感字段）
+├── secrets.json                  # 敏感字段（api_key 等，chmod 600）
 ├── state.json                    # 任务状态 (前端轮询)
 ├── candidates.json               # 候选片段
 ├── scenes.json                   # 场景检测结果

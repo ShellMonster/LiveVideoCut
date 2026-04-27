@@ -13,14 +13,14 @@
 
 不要只看 README，当前代码的真实运行架构如下：
 
-- 前端：React + TypeScript + Vite + Tailwind
-- 后端 API：FastAPI
+- 前端：React + TypeScript + Vite + Tailwind + react-router-dom + TanStack Query
+- 后端 API：FastAPI + 全局异常处理（`error_handler.py`）
 - 异步任务：Celery
 - 队列/状态：Redis
 - 视频处理：FFmpeg
 - 换衣检测：ClothingChangeDetector（五信号联合：YOLO 46类检测 + MediaPipe 像素分割 + 全帧 HSV + 分区域 HSV（上身/下身）+ ORB 纹理），多信号独立 EMA 触发 + 滞后阈值 + 连续帧确认
-- VLM：Qwen / GLM（二选一）
-- ASR：当前支持四个 ASR provider：
+- VLM：Qwen / GLM（二选一），共享常量在 `app/config.py`
+- ASR：当前支持四个 ASR provider，异常层级在 `app/services/asr_errors.py`：
   - `dashscope`：DashScope paraformer-v2（阿里云百炼，直接传 MP4，返回逐字时间戳）
   - `volcengine`：火山引擎大模型 ASR 标准版（submit+poll 模式，需 TOS 上传音频）
   - `volcengine_flash`：火山引擎大模型 ASR 极速版（一次请求返回，`transcribe_auto` 方法会优先尝试 flash 再回退标准版）
@@ -101,9 +101,10 @@
 后端会：
 
 - 校验格式、大小、编码、音频流
-- 把原视频保存到 `uploads/<task_id>/original.mp4`
+- 流式写入（1MB 分块）保存到 `uploads/<task_id>/original.mp4`
 - 把元数据写到 `meta.json`
-- 把设置写到 `settings.json`
+- 把设置写到 `settings.json`（不含敏感字段）
+- 把敏感字段（api_key 等）写到 `secrets.json`（chmod 600）
 - 启动 Celery 流水线
 
 ### 3. 任务进度
@@ -133,21 +134,25 @@
 
 - 后端：`GET /api/tasks` 分页接口（offset/limit + 状态过滤）
 - 后端：`DELETE /api/tasks/{task_id}` 删除任务
-- 前端：`HistoryPage.tsx` 紧凑列表视图，支持状态筛选、展开查看片段、删除
+- 前端：`ProjectManagementPage.tsx`（AdminDashboard 内嵌页面），支持状态筛选、展开查看片段、删除
 - 上传时 `meta.json` 记录 `created_at`（ISO 时间戳）和 `original_filename`
 - 老任务这两个字段为空，前端用"—"显示
 
 
 ## 后端流水线真实顺序
 
-当前主编排在：`backend/app/tasks/pipeline.py`
+当前主编排在：`backend/app/tasks/pipeline.py`（薄编排器，~310 行），实际逻辑在 `backend/app/tasks/stages/` 目录下的四个模块：
 
-整体顺序是：
+| Stage 模块 | 函数 | 职责 |
+|-----------|------|------|
+| `stages/visual_prescreen.py` | `run_visual_prescreen()` | 抽帧 + 换衣检测 |
+| `stages/vlm_confirm.py` | `run_vlm_confirm()` | VLM 二次确认 |
+| `stages/enrich_segments.py` | `run_enrich_segments()` | ASR + LLM + 融合 + 边界对齐 |
+| `stages/process_clips.py` | `run_process_clips()` | 字幕 + FFmpeg + BGM + 封面 |
 
-1. `visual_prescreen`
-2. `vlm_confirm`
-3. `enrich_segments`
-4. `process_clips`
+跨 stage 共享工具在 `backend/app/tasks/shared.py`。
+
+Stage 模块为纯函数（无 Celery 依赖），`pipeline.py` 保留 `@celery_app.task` 装饰器。Stage 内部通过延迟 import（函数体内 `from app.tasks.pipeline import ...`）避免循环导入。
 
 ### 1) visual_prescreen
 
@@ -212,6 +217,7 @@
 - 生成 `.srt` 或 `.ass`
 - 调用 FFmpeg 烧录字幕并导出 mp4
 - BGM 自动选曲（`bgm_selector.py`）：双库架构（内置+用户上传），基于商品类型和 mood 匹配，用户曲目优先，跨 clip 去重避免重复
+- BGM 预选：在 ThreadPoolExecutor 提交前串行选好所有 BGM（`bgm_map`），消除线程竞争
 - 封面选择：根据 `cover_strategy` 从 clip 中均匀采样最多 30 帧，评分选出最佳封面
 - 生成缩略图（保存到 `covers/clip_xxx.jpg`）
 - 空镜过滤：读取 `scenes/person_presence.json`，两层过滤：(1) 段内人物出现率 < 60% 丢弃；(2) 开头连续无人 ≥ 8 秒丢弃；缺文件时不过滤
@@ -393,12 +399,19 @@ docker-compose.yml 中 worker 启动参数：
 
 ### 后端
 
+- `backend/app/config.py` — VLM 共享常量
+- `backend/app/api/error_handler.py` — 全局异常处理
+- `backend/app/services/asr_errors.py` — ASR 异常层级
 - `backend/app/api/upload.py`
 - `backend/app/api/tasks.py`
 - `backend/app/api/clips.py`
-- `backend/app/api/clips.py`
 - `backend/app/api/settings.py`
-- `backend/app/tasks/pipeline.py`
+- `backend/app/tasks/pipeline.py` — 薄编排器（~310 行）
+- `backend/app/tasks/shared.py` — 跨 stage 共享工具
+- `backend/app/tasks/stages/visual_prescreen.py`
+- `backend/app/tasks/stages/vlm_confirm.py`
+- `backend/app/tasks/stages/enrich_segments.py`
+- `backend/app/tasks/stages/process_clips.py`
 - `backend/app/services/dashscope_asr_client.py`
 - `backend/app/services/volcengine_asr_client.py`
 - `backend/app/services/volcengine_vc_client.py`
@@ -422,10 +435,11 @@ docker-compose.yml 中 worker 启动参数：
 ### 前端
 
 - `frontend/src/App.tsx`
+- `frontend/src/router.tsx` — 路由配置（react-router-dom）
+- `frontend/src/hooks/useAdminQueries.ts` — TanStack Query hooks
+- `frontend/src/components/AdminDashboard.tsx` — 主应用壳
+- `frontend/src/components/admin/pages/` — 8 个页面组件
 - `frontend/src/components/UploadZone.tsx`
-- `frontend/src/components/SettingsPage.tsx`
-- `frontend/src/components/MusicPage.tsx`
-- `frontend/src/components/HistoryPage.tsx`
 - `frontend/src/components/ToastViewport.tsx`
 - `frontend/src/hooks/useWebSocket.ts`
 - `frontend/src/stores/settingsStore.ts`
@@ -440,6 +454,7 @@ docker-compose.yml 中 worker 启动参数：
 - `uploads/<task_id>/original.mp4`
 - `uploads/<task_id>/meta.json`
 - `uploads/<task_id>/settings.json`
+- `uploads/<task_id>/secrets.json`（敏感字段，chmod 600）
 - `uploads/<task_id>/transcript.json`
 - `uploads/<task_id>/candidates.json`
 - `uploads/<task_id>/enriched_segments.json`
@@ -455,6 +470,7 @@ docker-compose.yml 中 worker 启动参数：
 - 优先先读 `pipeline.py`、`settings.py`、`UploadZone.tsx`、`SettingsPage.tsx`
 - 涉及字幕，一定先看 `srt_generator.py` 和 `ffmpeg_builder.py`
 - 不要只参考 README，必须以真实代码为准
+- Stage 模块内通过延迟 import `from app.tasks.pipeline import ...` 避免循环依赖，不要移到模块级别
 
 ### 调试时
 
@@ -562,3 +578,11 @@ VC 贵 3 倍但效果最好，适合对字幕质量有要求的场景。
 - `BGMSelector.with_user_library()` 加载双库，`_resolve_track_path()` 先查用户目录再查内置目录
 - FFmpeg `amix` 滤镜已加 `normalize=0:dropout_transition=0`，修复语音被自动降低音量的 bug
 - `bgm_enabled=False` 时跳过 BGM 输入和 amix 混音，FFmpeg 命令不含 bgm 相关参数
+- ASR 异常层级（`asr_errors.py`）：`TranscriptionError`（base）→ `AuthError` / `ASRTimeoutError` / `APIError` / `NoSpeechError`；全局异常处理在 `error_handler.py` 注册
+- `SENSITIVE_FIELDS` 统一定义在 `settings.py`，`tasks.py` 和 `upload.py` 从它 import
+- 上传敏感字段分离：`settings.json`（可入 artifacts.zip）+ `secrets.json`（仅敏感字段，chmod 600，不进 artifacts）
+- 批量 ZIP 下载上限 20 个 clip（`/api/clips/batch`）
+- 路径参数 UUID 校验：`tasks.py` 和 `clips.py` 所有端点用 `^[a-f0-9\-]{36}$` 正则校验 task_id
+- 前端路由：react-router-dom + TanStack Query；`AdminDashboard.tsx` 为 layout shell（98 行），8 个页面在 `admin/pages/`
+- Pipeline 已拆分：`pipeline.py` 310 行薄编排器 + `stages/` 四阶段模块 + `shared.py` 跨 stage 工具
+- BGM 预选：在 ThreadPoolExecutor 提交前串行选好所有 BGM（`bgm_map`），消除线程竞争
