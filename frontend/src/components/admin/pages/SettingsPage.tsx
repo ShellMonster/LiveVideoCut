@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Check, Info, Save, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -43,51 +43,12 @@ const subtitleLabels: Record<SubtitleMode, string> = {
   karaoke: "Karaoke",
 };
 
-const initialDraft = (settings: ReturnType<typeof useSettingsStore.getState>): SettingsDraft => ({
-  enableVlm: settings.enableVlm,
-  exportMode: settings.exportMode,
-  provider: settings.provider,
-  apiKey: settings.apiKey,
-  apiBase: settings.apiBase,
-  model: settings.model,
-  reviewStrictness: settings.reviewStrictness,
-  reviewMode: settings.reviewMode,
-  sceneThreshold: settings.sceneThreshold,
-  frameSampleFps: settings.frameSampleFps,
-  recallCooldownSeconds: settings.recallCooldownSeconds,
-  candidateLooseness: settings.candidateLooseness,
-  minSegmentDurationSeconds: settings.minSegmentDurationSeconds,
-  dedupeWindowSeconds: settings.dedupeWindowSeconds,
-  mergeCount: settings.mergeCount,
-  allowReturnedProduct: settings.allowReturnedProduct,
-  maxCandidateCount: settings.maxCandidateCount,
-  subtitleMode: settings.subtitleMode,
-  subtitlePosition: settings.subtitlePosition,
-  subtitleTemplate: settings.subtitleTemplate,
-  fillerFilterMode: settings.fillerFilterMode,
-  coverStrategy: settings.coverStrategy,
-  videoSpeed: settings.videoSpeed,
-  boundarySnap: settings.boundarySnap,
-  enableBoundaryRefinement: settings.enableBoundaryRefinement,
-  customPositionY: settings.customPositionY,
-  asrProvider: settings.asrProvider,
-  asrApiKey: settings.asrApiKey,
-  tosAk: settings.tosAk,
-  tosSk: settings.tosSk,
-  tosBucket: settings.tosBucket,
-  tosRegion: settings.tosRegion,
-  tosEndpoint: settings.tosEndpoint,
-  enableLlmAnalysis: settings.enableLlmAnalysis,
-  llmApiKey: settings.llmApiKey,
-  llmApiBase: settings.llmApiBase,
-  llmModel: settings.llmModel,
-  llmType: settings.llmType,
-  exportResolution: settings.exportResolution,
-  segmentGranularity: settings.segmentGranularity,
-  bgmEnabled: settings.bgmEnabled,
-  bgmVolume: settings.bgmVolume,
-  originalVolume: settings.originalVolume,
-});
+const initialDraft = (state: ReturnType<typeof useSettingsStore.getState>): SettingsDraft => {
+  const settings: Partial<ReturnType<typeof useSettingsStore.getState>> = { ...state };
+  delete settings.setSettings;
+  delete settings.reset;
+  return settings as Settings;
+};
 
 const isVolcengineAsr = (provider: AsrProvider) => provider === "volcengine" || provider === "volcengine_vc";
 
@@ -95,10 +56,26 @@ export function AdminSettingsPage() {
   const settings = useSettingsStore();
   const [draft, setDraft] = useState<SettingsDraft>(() => initialDraft(useSettingsStore.getState()));
   const [expandedAdvanced, setExpandedAdvanced] = useState(false);
+  const [activeSection, setActiveSection] = useState(0);
 
   const savedSnapshot = useMemo(() => JSON.stringify(initialDraft(settings)), [settings]);
   const draftSnapshot = useMemo(() => JSON.stringify(draft), [draft]);
   const hasUnsavedChanges = savedSnapshot !== draftSnapshot;
+
+  useEffect(() => {
+    const syncActiveSection = () => {
+      const currentSection = sectionTabs.reduce((current, _tab, index) => {
+        const element = document.getElementById(`settings-section-${index}`);
+        if (!element) return current;
+        return element.getBoundingClientRect().top <= 140 ? index : current;
+      }, 0);
+      setActiveSection(currentSection);
+    };
+
+    syncActiveSection();
+    window.addEventListener("scroll", syncActiveSection, { passive: true });
+    return () => window.removeEventListener("scroll", syncActiveSection);
+  }, []);
 
   const updateDraft = (partial: Partial<SettingsDraft>) => {
     setDraft((current) => ({ ...current, ...partial }));
@@ -196,7 +173,11 @@ export function AdminSettingsPage() {
               <a
                 key={tab}
                 href={`#settings-section-${index}`}
-                className="rounded-md px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-950"
+                onClick={() => setActiveSection(index)}
+                className={cn(
+                  "rounded-md px-3 py-2 text-sm font-medium hover:bg-slate-50",
+                  activeSection === index ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:text-slate-950",
+                )}
               >
                 {tab}
               </a>
@@ -538,10 +519,14 @@ export function AdminSettingsPage() {
                   value={String(draft.videoSpeed)}
                   onChange={(videoSpeed) => updateDraft({ videoSpeed: Number(videoSpeed) as SettingsDraft["videoSpeed"] })}
                   options={[
+                    ["0.5", "0.5x"],
+                    ["0.75", "0.75x"],
                     ["1", "1x"],
                     ["1.25", "1.25x"],
                     ["1.5", "1.5x"],
+                    ["1.75", "1.75x"],
                     ["2", "2x"],
+                    ["3", "3x"],
                   ]}
                 />
               </Field>
@@ -584,23 +569,21 @@ export function AdminSettingsPage() {
             </button>
             {expandedAdvanced && (
               <div className="mt-4 grid gap-4 md:grid-cols-2">
-                <NumberField label="场景检测阈值" value={draft.sceneThreshold} fallback={27} onChange={(sceneThreshold) => updateDraft({ sceneThreshold })} />
-                <NumberField label="抽帧帧率 (fps)" value={draft.frameSampleFps} fallback={0.5} onChange={(frameSampleFps) => updateDraft({ frameSampleFps })} />
+                <NumberField label="场景检测阈值" value={draft.sceneThreshold} onChange={(sceneThreshold) => updateDraft({ sceneThreshold })} />
+                <NumberField label="抽帧帧率 (fps)" value={draft.frameSampleFps} onChange={(frameSampleFps) => updateDraft({ frameSampleFps })} />
                 <NumberField
                   label="最小片段时长 (秒)"
                   value={draft.minSegmentDurationSeconds}
-                  fallback={25}
                   onChange={(minSegmentDurationSeconds) => updateDraft({ minSegmentDurationSeconds })}
                 />
-                <NumberField label="去重窗口 (秒)" value={draft.dedupeWindowSeconds} fallback={90} onChange={(dedupeWindowSeconds) => updateDraft({ dedupeWindowSeconds })} />
-                <NumberField label="最大候选数" value={draft.maxCandidateCount} fallback={20} onChange={(maxCandidateCount) => updateDraft({ maxCandidateCount })} />
+                <NumberField label="去重窗口 (秒)" value={draft.dedupeWindowSeconds} onChange={(dedupeWindowSeconds) => updateDraft({ dedupeWindowSeconds })} />
+                <NumberField label="最大候选数" value={draft.maxCandidateCount} onChange={(maxCandidateCount) => updateDraft({ maxCandidateCount })} />
                 <NumberField
                   label="召回冷却时间 (秒)"
                   value={draft.recallCooldownSeconds}
-                  fallback={15}
                   onChange={(recallCooldownSeconds) => updateDraft({ recallCooldownSeconds })}
                 />
-                <NumberField label="合并数量" value={draft.mergeCount} fallback={1} onChange={(mergeCount) => updateDraft({ mergeCount })} />
+                <NumberField label="合并数量" value={draft.mergeCount} onChange={(mergeCount) => updateDraft({ mergeCount })} />
                 <ToggleCard
                   title="允许回讲商品"
                   desc="同一商品被主播回讲时允许再次生成候选。"
@@ -869,17 +852,26 @@ function RangeField({
 function NumberField({
   label,
   value,
-  fallback,
   onChange,
 }: {
   label: string;
   value: number;
-  fallback: number;
   onChange: (value: number) => void;
 }) {
   return (
     <Field label={label}>
-      <input value={String(value)} onChange={(event) => onChange(Number(event.target.value) || fallback)} className={fieldClassName} />
+      <input
+        type="number"
+        step="any"
+        value={String(value)}
+        onChange={(event) => {
+          const nextValue = event.target.value;
+          if (nextValue === "") return;
+          const parsed = Number(nextValue);
+          if (Number.isFinite(parsed)) onChange(parsed);
+        }}
+        className={fieldClassName}
+      />
     </Field>
   );
 }
