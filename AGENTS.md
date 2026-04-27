@@ -252,7 +252,7 @@ Stage 模块为纯函数（无 Celery 依赖），`pipeline.py` 保留 `@celery_
 
 docker-compose.yml 中 worker 启动参数：
 - `--concurrency=1` — 单进程，为 FFmpeg 留资源（AWS 生产指南推荐）
-- `--max-tasks-per-child=10` — 处理 10 个任务后回收进程（避免内存高水位泄漏）
+- `--max-tasks-per-child=100` — 处理 100 个任务后回收进程（避免内存高水位泄漏）
 - `--max-memory-per-child=3000000` — 3GB 内存上限后回收（4GB 容器的 75%）
 - `--prefetch-multiplier=1` — 只拉取 1 个任务（长耗时任务必须设 1）
 - `-Ofair` — 公平调度

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Pause, Play, RefreshCw, SlidersHorizontal, Trash2, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSettingsStore } from "@/stores/settingsStore";
@@ -18,6 +18,27 @@ import {
 } from "../shared";
 import type { MusicTrack } from "../types";
 
+const emptyTagDraft = {
+  title: "",
+  mood: [] as string[],
+  categories: [] as string[],
+  tempo: "medium",
+  energy: "medium",
+  genre: "",
+};
+
+const tagDraftFromTrack = (track: MusicTrack | null) => {
+  if (!track) return { ...emptyTagDraft };
+  return {
+    title: track.title,
+    mood: track.mood,
+    categories: track.categories,
+    tempo: track.tempo || "medium",
+    energy: track.energy || "medium",
+    genre: track.genre || "",
+  };
+};
+
 export function AdminMusicPage() {
   const bgmVolume = useSettingsStore((state) => state.bgmVolume);
   const { data: tracks = [], isLoading: loading, refetch: loadTracks } = useMusicLibrary();
@@ -28,38 +49,21 @@ export function AdminMusicPage() {
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [audioProgress, setAudioProgress] = useState(0);
   const [selectedTrack, setSelectedTrack] = useState<MusicTrack | null>(null);
-  const [tagDraft, setTagDraft] = useState({
-    title: "",
-    mood: [] as string[],
-    categories: [] as string[],
-    tempo: "medium",
-    energy: "medium",
-    genre: "",
-  });
+  const [tagDraft, setTagDraft] = useState(() => tagDraftFromTrack(null));
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  useEffect(() => {
-    if (!selectedTrack) {
-      setTagDraft({ title: "", mood: [], categories: [], tempo: "medium", energy: "medium", genre: "" });
-      return;
-    }
-    setTagDraft({
-      title: selectedTrack.title,
-      mood: selectedTrack.mood,
-      categories: selectedTrack.categories,
-      tempo: selectedTrack.tempo || "medium",
-      energy: selectedTrack.energy || "medium",
-      genre: selectedTrack.genre || "",
-    });
-  }, [selectedTrack]);
+  const selectTrack = (track: MusicTrack | null) => {
+    setSelectedTrack(track);
+    setTagDraft(tagDraftFromTrack(track));
+  };
 
   const userCount = tracks.filter((track) => track.source === "user").length;
   const builtInCount = tracks.filter((track) => track.source === "built-in").length;
   const categoryCount = new Set(tracks.flatMap((track) => track.categories)).size;
 
   const togglePlay = (track: MusicTrack) => {
-    setSelectedTrack(track);
+    selectTrack(track);
     const audio = audioRef.current;
     if (!audio) return;
     if (playingId === track.id) {
@@ -73,7 +77,7 @@ export function AdminMusicPage() {
 
   const handleUpload = async (file: File) => {
     const newTrack = await uploadTrack.mutateAsync(file);
-    setSelectedTrack(newTrack ?? null);
+    selectTrack(newTrack ?? null);
   };
 
   const handleDelete = async (trackId: string) => {
@@ -93,7 +97,7 @@ export function AdminMusicPage() {
         genre: tagDraft.genre.trim(),
       },
     });
-    setSelectedTrack(updated);
+    selectTrack(updated);
   };
 
   return (
@@ -183,7 +187,7 @@ export function AdminMusicPage() {
                       <tr
                         key={track.id}
                         className={cn("cursor-pointer hover:bg-slate-50", selectedTrack?.id === track.id && "bg-blue-50/50")}
-                        onClick={() => setSelectedTrack(track)}
+                        onClick={() => selectTrack(track)}
                       >
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-3">
@@ -218,7 +222,7 @@ export function AdminMusicPage() {
                               disabled={track.source !== "user"}
                               onClick={(event) => {
                                 event.stopPropagation();
-                                setSelectedTrack(track);
+                                selectTrack(track);
                               }}
                             />
                             {track.source === "user" && (

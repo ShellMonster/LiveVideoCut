@@ -1,26 +1,12 @@
-import { createContext, useContext, useState } from "react";
+import { useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { ProgressBar } from "@/components/ProgressBar";
 import { ToastViewport } from "@/components/ToastViewport";
 import { useTaskProgress } from "@/hooks/useWebSocket";
 import { useTaskStore } from "@/stores/taskStore";
 import { Sidebar } from "@/components/admin/shared";
+import { AdminContext } from "@/components/admin/context";
 import type { PageKey, TaskItem } from "@/components/admin/types";
-
-// ---------- Shared layout context ----------
-
-interface AdminContextValue {
-  selectedTask: TaskItem | null;
-  setSelectedTask: (task: TaskItem | null) => void;
-}
-
-const AdminContext = createContext<AdminContextValue | null>(null);
-
-export function useAdminContext() {
-  const ctx = useContext(AdminContext);
-  if (!ctx) throw new Error("useAdminContext must be used inside AdminLayout");
-  return ctx;
-}
 
 // ---------- Route-to-PageKey mapping ----------
 

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Eye, Film, Plus, Search, SlidersHorizontal, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ProgressBar } from "@/components/ProgressBar";
-import { useAdminContext } from "@/components/AdminDashboard";
+import { useAdminContext } from "@/components/admin/context";
 import { useTasks, useTaskSummary, useTaskDiagnostics, useDeleteTask } from "@/hooks/useAdminQueries";
 import {
   EmptyPreview,

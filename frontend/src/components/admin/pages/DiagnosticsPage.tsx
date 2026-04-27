@@ -1,6 +1,6 @@
 import { Download, FileVideo } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useAdminContext } from "@/components/AdminDashboard";
+import { useAdminContext } from "@/components/admin/context";
 import { useTaskDiagnostics, useTasks } from "@/hooks/useAdminQueries";
 import { API_BASE } from "../api";
 import { displayTaskName, formatDate, formatElapsed } from "../format";

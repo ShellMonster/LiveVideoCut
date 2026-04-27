@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { Cpu, Eye, HardDrive, RefreshCw, Server, Trash2, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useAdminContext } from "@/components/AdminDashboard";
+import { useAdminContext } from "@/components/admin/context";
 import { useTasks, useSystemResources, useTaskEvents, useDeleteTask, useRetryTask } from "@/hooks/useAdminQueries";
 import { stageLabels } from "../constants";
 import { classifyStatus, displayTaskName, formatDate, formatDuration, progressByStatus, resourcePercent, statusBadgeClass, statusLabel } from "../format";

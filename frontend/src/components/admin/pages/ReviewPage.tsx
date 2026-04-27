@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ChevronRight, Download, Film, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { VideoPreview } from "@/components/VideoPreview";
-import { useAdminContext } from "@/components/AdminDashboard";
+import { useAdminContext } from "@/components/admin/context";
 import { useTasks, useTaskClips, useTaskReview, usePatchReviewSegment, useReprocessSegment, useClipReprocessStatus } from "@/hooks/useAdminQueries";
 import { API_BASE } from "../api";
 import { clipJobStatusLabel, displayTaskName, formatDuration, reviewStatusLabel } from "../format";
