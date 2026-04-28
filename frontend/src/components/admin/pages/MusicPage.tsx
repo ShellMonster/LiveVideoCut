@@ -258,7 +258,7 @@ export function AdminMusicPage() {
           </div>
 
           <div className="overflow-x-auto">
-            <div className="grid min-w-[1120px] grid-cols-[32px_minmax(220px,1fr)_210px_110px_80px_150px_minmax(190px,1fr)_56px] gap-4 border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-medium text-slate-500">
+            <div className="grid min-w-[1120px] grid-cols-[32px_minmax(220px,1fr)_210px_110px_80px_150px_minmax(190px,1fr)_80px] gap-4 border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-medium text-slate-500">
               <div />
               <div>曲目</div>
               <div>波形</div>
@@ -266,7 +266,7 @@ export function AdminMusicPage() {
               <div>时长</div>
               <div>Mood</div>
               <div>商品分类</div>
-              <div className="text-right">操作</div>
+              <div className="text-center">操作</div>
             </div>
             {loading ? (
               <p className="py-12 text-center text-sm text-slate-400">加载曲库中...</p>
@@ -318,7 +318,7 @@ function TrackRow({
   onPlay: () => void;
 }) {
   return (
-    <article className={cn("grid min-w-[1120px] grid-cols-[32px_minmax(220px,1fr)_210px_110px_80px_150px_minmax(190px,1fr)_56px] items-center gap-4 border-b border-slate-100 px-4 py-3 last:border-b-0 hover:bg-slate-50", selected && "bg-blue-50/40")}>
+    <article className={cn("grid min-w-[1120px] grid-cols-[32px_minmax(220px,1fr)_210px_110px_80px_150px_minmax(190px,1fr)_80px] items-center gap-4 border-b border-slate-100 px-4 py-3 last:border-b-0 hover:bg-slate-50", selected && "bg-blue-50/40")}>
       <label className="flex h-5 w-5 items-center justify-center">
         <input type="checkbox" checked={selected} onChange={onSelect} className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
       </label>
@@ -352,7 +352,7 @@ function TrackRow({
           <span key={item} className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">{categoryLabel(item)}</span>
         ))}
       </div>
-      <div className="flex justify-end">
+      <div className="flex justify-center">
         <button onClick={onSelect} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50 hover:text-slate-800" aria-label="编辑标签">
           <MoreVertical size={16} />
         </button>
