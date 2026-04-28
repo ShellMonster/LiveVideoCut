@@ -136,7 +136,7 @@ export function DiagnosticsPage() {
         </section>
 
         <section className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_390px]">
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <section className="rounded-lg border border-slate-200 bg-white p-4">
               <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_220px]">
                 <div>
@@ -161,37 +161,15 @@ export function DiagnosticsPage() {
               </div>
             </section>
 
-            <div className="rounded-lg border border-slate-200 bg-white p-4">
+            <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-4">
               <h2 className="text-base font-semibold text-slate-900">片段漏斗</h2>
-              <div className="mt-4 grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
-                <div className="grid gap-4 lg:grid-cols-[190px_minmax(280px,1fr)_150px]">
-                  <div className="space-y-4 pt-1">
-                    {funnel.length > 0 ? funnel.map((item, index) => (
-                      <FunnelLabel key={item.label} item={item} index={index} />
-                    )) : (
-                      <p className="text-sm text-slate-400">选择项目后查看片段漏斗</p>
-                    )}
-                  </div>
-                  <div className="flex min-h-44 flex-col items-center justify-center gap-0.5">
-                    {funnel.length > 0 ? funnel.map((item, index) => (
-                      <div
-                        key={item.label}
-                        className={cn("h-10", index < 2 ? "bg-blue-600" : index === 2 ? "bg-sky-400" : "bg-emerald-500")}
-                        style={{
-                          width: `${Math.max(24, 86 - index * 14)}%`,
-                          clipPath: "polygon(9% 0, 91% 0, 100% 100%, 0% 100%)",
-                          opacity: 0.95,
-                        }}
-                      />
-                    )) : null}
-                  </div>
-                  <div className="space-y-4 pt-1">
-                    {funnel.map((item) => (
-                      <div key={item.label} className="h-9 text-sm font-semibold text-blue-600">
-                        {item.count} <span className="text-xs font-medium">({Math.round((item.count / maxFunnel) * 100)}%)</span>
-                      </div>
-                    ))}
-                  </div>
+              <div className="mt-4 grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+                <div className="min-w-0 space-y-3">
+                  {funnel.length > 0 ? funnel.map((item, index) => (
+                    <FunnelStageRow key={item.label} item={item} index={index} max={maxFunnel} />
+                  )) : (
+                    <p className="rounded-lg bg-slate-50 py-8 text-center text-sm text-slate-400">选择项目后查看片段漏斗</p>
+                  )}
                 </div>
                 <div className="rounded-lg border border-slate-200 text-sm">
                   <RateRow label="整体通过率" value={`${overallPassRate.toFixed(1)}%`} tone="emerald" />
@@ -418,12 +396,34 @@ function PipelineStep({
   );
 }
 
-function FunnelLabel({ item, index }: { item: DiagnosticReport["funnel"][number]; index: number }) {
-  const descriptions = ["视觉候选输出的候选片段", "通过 VLM 语义确认", "成功转写文本", "最终成功导出"];
+function FunnelStageRow({
+  item,
+  index,
+  max,
+}: {
+  item: DiagnosticReport["funnel"][number];
+  index: number;
+  max: number;
+}) {
+  const descriptions = ["视觉候选输出的候选片段", "通过 VLM 语义确认", "成功转写文本", "融合后的候选片段", "阶段输出数量", "最终成功导出"];
+  const percent = max > 0 ? Math.round((item.count / max) * 100) : 0;
+  const color = index < 2 ? "bg-blue-600" : index === 2 ? "bg-sky-500" : index === 3 ? "bg-cyan-500" : "bg-emerald-500";
+
   return (
-    <div className="h-9">
-      <div className="text-sm font-semibold text-slate-800">{item.label}</div>
-      <div className="text-xs text-slate-400">{descriptions[index] ?? "阶段输出数量"}</div>
+    <div className="rounded-lg border border-slate-100 bg-slate-50/60 p-3">
+      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_72px] sm:items-start sm:gap-3">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold text-slate-800">{item.label}</div>
+          <div className="mt-0.5 text-xs text-slate-400">{descriptions[index] ?? "阶段输出数量"}</div>
+        </div>
+        <div className="flex items-baseline gap-2 sm:block sm:text-right">
+          <div className="text-sm font-semibold text-slate-950">{item.count}</div>
+          <div className="text-xs font-medium text-blue-600">{percent}%</div>
+        </div>
+      </div>
+      <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-200">
+        <div className={cn("h-full rounded-full", color)} style={{ width: `${Math.max(4, percent)}%` }} />
+      </div>
     </div>
   );
 }
