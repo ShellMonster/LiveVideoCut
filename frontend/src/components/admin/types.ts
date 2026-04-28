@@ -119,6 +119,58 @@ export interface ClipAssetsResponse {
   };
 }
 
+export interface CommerceAnalysis {
+  status: "not_started" | "running" | "completed" | "failed";
+  provider: string;
+  confidence: number;
+  product_type: string;
+  visible_attributes: Record<string, string>;
+  selling_points: string[];
+  uncertain_fields: string[];
+  updated_at: string;
+}
+
+export interface CommerceCopywriting {
+  status: "not_started" | "running" | "completed" | "failed";
+  douyin: {
+    title: string;
+    description: string;
+    hashtags: string[];
+    compliance: string[];
+  };
+  taobao: {
+    title: string;
+    selling_points: string[];
+    detail_modules: string[];
+    compliance: string[];
+  };
+  updated_at: string;
+}
+
+export interface CommerceImageItem {
+  key: string;
+  label: string;
+  status: "not_started" | "running" | "completed" | "failed";
+  url: string;
+}
+
+export interface CommerceImages {
+  status: "not_started" | "running" | "completed" | "failed";
+  items: CommerceImageItem[];
+  updated_at: string;
+}
+
+export interface CommerceAssetResponse {
+  clip: Omit<ClipAsset, "review_status" | "file_size" | "created_at">;
+  analysis: CommerceAnalysis;
+  copywriting: CommerceCopywriting;
+  images: CommerceImages;
+  state: {
+    status: "not_started" | "running" | "completed" | "failed";
+    message?: string;
+  };
+}
+
 export interface SystemResources {
   cpu_cores: number;
   memory_gb: number;

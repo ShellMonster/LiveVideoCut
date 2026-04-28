@@ -46,14 +46,15 @@
 - **create** — 创建任务（上传 + 4 种预设：高质量字幕版/快速低成本版/全量候选调试版/只切不烧字幕版）
 - **queue** — 任务队列（队列流、可关闭右侧详情抽屉、设计图式任务摘要/阶段 checklist/最近日志、窄屏任务卡片、Worker 资源 CPU/内存/Redis、中文阶段、固定图标操作）
 - **review** — 片段审核（卡片队列、右侧复核抽屉、approve/skip/needs_adjustment/reprocess、字幕只读预览）
-- **assets** — 跨项目素材资产浏览器（项目分组卡片、右侧详情抽屉、多选、底部批量下载条、文件大小估算）
+- **assets** — 跨项目素材资产浏览器（项目分组卡片、右侧详情抽屉、多选、底部批量下载条、文件大小估算、AI 商品素材入口）
+- **assets/:taskId/:segmentId/commerce** — 独立 AI 商品素材工作台，承载 Gemini 商品识别、抖音/淘宝文案、gpt-image-2 模特图和淘宝详情页示例状态展示
 - **music** — 音乐库管理（指标卡、曲目表格、覆盖式右侧标签编辑抽屉、全宽底部播放器、上传、删除）
 - **diagnostics** — 任务诊断（项目工具栏、指标卡、横向管线阶段、Recharts 漏斗图、异常建议、分页事件日志、右侧事件详情、导出报告/artifacts.zip）
 - **settings** — 设置编辑器（侧栏+面板布局）
 
-`admin/` 目录结构：`api.ts`（API 调用）、`types.ts`（类型定义）、`format.ts`（格式化工具）、`constants.tsx`（常量）、`shared.tsx`（共享组件）、`pages/`（8 个页面组件）。
+`admin/` 目录结构：`api.ts`（API 调用）、`types.ts`（类型定义）、`format.ts`（格式化工具）、`constants.tsx`（常量）、`shared.tsx`（共享组件）、`pages/`（9 个页面组件）。
 
-布局约定：`AdminDashboard.tsx` 使用固定视口高度的后台壳，右侧内容区独立滚动；桌面端左侧导航栏保持整屏高度，Worker 资源/服务状态卡固定在侧栏底部。列表页不要做无限下滑。项目总览、任务队列、片段资产使用后端 `offset/limit` 分页；剪辑复核片段队列、音乐库、诊断事件日志使用 `Pagination` 组件做页面内分页。项目总览、任务队列、剪辑复核、片段资产、音乐库、诊断报告的详情信息优先用右侧抽屉承载，避免列表被详情面板挤压。
+布局约定：`AdminDashboard.tsx` 使用固定视口高度的后台壳，右侧内容区独立滚动；桌面端左侧导航栏保持整屏高度，Worker 资源/服务状态卡固定在侧栏底部。列表页不要做无限下滑。项目总览、任务队列、片段资产使用后端 `offset/limit` 分页；剪辑复核片段队列、音乐库、诊断事件日志使用 `Pagination` 组件做页面内分页。项目总览、任务队列、剪辑复核、片段资产、音乐库、诊断报告的详情信息优先用右侧抽屉承载，避免列表被详情面板挤压；AI 商品素材采用独立工作台页面，不放在片段资产抽屉里。
 
 ### 1. 前端设置
 
@@ -438,6 +439,7 @@ docker-compose.yml 中 worker 启动参数：
 - `backend/app/api/clips.py`           # 片段列表 / 下载 / 批量下载 / 缩略图
 - `backend/app/api/settings.py`
 - `backend/app/api/music.py`
+- `backend/app/api/commerce.py`
 - `backend/app/api/assets.py`          # 跨任务素材资产浏览
 - `backend/app/api/system.py`          # 系统资源监控
 - `backend/app/tasks/pipeline.py`
@@ -470,12 +472,13 @@ docker-compose.yml 中 worker 启动参数：
   - `format.ts`                        # 格式化工具
   - `constants.tsx`                    # 常量
   - `shared.tsx`                       # 共享 UI 组件
-  - `pages/`                           # 8 个页面组件
+  - `pages/`                           # 9 个页面组件
     - `ProjectManagementPage.tsx`      # 项目管理
     - `CreateProjectPage.tsx`          # 创建任务
     - `QueuePage.tsx`                  # 任务队列
     - `ReviewPage.tsx`                 # 片段审核
     - `AssetsPage.tsx`                 # 素材资产
+    - `CommerceWorkbenchPage.tsx`      # AI 商品素材工作台
     - `MusicPage.tsx`                  # 音乐库
     - `DiagnosticsPage.tsx`            # 诊断
     - `SettingsPage.tsx`               # 设置

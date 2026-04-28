@@ -3,6 +3,7 @@ import { API_BASE, fetchJson } from "@/components/admin/api";
 import { useToastStore } from "@/stores/toastStore";
 import type {
   ClipAssetsResponse,
+  CommerceAssetResponse,
   ClipListResponse,
   ClipReprocessJob,
   DiagnosticReport,
@@ -28,6 +29,8 @@ export const adminKeys = {
   systemResources: ["admin", "system", "resources"] as const,
   musicLibrary: ["admin", "music", "library"] as const,
   assets: (params: string) => ["admin", "assets", params] as const,
+  commerceAsset: (taskId: string, segmentId: string) =>
+    ["admin", "commerce", taskId, segmentId] as const,
 };
 
 // ---------- Task queries ----------
@@ -189,6 +192,14 @@ export function useClipAssets({
         limit: data.limit ?? pageSize,
       };
     },
+  });
+}
+
+export function useCommerceAsset(taskId: string | undefined, segmentId: string | undefined) {
+  return useQuery({
+    queryKey: adminKeys.commerceAsset(taskId ?? "", segmentId ?? ""),
+    queryFn: () => fetchJson<CommerceAssetResponse>(`${API_BASE}/api/commerce/clips/${taskId}/${segmentId}`),
+    enabled: !!taskId && !!segmentId,
   });
 }
 

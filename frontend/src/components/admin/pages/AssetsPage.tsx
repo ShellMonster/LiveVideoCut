@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { useLocation, useSearchParams } from "react-router-dom";
-import { Check, Download, Eye, Film, MoreHorizontal, Search, X } from "lucide-react";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { Check, Download, Eye, Film, MoreHorizontal, Search, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useClipAssets } from "@/hooks/useAdminQueries";
 import { API_BASE } from "../api";
@@ -12,6 +12,7 @@ type AssetDrawerTab = "preview" | "metadata" | "actions";
 
 export function AssetsPage() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const stateProjectId = (location.state as { projectId?: string } | null)?.projectId;
   const selectedProjectId = searchParams.get("project_id") || stateProjectId;
@@ -207,6 +208,7 @@ export function AssetsPage() {
                         onToggle={() => toggleClip(clip.clip_id)}
                         onOpen={() => openDrawer(clip)}
                         onMore={() => openDrawer(clip, "actions")}
+                        onCommerce={() => navigate(`/assets/${clip.task_id}/${clip.segment_id}/commerce`)}
                       />
                     ))}
                   </div>
@@ -269,6 +271,7 @@ function AssetCard({
   onToggle,
   onOpen,
   onMore,
+  onCommerce,
 }: {
   clip: ClipAsset;
   selected: boolean;
@@ -276,6 +279,7 @@ function AssetCard({
   onToggle: () => void;
   onOpen: () => void;
   onMore: () => void;
+  onCommerce: () => void;
 }) {
   return (
     <article className={cn("overflow-hidden rounded-lg border bg-white", active ? "border-blue-300 ring-2 ring-blue-100" : "border-slate-200")}>
@@ -305,7 +309,7 @@ function AssetCard({
           </div>
         </div>
       </button>
-      <div className="grid grid-cols-[36px_1fr_36px] gap-2 border-t border-slate-100 p-3">
+      <div className="grid grid-cols-[36px_minmax(0,1fr)_minmax(0,1fr)_36px] gap-2 border-t border-slate-100 p-3">
         <button
           onClick={onToggle}
           className={cn(
@@ -319,11 +323,18 @@ function AssetCard({
         <a
           href={clip.video_url}
           download
-          className="inline-flex min-w-0 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+          className="inline-flex min-w-0 items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-2 py-2 text-sm text-slate-700 hover:bg-slate-50"
         >
           <Download size={15} />
-          下载
+          <span className="truncate">下载</span>
         </a>
+        <button
+          onClick={onCommerce}
+          className="inline-flex min-w-0 items-center justify-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-2 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100"
+        >
+          <Sparkles size={15} />
+          <span className="truncate">AI素材</span>
+        </button>
         <button onClick={onMore} className="rounded-lg border border-slate-200 px-2 py-2 text-slate-600 hover:bg-slate-50" aria-label="更多">
           <MoreHorizontal size={15} />
         </button>
