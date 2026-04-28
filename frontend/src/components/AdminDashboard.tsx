@@ -41,11 +41,11 @@ export function AdminLayout() {
 
   return (
     <AdminContext.Provider value={{ selectedTask, setSelectedTask }}>
-      <div className="flex min-h-screen bg-slate-50 text-slate-900">
+      <div className="flex h-screen overflow-hidden bg-slate-50 text-slate-900">
         <ToastViewport />
         <ConfirmDialog />
         <Sidebar page={activePage} onPageChange={handlePageChange} />
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 overflow-y-auto">
           <MobileNav page={activePage} onPageChange={handlePageChange} />
           <Outlet context={{ selectedTask, setSelectedTask }} />
 

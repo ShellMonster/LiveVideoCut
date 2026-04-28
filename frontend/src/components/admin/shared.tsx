@@ -25,7 +25,7 @@ export function Sidebar({
 }) {
   const { data: resources } = useSystemResources();
   return (
-    <aside className="hidden h-screen w-64 shrink-0 flex-col border-r border-slate-200 bg-white lg:flex">
+    <aside className="hidden h-full w-64 shrink-0 flex-col border-r border-slate-200 bg-white lg:flex">
       <div className="flex h-16 items-center gap-3 border-b border-slate-100 px-5">
         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-600 text-white">
           <Scissors size={18} />
@@ -35,7 +35,7 @@ export function Sidebar({
           <div className="text-xs text-slate-400">直播智能剪辑后台</div>
         </div>
       </div>
-      <nav className="flex-1 space-y-1 px-3 py-4">
+      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-4">
         {navItems.map((item) => {
           const Icon = item.icon;
           const active = page === item.key;
