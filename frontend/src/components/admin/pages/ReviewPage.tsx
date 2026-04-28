@@ -5,12 +5,13 @@ import { VideoPreview } from "@/components/VideoPreview";
 import { useAdminContext } from "@/components/admin/context";
 import { useTasks, useTaskClips, useTaskReview, usePatchReviewSegment, useReprocessSegment, useClipReprocessStatus } from "@/hooks/useAdminQueries";
 import { API_BASE } from "../api";
-import { clipJobStatusLabel, displayTaskName, formatDuration, reviewStatusLabel } from "../format";
+import { clipJobStatusLabel, displayTaskName, formatConfidence, formatDuration, reviewStatusLabel } from "../format";
 import {
   Chip,
   Field,
   Header,
   MetricPill,
+  Pagination,
   SegmentTimeline,
   TranscriptLine,
 } from "../shared";
@@ -30,9 +31,13 @@ export function ReviewPage() {
 
   const [previewClip, setPreviewClip] = useState<ClipData | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [clipPage, setClipPage] = useState(1);
+  const clipPageSize = 6;
 
   const segmentCount = Math.max(clips.length, reviewData?.segments.length ?? 0);
   const safeSelectedIndex = selectedIndex < segmentCount ? selectedIndex : 0;
+  const clipPageStart = (clipPage - 1) * clipPageSize;
+  const visibleClips = clips.slice(clipPageStart, clipPageStart + clipPageSize);
   const currentClip = clips[safeSelectedIndex] ?? clips[0] ?? null;
   const currentSegment = reviewData?.segments[safeSelectedIndex] ?? reviewData?.segments[0] ?? null;
 
@@ -107,6 +112,7 @@ export function ReviewPage() {
                   if (next) {
                     setSelectedTask(next);
                     setSelectedIndex(0);
+                    setClipPage(1);
                     setPreviewClip(null);
                   }
                 }}
@@ -150,37 +156,48 @@ export function ReviewPage() {
             ) : clips.length === 0 ? (
               <p className="py-10 text-center text-sm text-slate-400">当前项目暂无可复核片段</p>
             ) : (
-              <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
-                {clips.map((clip, index) => (
-                  <button
-                    key={clip.clip_id}
-                    onClick={() => {
-                      setSelectedIndex(index);
-                    }}
-                    className={cn(
-                      "overflow-hidden rounded-lg border bg-white text-left hover:border-blue-200 hover:shadow-sm",
-                      safeSelectedIndex === index ? "border-blue-300 ring-2 ring-blue-100" : "border-slate-200",
-                    )}
-                  >
-                    <div className="relative aspect-video bg-slate-100">
-                      {clip.has_thumbnail ? (
-                        <img src={clip.thumbnail_url} alt="" className="h-full w-full object-cover" />
-                      ) : (
-                        <div className="flex h-full items-center justify-center text-slate-300">
-                          <Film size={24} />
+              <>
+                <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
+                  {visibleClips.map((clip, index) => {
+                    const absoluteIndex = clipPageStart + index;
+                    return (
+                      <button
+                        key={clip.clip_id}
+                        onClick={() => {
+                          setSelectedIndex(absoluteIndex);
+                        }}
+                        className={cn(
+                          "overflow-hidden rounded-lg border bg-white text-left hover:border-blue-200 hover:shadow-sm",
+                          safeSelectedIndex === absoluteIndex ? "border-blue-300 ring-2 ring-blue-100" : "border-slate-200",
+                        )}
+                      >
+                        <div className="relative aspect-video bg-slate-100">
+                          {clip.has_thumbnail ? (
+                            <img src={clip.thumbnail_url} alt="" className="h-full w-full object-cover" />
+                          ) : (
+                            <div className="flex h-full items-center justify-center text-slate-300">
+                              <Film size={24} />
+                            </div>
+                          )}
+                          <span className="absolute left-2 top-2 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                            {reviewStatusLabel(reviewData?.segments[absoluteIndex]?.review_status ?? "pending")}
+                          </span>
                         </div>
-                      )}
-                  <span className="absolute left-2 top-2 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
-                        {reviewStatusLabel(reviewData?.segments[index]?.review_status ?? "pending")}
-                      </span>
-                    </div>
-                    <div className="p-3">
-                      <div className="truncate text-sm font-medium text-slate-900">{clip.product_name || "未命名片段"}</div>
-                      <div className="mt-1 text-xs text-slate-400">{formatDuration(clip.duration)}</div>
-                    </div>
-                  </button>
-                ))}
-              </div>
+                        <div className="p-3">
+                          <div className="truncate text-sm font-medium text-slate-900">{clip.product_name || "未命名片段"}</div>
+                          <div className="mt-1 text-xs text-slate-400">{formatDuration(clip.duration)}</div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                <Pagination
+                  page={clipPage}
+                  pageSize={clipPageSize}
+                  total={clips.length}
+                  onPageChange={setClipPage}
+                />
+              </>
             )}
           </div>
         </section>
@@ -202,7 +219,7 @@ export function ReviewPage() {
                   <Chip label={currentClip ? "已导出" : "待导出"} tone="emerald" />
                 </div>
                 <div className="grid grid-cols-3 gap-2">
-                  <MetricPill label="置信度" value={String(currentSegment.confidence ?? "—")} />
+                  <MetricPill label="置信度" value={formatConfidence(currentSegment.confidence)} />
                   <MetricPill label="文本句数" value={String(transcriptLines.length)} />
                   <MetricPill label="导出状态" value={currentClip ? "已导出" : "未导出"} />
                 </div>

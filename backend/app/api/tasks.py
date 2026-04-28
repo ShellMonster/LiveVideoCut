@@ -20,6 +20,7 @@ from app.tasks.pipeline import reprocess_clip, start_pipeline
 UPLOAD_DIR = Path("uploads")
 
 _TASK_ID_RE = re.compile(r"^[a-f0-9\-]{36}$", re.IGNORECASE)
+_SAFE_TASK_DIR_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 _SEGMENT_ID_RE = re.compile(r"^clip_\d{3,}$")
 
 router = APIRouter()
@@ -49,6 +50,20 @@ def _task_dir_or_404(task_id: str) -> Path | JSONResponse:
         return JSONResponse(status_code=400, content={"detail": "Invalid task_id format"})
     task_dir = UPLOAD_DIR / task_id
     if not task_dir.exists():
+        return JSONResponse(status_code=404, content={"detail": "Task not found"})
+    return task_dir
+
+
+def _deletable_task_dir_or_404(task_id: str) -> Path | JSONResponse:
+    if not _SAFE_TASK_DIR_RE.match(task_id):
+        return JSONResponse(status_code=400, content={"detail": "Invalid task_id format"})
+    task_dir = (UPLOAD_DIR / task_id).resolve()
+    upload_root = UPLOAD_DIR.resolve()
+    try:
+        task_dir.relative_to(upload_root)
+    except ValueError:
+        return JSONResponse(status_code=400, content={"detail": "Invalid task_id format"})
+    if not task_dir.exists() or not task_dir.is_dir():
         return JSONResponse(status_code=404, content={"detail": "Task not found"})
     return task_dir
 
@@ -104,6 +119,16 @@ def _write_clip_job_api(task_dir: Path, segment_id: str, payload: dict[str, Any]
 
 def _segment_id(index: int) -> str:
     return f"clip_{index:03d}"
+
+
+def _task_status_group(task_state: str) -> str:
+    if task_state == "COMPLETED":
+        return "completed"
+    if task_state == "ERROR":
+        return "failed"
+    if task_state == "UPLOADED":
+        return "uploaded"
+    return "processing"
 
 
 def _summary_from_task_dir(task_dir: Path) -> dict[str, Any]:
@@ -208,11 +233,33 @@ async def list_tasks(
     offset: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     status: str | None = Query(None),
+    q: str | None = Query(None, max_length=120),
 ):
     if not UPLOAD_DIR.exists():
-        return {"items": [], "total": 0, "offset": offset, "limit": limit}
+        return {
+            "items": [],
+            "total": 0,
+            "offset": offset,
+            "limit": limit,
+            "summary": {
+                "total": 0,
+                "processing": 0,
+                "completed": 0,
+                "failed": 0,
+                "uploaded": 0,
+                "clip_count": 0,
+            },
+        }
 
     items: list[dict] = []
+    summary = {
+        "total": 0,
+        "processing": 0,
+        "completed": 0,
+        "failed": 0,
+        "uploaded": 0,
+        "clip_count": 0,
+    }
     for entry in os.scandir(UPLOAD_DIR):
         if not entry.is_dir():
             continue
@@ -227,8 +274,6 @@ async def list_tasks(
             continue
 
         task_state = state_data.get("state", "UPLOADED")
-        if status and task_state != status:
-            continue
 
         task_id = entry.name
 
@@ -278,7 +323,7 @@ async def list_tasks(
         if not display_name:
             display_name = f"{clip_count}个片段的视频" if clip_count > 0 else "视频"
 
-        items.append({
+        item = {
             "task_id": task_id,
             "status": task_state,
             "stage": state_data.get("step"),
@@ -290,7 +335,31 @@ async def list_tasks(
             "asr_provider": asr_provider,
             "clip_count": clip_count,
             "thumbnail_url": thumbnail_url,
-        })
+        }
+
+        summary["total"] += 1
+        summary[_task_status_group(task_state)] += 1
+        summary["clip_count"] += clip_count
+
+        if status:
+            if status == "processing":
+                if _task_status_group(task_state) != "processing":
+                    continue
+            elif task_state != status:
+                continue
+
+        normalized_q = (q or "").strip().lower()
+        if normalized_q and not any(
+            normalized_q in str(value or "").lower()
+            for value in [
+                item["task_id"],
+                item["original_filename"],
+                item["display_name"],
+            ]
+        ):
+            continue
+
+        items.append(item)
 
     def _sort_key(item: dict) -> str:
         ca = item.get("created_at", "")
@@ -306,16 +375,20 @@ async def list_tasks(
     total = len(items)
     page = items[offset : offset + limit]
 
-    return {"items": page, "total": total, "offset": offset, "limit": limit}
+    return {
+        "items": page,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "summary": summary,
+    }
 
 
 @router.delete("/api/tasks/{task_id}")
 async def delete_task(task_id: str):
-    if not _TASK_ID_RE.match(task_id):
-        return JSONResponse(status_code=400, content={"detail": "Invalid task_id format"})
-    task_dir = UPLOAD_DIR / task_id
-    if not task_dir.exists():
-        return JSONResponse(status_code=404, content={"detail": "Task not found"})
+    task_dir = _deletable_task_dir_or_404(task_id)
+    if isinstance(task_dir, JSONResponse):
+        return task_dir
     shutil.rmtree(task_dir)
     return {"detail": "Task deleted", "task_id": task_id}
 

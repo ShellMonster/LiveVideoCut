@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { API_BASE, fetchJson } from "@/components/admin/api";
+import { useToastStore } from "@/stores/toastStore";
 import type {
   ClipAssetsResponse,
   ClipListResponse,
@@ -15,7 +16,7 @@ import type {
 // ---------- Query key factories ----------
 
 export const adminKeys = {
-  tasks: ["admin", "tasks"] as const,
+  tasks: (params: string) => ["admin", "tasks", params] as const,
   taskDetail: (id: string) => ["admin", "task", id] as const,
   taskSummary: (id: string) => ["admin", "task", id, "summary"] as const,
   taskDiagnostics: (id: string) => ["admin", "task", id, "diagnostics"] as const,
@@ -31,9 +32,44 @@ export const adminKeys = {
 
 // ---------- Task queries ----------
 
+export function useTaskList({
+  page = 1,
+  pageSize = 12,
+  status,
+  query,
+}: {
+  page?: number;
+  pageSize?: number;
+  status?: string;
+  query?: string;
+} = {}) {
+  const params = new URLSearchParams({
+    offset: String((page - 1) * pageSize),
+    limit: String(pageSize),
+  });
+  if (status && status !== "all") params.set("status", status);
+  if (query?.trim()) params.set("q", query.trim());
+  const qs = params.toString();
+
+  return useQuery({
+    queryKey: adminKeys.tasks(qs),
+    queryFn: async () => {
+      const data = await fetchJson<TaskListResponse>(`${API_BASE}/api/tasks?${qs}`);
+      return {
+        items: data.items ?? [],
+        total: data.total ?? 0,
+        offset: data.offset ?? 0,
+        limit: data.limit ?? pageSize,
+        summary: data.summary,
+      };
+    },
+    refetchInterval: 5000,
+  });
+}
+
 export function useTasks() {
   return useQuery({
-    queryKey: adminKeys.tasks,
+    queryKey: adminKeys.tasks("offset=0&limit=100"),
     queryFn: async () => {
       const data = await fetchJson<TaskListResponse>(`${API_BASE}/api/tasks?offset=0&limit=100`);
       return data.items ?? [];
@@ -116,17 +152,42 @@ export function useMusicLibrary() {
 
 // ---------- Assets queries ----------
 
-export function useClipAssets(projectId?: string, statusFilter?: string) {
-  const params = new URLSearchParams({ limit: "500" });
+export function useClipAssets({
+  projectId,
+  statusFilter,
+  query,
+  durationFilter,
+  page = 1,
+  pageSize = 12,
+}: {
+  projectId?: string;
+  statusFilter?: string;
+  query?: string;
+  durationFilter?: string;
+  page?: number;
+  pageSize?: number;
+} = {}) {
+  const params = new URLSearchParams({
+    offset: String((page - 1) * pageSize),
+    limit: String(pageSize),
+  });
   if (projectId) params.set("project_id", projectId);
   if (statusFilter && statusFilter !== "all") params.set("status", statusFilter);
+  if (query?.trim()) params.set("q", query.trim());
+  if (durationFilter && durationFilter !== "all") params.set("duration", durationFilter);
   const qs = params.toString();
 
   return useQuery({
     queryKey: adminKeys.assets(qs),
     queryFn: async () => {
       const data = await fetchJson<ClipAssetsResponse>(`${API_BASE}/api/assets/clips?${qs}`);
-      return { items: data.items ?? [], summary: data.summary };
+      return {
+        items: data.items ?? [],
+        summary: data.summary,
+        total: data.total ?? data.summary?.total ?? 0,
+        offset: data.offset ?? 0,
+        limit: data.limit ?? pageSize,
+      };
     },
   });
 }
@@ -137,12 +198,25 @@ export function useDeleteTask() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (taskId: string) => {
-      if (!confirm("确定要删除这个任务吗？删除后无法恢复。")) throw new Error("cancelled");
-      await fetch(`${API_BASE}/api/tasks/${taskId}`, { method: "DELETE" });
+      const resp = await fetch(`${API_BASE}/api/tasks/${taskId}`, { method: "DELETE" });
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => null);
+        throw new Error(typeof body?.detail === "string" ? body.detail : "Delete failed");
+      }
       return taskId;
     },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: adminKeys.tasks });
+    onSuccess: (taskId) => {
+      useToastStore.getState().showToast("任务已删除", "success");
+      void queryClient.invalidateQueries({ queryKey: ["admin", "tasks"] });
+      void queryClient.removeQueries({ queryKey: adminKeys.taskSummary(taskId) });
+      void queryClient.removeQueries({ queryKey: adminKeys.taskDiagnostics(taskId) });
+      void queryClient.removeQueries({ queryKey: adminKeys.taskReview(taskId) });
+      void queryClient.removeQueries({ queryKey: adminKeys.taskEvents(taskId) });
+      void queryClient.removeQueries({ queryKey: adminKeys.taskClips(taskId) });
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : "删除任务失败";
+      useToastStore.getState().showToast(`删除任务失败：${message}`, "error");
     },
   });
 }
@@ -151,11 +225,16 @@ export function useRetryTask() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (taskId: string) => {
-      await fetch(`${API_BASE}/api/tasks/${taskId}/retry`, { method: "POST" });
+      const resp = await fetch(`${API_BASE}/api/tasks/${taskId}/retry`, { method: "POST" });
+      if (!resp.ok) throw new Error("Retry failed");
       return taskId;
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: adminKeys.tasks });
+      useToastStore.getState().showToast("任务已重新提交", "success");
+      void queryClient.invalidateQueries({ queryKey: ["admin", "tasks"] });
+    },
+    onError: () => {
+      useToastStore.getState().showToast("任务重试失败", "error");
     },
   });
 }
@@ -177,9 +256,13 @@ export function usePatchReviewSegment(taskId: string | undefined) {
       if (!resp.ok) throw new Error("Patch failed");
     },
     onSuccess: () => {
+      useToastStore.getState().showToast("复核状态已更新", "success");
       if (taskId) {
         void queryClient.invalidateQueries({ queryKey: adminKeys.taskReview(taskId) });
       }
+    },
+    onError: () => {
+      useToastStore.getState().showToast("复核状态更新失败", "error");
     },
   });
 }
@@ -195,10 +278,14 @@ export function useReprocessSegment(taskId: string | undefined) {
       return (await resp.json()) as { status?: ClipReprocessJob["status"]; celery_id?: string };
     },
     onSuccess: () => {
+      useToastStore.getState().showToast("单片段已提交重导出", "success");
       if (taskId) {
         void queryClient.invalidateQueries({ queryKey: adminKeys.taskClips(taskId) });
         void queryClient.invalidateQueries({ queryKey: adminKeys.taskReview(taskId) });
       }
+    },
+    onError: () => {
+      useToastStore.getState().showToast("单片段重导出失败", "error");
     },
   });
 }
@@ -232,7 +319,11 @@ export function useUploadTrack() {
       return (await resp.json()) as MusicTrack;
     },
     onSuccess: () => {
+      useToastStore.getState().showToast("音乐上传成功", "success");
       void queryClient.invalidateQueries({ queryKey: adminKeys.musicLibrary });
+    },
+    onError: () => {
+      useToastStore.getState().showToast("音乐上传失败", "error");
     },
   });
 }
@@ -241,12 +332,16 @@ export function useDeleteTrack() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (trackId: string) => {
-      if (!confirm("确定要删除这首用户曲目吗？")) throw new Error("cancelled");
-      await fetch(`${API_BASE}/api/music/${trackId}`, { method: "DELETE" });
+      const resp = await fetch(`${API_BASE}/api/music/${trackId}`, { method: "DELETE" });
+      if (!resp.ok) throw new Error("Delete failed");
       return trackId;
     },
     onSuccess: () => {
+      useToastStore.getState().showToast("曲目已删除", "success");
       void queryClient.invalidateQueries({ queryKey: adminKeys.musicLibrary });
+    },
+    onError: () => {
+      useToastStore.getState().showToast("删除曲目失败", "error");
     },
   });
 }
@@ -277,7 +372,11 @@ export function useSaveTrackTags() {
       return (await resp.json()) as MusicTrack;
     },
     onSuccess: () => {
+      useToastStore.getState().showToast("标签已保存", "success");
       void queryClient.invalidateQueries({ queryKey: adminKeys.musicLibrary });
+    },
+    onError: () => {
+      useToastStore.getState().showToast("保存标签失败", "error");
     },
   });
 }

@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { useClipAssets } from "@/hooks/useAdminQueries";
 import { API_BASE } from "../api";
 import { formatBytes, formatDuration, reviewStatusLabel } from "../format";
-import { Header, MetricCard } from "../shared";
+import { Header, MetricCard, Pagination } from "../shared";
 
 export function AssetsPage() {
   const location = useLocation();
@@ -16,8 +16,17 @@ export function AssetsPage() {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [durationFilter, setDurationFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const pageSize = 12;
 
-  const { data: { items: assets = [], summary = null } = {} } = useClipAssets(selectedProjectId, statusFilter);
+  const { data: { items: assets = [], summary = null, total = 0 } = {} } = useClipAssets({
+    projectId: selectedProjectId,
+    statusFilter,
+    query,
+    durationFilter,
+    page,
+    pageSize,
+  });
 
   useEffect(() => {
     if (!stateProjectId || searchParams.get("project_id") === stateProjectId) return;
@@ -34,21 +43,8 @@ export function AssetsPage() {
       return next;
     });
   };
-  const normalizedQuery = query.trim().toLowerCase();
-  const visibleAssets = assets.filter((clip) => {
-    const matchesQuery =
-      !normalizedQuery ||
-      [clip.product_name, clip.task_id, clip.clip_id, clip.segment_id].some((value) =>
-        value.toLowerCase().includes(normalizedQuery),
-      );
-    const matchesDuration =
-      durationFilter === "all" ||
-      (durationFilter === "short" && clip.duration < 30) ||
-      (durationFilter === "medium" && clip.duration >= 30 && clip.duration <= 90) ||
-      (durationFilter === "long" && clip.duration > 90);
-    return matchesQuery && matchesDuration;
-  });
-  const selectedAssets = visibleAssets.filter((clip) => selectedClips.has(clip.clip_id));
+  const visibleAssets = assets;
+  const selectedAssets = assets.filter((clip) => selectedClips.has(clip.clip_id));
   const selectedClipIds = selectedAssets.map((clip) => clip.clip_id);
   const hasSelectedClips = selectedClipIds.length > 0;
   const batchDownloadUrl = `${API_BASE}/api/clips/batch?ids=${selectedClipIds.join(",")}`;
@@ -97,6 +93,7 @@ export function AssetsPage() {
                 onChange={(event) => {
                   setQuery(event.target.value);
                   setSelectedClips(new Set());
+                  setPage(1);
                 }}
                 placeholder="搜索商品名 / 项目 / 片段 ID"
                 className="min-w-0 flex-1 bg-transparent text-slate-700 outline-none placeholder:text-slate-400"
@@ -107,6 +104,7 @@ export function AssetsPage() {
               onChange={(event) => {
                 setStatusFilter(event.target.value);
                 setSelectedClips(new Set());
+                setPage(1);
               }}
               className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600"
             >
@@ -121,6 +119,7 @@ export function AssetsPage() {
               onChange={(event) => {
                 setDurationFilter(event.target.value);
                 setSelectedClips(new Set());
+                setPage(1);
               }}
               className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600"
             >
@@ -140,14 +139,15 @@ export function AssetsPage() {
         </section>
 
         <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
-          <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
-            {visibleAssets.length === 0 ? (
-              <div className="col-span-full rounded-lg border border-dashed border-slate-200 bg-white py-16 text-center text-sm text-slate-400">
-                暂无匹配片段资产。
-              </div>
-            ) : (
-              visibleAssets.map((clip) => (
-                <div key={clip.clip_id} className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+          <div className="rounded-lg border border-slate-200 bg-white">
+            <div className="grid gap-4 p-4 md:grid-cols-2 2xl:grid-cols-4">
+              {visibleAssets.length === 0 ? (
+                <div className="col-span-full rounded-lg border border-dashed border-slate-200 bg-white py-16 text-center text-sm text-slate-400">
+                  暂无匹配片段资产。
+                </div>
+              ) : (
+                visibleAssets.map((clip) => (
+                  <div key={clip.clip_id} className="overflow-hidden rounded-lg border border-slate-200 bg-white">
                   <div className="relative aspect-video bg-slate-100">
                     {clip.has_thumbnail ? (
                       <img src={clip.thumbnail_url} alt="" className="h-full w-full object-cover" />
@@ -191,9 +191,19 @@ export function AssetsPage() {
                       </button>
                     </div>
                   </div>
-                </div>
-              ))
-            )}
+                  </div>
+                ))
+              )}
+            </div>
+            <Pagination
+              page={page}
+              pageSize={pageSize}
+              total={total}
+              onPageChange={(nextPage) => {
+                setSelectedClips(new Set());
+                setPage(nextPage);
+              }}
+            />
           </div>
 
           <aside className="rounded-lg border border-slate-200 bg-white p-4">

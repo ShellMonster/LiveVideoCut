@@ -19,6 +19,16 @@ export interface TaskItem {
 export interface TaskListResponse {
   items?: TaskItem[];
   total?: number;
+  offset?: number;
+  limit?: number;
+  summary?: {
+    total: number;
+    processing: number;
+    completed: number;
+    failed: number;
+    uploaded: number;
+    clip_count: number;
+  };
 }
 
 export interface ClipListResponse {
@@ -95,6 +105,9 @@ export interface ClipAsset {
 
 export interface ClipAssetsResponse {
   items: ClipAsset[];
+  total?: number;
+  offset?: number;
+  limit?: number;
   summary: {
     total: number;
     pending: number;

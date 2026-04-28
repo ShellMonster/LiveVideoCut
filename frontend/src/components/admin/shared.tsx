@@ -1,6 +1,8 @@
 import type React from "react";
 import {
   AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
   Check,
   Cpu,
   Film,
@@ -23,7 +25,7 @@ export function Sidebar({
 }) {
   const { data: resources } = useSystemResources();
   return (
-    <aside className="flex h-screen w-64 shrink-0 flex-col border-r border-slate-200 bg-white">
+    <aside className="hidden h-screen w-64 shrink-0 flex-col border-r border-slate-200 bg-white lg:flex">
       <div className="flex h-16 items-center gap-3 border-b border-slate-100 px-5">
         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-600 text-white">
           <Scissors size={18} />
@@ -72,6 +74,49 @@ export function Sidebar({
   );
 }
 
+export function MobileNav({
+  page,
+  onPageChange,
+}: {
+  page: PageKey;
+  onPageChange: (page: PageKey) => void;
+}) {
+  return (
+    <div className="border-b border-slate-200 bg-white lg:hidden">
+      <div className="flex h-14 items-center gap-3 px-4">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white">
+          <Scissors size={17} />
+        </div>
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold text-slate-950">ClipFlow AI</div>
+          <div className="truncate text-xs text-slate-400">直播智能剪辑后台</div>
+        </div>
+      </div>
+      <nav className="flex gap-2 overflow-x-auto px-4 pb-3">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const active = page === item.key;
+          return (
+            <button
+              key={item.key}
+              onClick={() => onPageChange(item.key)}
+              className={cn(
+                "inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-1.5 text-sm transition-colors",
+                active
+                  ? "bg-blue-50 font-medium text-blue-700"
+                  : "text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50 hover:text-slate-950",
+              )}
+            >
+              <Icon size={15} />
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+    </div>
+  );
+}
+
 export function Header({
   title,
   description,
@@ -82,15 +127,66 @@ export function Header({
   action?: React.ReactNode;
 }) {
   return (
-    <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-6 py-3">
-      <div className="min-w-0">
+    <header className="flex min-h-16 flex-col items-stretch gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+      <div className="min-w-0 flex-1">
         <h1 className="text-lg font-semibold text-slate-950">{title}</h1>
         <p className="mt-0.5 text-xs text-slate-500">{description}</p>
       </div>
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
         {action}
       </div>
     </header>
+  );
+}
+
+export function Pagination({
+  page,
+  pageSize,
+  total,
+  onPageChange,
+}: {
+  page: number;
+  pageSize: number;
+  total: number;
+  onPageChange: (page: number) => void;
+}) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const end = Math.min(total, page * pageSize);
+
+  return (
+    <div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-3 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+      <span>
+        {total === 0 ? "暂无数据" : `第 ${start}-${end} 条，共 ${total} 条`}
+      </span>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => onPageChange(Math.max(1, page - 1))}
+          disabled={page <= 1}
+          className={cn(
+            "inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50",
+            page <= 1 && "cursor-not-allowed opacity-50 hover:bg-white",
+          )}
+        >
+          <ChevronLeft size={15} />
+          上一页
+        </button>
+        <span className="min-w-16 text-center text-xs text-slate-400">
+          {page} / {totalPages}
+        </span>
+        <button
+          onClick={() => onPageChange(Math.min(totalPages, page + 1))}
+          disabled={page >= totalPages}
+          className={cn(
+            "inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50",
+            page >= totalPages && "cursor-not-allowed opacity-50 hover:bg-white",
+          )}
+        >
+          下一页
+          <ChevronRight size={15} />
+        </button>
+      </div>
+    </div>
   );
 }
 

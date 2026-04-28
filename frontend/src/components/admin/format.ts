@@ -54,6 +54,11 @@ export function formatElapsed(seconds?: number | null): string {
   return `${hours}h ${minutes % 60}m`;
 }
 
+export function formatConfidence(confidence?: number | null): string {
+  if (confidence == null || Number.isNaN(confidence)) return "—";
+  return confidence.toFixed(2);
+}
+
 export function displayTaskName(task: TaskItem): string {
   return task.display_name || task.original_filename || "未命名直播项目";
 }

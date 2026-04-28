@@ -2,24 +2,30 @@ import { useNavigate } from "react-router-dom";
 import { Cpu, Eye, HardDrive, RefreshCw, Server, Trash2, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAdminContext } from "@/components/admin/context";
-import { useTasks, useSystemResources, useTaskEvents, useDeleteTask, useRetryTask } from "@/hooks/useAdminQueries";
+import { useTaskList, useSystemResources, useTaskEvents, useDeleteTask, useRetryTask } from "@/hooks/useAdminQueries";
+import { useConfirmStore } from "@/stores/confirmStore";
 import { stageLabels } from "../constants";
-import { classifyStatus, displayTaskName, formatDate, formatDuration, progressByStatus, resourcePercent, statusBadgeClass, statusLabel } from "../format";
-import { Header, IconButton, LogLine, MetricCard, ResourceLine } from "../shared";
+import { displayTaskName, formatDate, formatDuration, progressByStatus, resourcePercent, statusBadgeClass, statusLabel } from "../format";
+import { Header, IconButton, LogLine, MetricCard, Pagination, ResourceLine } from "../shared";
+import { useState } from "react";
 
 export function QueuePage() {
   const navigate = useNavigate();
   const { selectedTask, setSelectedTask } = useAdminContext();
-  const { data: tasks = [] } = useTasks();
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+  const { data: taskList } = useTaskList({ page, pageSize });
+  const tasks = taskList?.items ?? [];
   const { data: resources } = useSystemResources();
   const { data: events = [] } = useTaskEvents(selectedTask?.task_id);
   const deleteTask = useDeleteTask();
   const retryTask = useRetryTask();
+  const confirm = useConfirmStore((state) => state.confirm);
 
-  const waiting = resources?.queue.waiting ?? tasks.filter((task) => task.status === "UPLOADED").length;
-  const processing = resources?.queue.active ?? tasks.filter((task) => classifyStatus(task.status) === "processing").length;
-  const completed = resources?.queue.completed ?? tasks.filter((task) => task.status === "COMPLETED").length;
-  const failed = resources?.queue.failed ?? tasks.filter((task) => task.status === "ERROR").length;
+  const waiting = resources?.queue.waiting ?? taskList?.summary?.uploaded ?? 0;
+  const processing = resources?.queue.active ?? taskList?.summary?.processing ?? 0;
+  const completed = resources?.queue.completed ?? taskList?.summary?.completed ?? 0;
+  const failed = resources?.queue.failed ?? taskList?.summary?.failed ?? 0;
 
   return (
     <>
@@ -106,9 +112,20 @@ export function QueuePage() {
                         icon={Trash2}
                         label="删除"
                         danger
-                        onClick={(event) => {
+                        onClick={async (event) => {
                           event.stopPropagation();
-                          void deleteTask.mutateAsync(task.task_id).catch(() => {});
+                          const confirmed = await confirm({
+                            title: "删除任务",
+                            description: "删除后会移除这个任务及相关产物，操作无法恢复。",
+                            confirmLabel: "删除",
+                            danger: true,
+                          });
+                          if (!confirmed) return;
+                          await deleteTask.mutateAsync(task.task_id).then(() => {
+                            if (selectedTask?.task_id === task.task_id) {
+                              setSelectedTask(null);
+                            }
+                          }).catch(() => {});
                         }}
                       />
                     </div>
@@ -116,6 +133,12 @@ export function QueuePage() {
                 ))
               )}
             </div>
+            <Pagination
+              page={page}
+              pageSize={pageSize}
+              total={taskList?.total ?? 0}
+              onPageChange={setPage}
+            />
           </div>
 
           <aside className="space-y-5">

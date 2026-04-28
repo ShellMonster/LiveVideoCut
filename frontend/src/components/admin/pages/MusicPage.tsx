@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { Pause, Play, RefreshCw, SlidersHorizontal, Trash2, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSettingsStore } from "@/stores/settingsStore";
+import { useConfirmStore } from "@/stores/confirmStore";
 import { API_BASE } from "../api";
 import { useMusicLibrary, useUploadTrack, useDeleteTrack, useSaveTrackTags } from "@/hooks/useAdminQueries";
 import { editableCategoryOptions, editableMoodOptions } from "../constants";
@@ -13,6 +14,7 @@ import {
   InputField,
   MetricCard,
   MultiSelectField,
+  Pagination,
   SelectField,
   TagGroup,
 } from "../shared";
@@ -45,11 +47,14 @@ export function AdminMusicPage() {
   const uploadTrack = useUploadTrack();
   const deleteTrack = useDeleteTrack();
   const saveTags = useSaveTrackTags();
+  const confirm = useConfirmStore((state) => state.confirm);
 
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [audioProgress, setAudioProgress] = useState(0);
   const [selectedTrack, setSelectedTrack] = useState<MusicTrack | null>(null);
   const [tagDraft, setTagDraft] = useState(() => tagDraftFromTrack(null));
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -61,6 +66,7 @@ export function AdminMusicPage() {
   const userCount = tracks.filter((track) => track.source === "user").length;
   const builtInCount = tracks.filter((track) => track.source === "built-in").length;
   const categoryCount = new Set(tracks.flatMap((track) => track.categories)).size;
+  const visibleTracks = tracks.slice((page - 1) * pageSize, page * pageSize);
 
   const togglePlay = (track: MusicTrack) => {
     selectTrack(track);
@@ -81,6 +87,13 @@ export function AdminMusicPage() {
   };
 
   const handleDelete = async (trackId: string) => {
+    const confirmed = await confirm({
+      title: "删除用户曲目",
+      description: "删除后这首上传音乐会从曲库移除，已生成的视频不会受影响。",
+      confirmLabel: "删除",
+      danger: true,
+    });
+    if (!confirmed) return;
     await deleteTrack.mutateAsync(trackId).catch(() => {});
   };
 
@@ -183,7 +196,7 @@ export function AdminMusicPage() {
                       <td colSpan={8} className="px-4 py-12 text-center text-slate-400">暂无曲目</td>
                     </tr>
                   ) : (
-                    tracks.map((track) => (
+                    visibleTracks.map((track) => (
                       <tr
                         key={track.id}
                         className={cn("cursor-pointer hover:bg-slate-50", selectedTrack?.id === track.id && "bg-blue-50/50")}
@@ -244,6 +257,12 @@ export function AdminMusicPage() {
                 </tbody>
               </table>
             </div>
+            <Pagination
+              page={page}
+              pageSize={pageSize}
+              total={tracks.length}
+              onPageChange={setPage}
+            />
           </div>
 
           <aside className="space-y-5">

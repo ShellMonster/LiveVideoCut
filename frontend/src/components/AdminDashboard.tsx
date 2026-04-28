@@ -2,9 +2,10 @@ import { useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { ProgressBar } from "@/components/ProgressBar";
 import { ToastViewport } from "@/components/ToastViewport";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useTaskProgress } from "@/hooks/useWebSocket";
 import { useTaskStore } from "@/stores/taskStore";
-import { Sidebar } from "@/components/admin/shared";
+import { MobileNav, Sidebar } from "@/components/admin/shared";
 import { AdminContext } from "@/components/admin/context";
 import type { PageKey, TaskItem } from "@/components/admin/types";
 
@@ -42,12 +43,14 @@ export function AdminLayout() {
     <AdminContext.Provider value={{ selectedTask, setSelectedTask }}>
       <div className="flex min-h-screen bg-slate-50 text-slate-900">
         <ToastViewport />
+        <ConfirmDialog />
         <Sidebar page={activePage} onPageChange={handlePageChange} />
         <div className="min-w-0 flex-1">
+          <MobileNav page={activePage} onPageChange={handlePageChange} />
           <Outlet context={{ selectedTask, setSelectedTask }} />
 
           {taskId && (status === "processing" || status === "error") && (
-            <div className="fixed bottom-4 right-4 w-96 rounded-lg border border-slate-200 bg-white p-4 shadow-lg">
+            <div className="fixed bottom-4 right-4 w-[calc(100vw-2rem)] rounded-lg border border-slate-200 bg-white p-4 shadow-lg sm:w-96">
               <div className="mb-3 flex items-center justify-between">
                 <div>
                   <div className="text-sm font-semibold text-slate-900">当前上传任务</div>

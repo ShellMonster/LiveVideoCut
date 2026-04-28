@@ -42,6 +42,8 @@ def _task_created_at(task_dir: Path) -> str:
 async def list_clip_assets(
     status: str | None = Query(None),
     project_id: str | None = Query(None),
+    q: str | None = Query(None, max_length=120),
+    duration: str | None = Query(None),
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
 ):
@@ -86,26 +88,46 @@ async def list_clip_assets(
             if status and review_status != status:
                 continue
 
+            clip_duration = meta.get("duration", 0)
+            if duration == "short" and clip_duration >= 30:
+                continue
+            if duration == "medium" and not (30 <= clip_duration <= 90):
+                continue
+            if duration == "long" and clip_duration <= 90:
+                continue
+
             file_size = video_path.stat().st_size if video_path.exists() else 0
-            items.append(
-                {
-                    "clip_id": f"{task_dir.name}/{segment_id}",
-                    "task_id": task_dir.name,
-                    "segment_id": segment_id,
-                    "product_name": meta.get("product_name", "未知商品"),
-                    "duration": meta.get("duration", 0),
-                    "start_time": meta.get("start_time", 0),
-                    "end_time": meta.get("end_time", 0),
-                    "confidence": meta.get("confidence", 0),
-                    "review_status": review_status,
-                    "file_size": file_size,
-                    "created_at": created_at,
-                    "video_url": f"/api/clips/{task_dir.name}/{segment_id}/download",
-                    "thumbnail_url": f"/api/clips/{task_dir.name}/{segment_id}/thumbnail",
-                    "has_video": video_path.exists(),
-                    "has_thumbnail": cover_path.exists(),
-                }
-            )
+            item = {
+                "clip_id": f"{task_dir.name}/{segment_id}",
+                "task_id": task_dir.name,
+                "segment_id": segment_id,
+                "product_name": meta.get("product_name", "未知商品"),
+                "duration": clip_duration,
+                "start_time": meta.get("start_time", 0),
+                "end_time": meta.get("end_time", 0),
+                "confidence": meta.get("confidence", 0),
+                "review_status": review_status,
+                "file_size": file_size,
+                "created_at": created_at,
+                "video_url": f"/api/clips/{task_dir.name}/{segment_id}/download",
+                "thumbnail_url": f"/api/clips/{task_dir.name}/{segment_id}/thumbnail",
+                "has_video": video_path.exists(),
+                "has_thumbnail": cover_path.exists(),
+            }
+
+            normalized_q = (q or "").strip().lower()
+            if normalized_q and not any(
+                normalized_q in str(value or "").lower()
+                for value in [
+                    item["product_name"],
+                    item["task_id"],
+                    item["clip_id"],
+                    item["segment_id"],
+                ]
+            ):
+                continue
+
+            items.append(item)
 
     items.sort(key=lambda item: item.get("created_at") or "", reverse=True)
 

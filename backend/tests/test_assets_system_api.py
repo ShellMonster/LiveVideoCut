@@ -65,6 +65,30 @@ async def test_clip_assets_filter_by_status(client):
 
 
 @pytest.mark.anyio
+async def test_clip_assets_search_duration_and_pagination(client):
+    response = await client.get("/api/assets/clips?q=资产&duration=short&offset=0&limit=1")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert data["offset"] == 0
+    assert data["limit"] == 1
+    assert data["items"][0]["product_name"] == "资产片段"
+
+
+@pytest.mark.anyio
+async def test_task_list_summary_search_and_processing_filter(client):
+    response = await client.get("/api/tasks?q=waiting&status=processing&offset=0&limit=1")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 0
+    assert data["summary"]["total"] == 2
+    assert data["summary"]["completed"] == 1
+    assert data["summary"]["uploaded"] == 1
+
+
+@pytest.mark.anyio
 async def test_system_resources_counts_task_states(client):
     response = await client.get("/api/system/resources")
 
@@ -95,3 +119,20 @@ async def test_task_events_and_artifact_download(client):
         assert "review.json" in names
         assert "clips/clip_000_meta.json" in names
         assert "clips/clip_000.mp4" not in names
+
+
+@pytest.mark.anyio
+async def test_delete_legacy_safe_task_id(client, tmp_path):
+    response = await client.delete("/api/tasks/waiting-task")
+
+    assert response.status_code == 200
+    assert response.json()["task_id"] == "waiting-task"
+    assert not (tmp_path / "waiting-task").exists()
+
+
+@pytest.mark.anyio
+async def test_delete_rejects_unsafe_task_id(client, tmp_path):
+    response = await client.delete("/api/tasks/.waiting-task")
+
+    assert response.status_code == 400
+    assert (tmp_path / "waiting-task").exists()

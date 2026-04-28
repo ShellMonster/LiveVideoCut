@@ -127,7 +127,8 @@ graph TD
 - **字幕烧录** -- 支持四种模式：off / basic / styled / karaoke（逐字高亮+弹跳动画），支持自定义位置
 - **导出模式** -- smart / no_vlm / all_candidates / all_scenes
 - **实时进度** -- WebSocket 推送处理进度，前端实时展示
-- **历史记录** -- 分页列表查看所有历史任务，支持状态筛选、展开查看片段、删除
+- **历史记录** -- 分页列表查看所有历史任务，支持服务端搜索、状态筛选、项目切换、删除
+- **后台分页** -- 项目总览、任务队列、片段资产使用服务端分页；剪辑复核、音乐库、诊断日志使用页面内分页，避免无限下滑
 - **语气词过滤** -- 三级词表（38词），支持仅过滤字幕或同时裁剪视频片段，默认关闭
 - **智能封面** -- content_first（商品优先）/ person_first（主播优先），最多 30 帧评分选最佳；优先复用 visual_prescreen 已抽帧，不足时再用 FFmpeg 补足候选，COCO YOLO 遮挡检测自动排除手机等遮挡帧
 - **视频变速** -- 0.5x~3x 倍速，先烧字幕再变速，默认 1.25x
@@ -181,6 +182,14 @@ docker compose up -d
 | 阿里云 DashScope | VLM (Qwen) / ASR | [DashScope 控制台](https://dashscope.console.aliyun.com/) |
 | 智谱开放平台 | VLM (GLM) | [智谱开放平台](https://open.bigmodel.cn/) |
 | 火山引擎 | ASR (BigModel / VC) | [火山引擎控制台](https://console.volcengine.com/) |
+
+## 后台列表分页
+
+后台管理页默认不做无限下滑：
+
+- `GET /api/tasks?offset=0&limit=20&q=关键词&status=processing` 返回分页任务、总数和全局状态统计；`status=processing` 会聚合所有处理中状态。
+- `GET /api/assets/clips?offset=0&limit=12&q=关键词&status=approved&duration=short` 返回分页片段资产、筛选后的总数和复核状态汇总。
+- 前端项目总览、任务队列、片段资产页直接使用后端分页；剪辑复核片段队列、音乐库、诊断事件日志使用固定页大小的前端分页。
 
 ## 配置说明
 

@@ -1,11 +1,12 @@
 import { Download, FileVideo } from "lucide-react";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useAdminContext } from "@/components/admin/context";
 import { useTaskDiagnostics, useTasks } from "@/hooks/useAdminQueries";
 import { API_BASE } from "../api";
 import { stageLabels } from "../constants";
 import { displayTaskName, formatDate, formatElapsed } from "../format";
-import { Header, MetricCard, Warning } from "../shared";
+import { Header, MetricCard, Pagination, Warning } from "../shared";
 
 export function DiagnosticsPage() {
   const { selectedTask, setSelectedTask } = useAdminContext();
@@ -15,6 +16,9 @@ export function DiagnosticsPage() {
   const summary = diagnostics?.summary;
   const funnel = diagnostics?.funnel ?? [];
   const eventLog = diagnostics?.event_log ?? [];
+  const [eventPage, setEventPage] = useState(1);
+  const eventPageSize = 10;
+  const visibleEvents = eventLog.slice((eventPage - 1) * eventPageSize, eventPage * eventPageSize);
   const maxFunnel = Math.max(...funnel.map((item) => item.count), 1);
   const taskId = selectedTask?.task_id;
 
@@ -59,7 +63,10 @@ export function DiagnosticsPage() {
               value={selectedTask?.task_id || ""}
               onChange={(event) => {
                 const next = tasks.find((task) => task.task_id === event.target.value);
-                if (next) setSelectedTask(next);
+                if (next) {
+                  setSelectedTask(next);
+                  setEventPage(1);
+                }
               }}
             >
               <option value="">选择项目</option>
@@ -147,7 +154,7 @@ export function DiagnosticsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {eventLog.length > 0 ? eventLog.map((event) => (
+                {eventLog.length > 0 ? visibleEvents.map((event) => (
                   <tr key={`${event.time}-${event.file}`}>
                     <td className="px-4 py-3 font-mono text-xs text-slate-500">{formatDate(event.time)}</td>
                     <td className="px-4 py-3 text-slate-700">{stageLabels[event.stage] || event.stage}</td>
@@ -169,6 +176,12 @@ export function DiagnosticsPage() {
               </tbody>
             </table>
           </div>
+          <Pagination
+            page={eventPage}
+            pageSize={eventPageSize}
+            total={eventLog.length}
+            onPageChange={setEventPage}
+          />
         </section>
       </main>
     </>
