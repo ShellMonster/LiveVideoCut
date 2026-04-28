@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { ChevronRight, Download, Film, MoreHorizontal, Play, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAdminContext } from "@/components/admin/context";
@@ -31,6 +31,7 @@ import type { ReviewSegment } from "../types";
 
 type ReviewFilter = "all" | ReviewSegment["review_status"];
 type DrawerTab = "details" | "subtitles" | "advice";
+type SubtitleDraftLine = { start_time: number; end_time: number; text: string };
 
 const reviewFilters: { value: ReviewFilter; label: string }[] = [
   { value: "all", label: "全部" },
@@ -89,11 +90,23 @@ export function ReviewPage() {
   });
   const clipPageStart = (clipPage - 1) * clipPageSize;
   const visibleEntries = filteredEntries.slice(clipPageStart, clipPageStart + clipPageSize);
-  const transcriptLines = reviewData?.transcript
-    .filter((line) => {
-      if (!currentSegment) return true;
-      return line.end_time >= currentSegment.start_time && line.start_time <= currentSegment.end_time;
-    }) ?? [];
+  const currentSegmentStart = currentSegment?.start_time;
+  const currentSegmentEnd = currentSegment?.end_time;
+  const transcriptLines = useMemo(() => (
+    reviewData?.transcript.filter((line) => {
+      if (currentSegmentStart === undefined || currentSegmentEnd === undefined) return true;
+      return line.end_time >= currentSegmentStart && line.start_time <= currentSegmentEnd;
+    }) ?? []
+  ), [currentSegmentEnd, currentSegmentStart, reviewData?.transcript]);
+  const subtitleDraftSourceKey = useMemo(() => {
+    const source = currentSegment?.subtitle_overrides?.length
+      ? currentSegment.subtitle_overrides
+      : transcriptLines;
+    return [
+      currentSegment?.segment_id ?? "none",
+      ...source.map((line) => `${line.start_time}:${line.end_time}:${line.text}`),
+    ].join("|");
+  }, [currentSegment, transcriptLines]);
   const statusCounts = reviewFilters.reduce<Record<ReviewFilter, number>>((acc, option) => {
     acc[option.value] = option.value === "all"
       ? clipEntries.length
@@ -244,6 +257,7 @@ export function ReviewPage() {
       </main>
 
       <ReviewInspectorDrawer
+        key={subtitleDraftSourceKey}
         open={drawerOpen}
         tab={drawerTab}
         onTabChange={setDrawerTab}
@@ -382,20 +396,9 @@ function ReviewInspectorDrawer({
     { value: "subtitles", label: "字幕草稿" },
     { value: "advice", label: "AI建议" },
   ];
-  const [subtitleDraft, setSubtitleDraft] = useState<{ start_time: number; end_time: number; text: string }[]>([]);
-
-  useEffect(() => {
-    if (!segment) {
-      setSubtitleDraft([]);
-      return;
-    }
-    const source = segment.subtitle_overrides?.length ? segment.subtitle_overrides : transcriptLines;
-    setSubtitleDraft(source.map((line) => ({
-      start_time: Number(line.start_time),
-      end_time: Number(line.end_time),
-      text: line.text ?? "",
-    })));
-  }, [segment?.segment_id, segment?.subtitle_overrides, transcriptLines]);
+  const [subtitleDraft, setSubtitleDraft] = useState<SubtitleDraftLine[]>(() => (
+    buildSubtitleDraft(segment, transcriptLines)
+  ));
 
   if (!open) return null;
 
@@ -674,6 +677,19 @@ function ReviewInspectorDrawer({
 function formatTimeInput(value: number) {
   if (!Number.isFinite(value)) return "0.00";
   return value.toFixed(2);
+}
+
+function buildSubtitleDraft(
+  segment: ReviewSegment | null | undefined,
+  transcriptLines: SubtitleDraftLine[],
+): SubtitleDraftLine[] {
+  if (!segment) return [];
+  const source = segment.subtitle_overrides?.length ? segment.subtitle_overrides : transcriptLines;
+  return source.map((line) => ({
+    start_time: Number(line.start_time),
+    end_time: Number(line.end_time),
+    text: line.text ?? "",
+  }));
 }
 
 function roundTime(value: number) {

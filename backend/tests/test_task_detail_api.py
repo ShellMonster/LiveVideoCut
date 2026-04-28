@@ -2,6 +2,8 @@ import json
 
 import pytest
 
+from app.services.subtitle_overrides import MAX_SUBTITLE_OVERRIDE_LINES
+
 
 TASK_ID = "b2c3d4e5-f6a7-8901-bcde-f12345678901"
 
@@ -126,6 +128,53 @@ async def test_task_review_merges_review_status(client, tmp_path):
     assert data["segments"][0]["review_status"] == "approved"
     assert data["segments"][0]["product_name"] == "已确认连衣裙"
     assert data["clips"][0]["review_status"] == "approved"
+
+
+@pytest.mark.anyio
+async def test_task_review_accepts_normalized_subtitle_overrides(client):
+    response = await client.patch(
+        f"/api/tasks/{TASK_ID}/review/segments/clip_000",
+        json={
+            "subtitle_overrides": [
+                {"start_time": 10, "end_time": 12, "text": "  这件   很显瘦  "}
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["review"]["subtitle_overrides"] == [
+        {"start_time": 10.0, "end_time": 12.0, "text": "这件 很显瘦"}
+    ]
+
+
+@pytest.mark.anyio
+async def test_task_review_rejects_unsafe_subtitle_overrides(client):
+    response = await client.patch(
+        f"/api/tasks/{TASK_ID}/review/segments/clip_000",
+        json={
+            "subtitle_overrides": [
+                {"start_time": 10, "end_time": 12, "text": "{\\pos(0,0)}恶意字幕"}
+            ]
+        },
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_task_review_rejects_too_many_subtitle_overrides(client):
+    response = await client.patch(
+        f"/api/tasks/{TASK_ID}/review/segments/clip_000",
+        json={
+            "subtitle_overrides": [
+                {"start_time": index, "end_time": index + 0.5, "text": "字幕"}
+                for index in range(MAX_SUBTITLE_OVERRIDE_LINES + 1)
+            ]
+        },
+    )
+
+    assert response.status_code == 422
 
 
 @pytest.mark.anyio

@@ -10,10 +10,17 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator, model_validator
 from starlette.responses import JSONResponse, StreamingResponse
 
 from app.api.settings import SENSITIVE_FIELDS
+from app.services.subtitle_overrides import (
+    MAX_SUBTITLE_OVERRIDE_LINES,
+    MAX_SUBTITLE_OVERRIDE_TEXT_CHARS,
+    MAX_SUBTITLE_OVERRIDE_TOTAL_TEXT_CHARS,
+    has_ass_control_chars,
+    normalize_subtitle_override_text,
+)
 from app.services.state_machine import TaskStateMachine
 from app.tasks.pipeline import reprocess_clip, start_pipeline
 
@@ -26,6 +33,32 @@ _SEGMENT_ID_RE = re.compile(r"^clip_\d{3,}$")
 router = APIRouter()
 
 
+class SubtitleOverridePatch(BaseModel):
+    start_time: float
+    end_time: float
+    text: str
+
+    @field_validator("text")
+    @classmethod
+    def validate_text(cls, value: str) -> str:
+        normalized = normalize_subtitle_override_text(value)
+        if not normalized:
+            raise ValueError("Subtitle text cannot be empty")
+        if len(normalized) > MAX_SUBTITLE_OVERRIDE_TEXT_CHARS:
+            raise ValueError(
+                f"Subtitle text cannot exceed {MAX_SUBTITLE_OVERRIDE_TEXT_CHARS} characters"
+            )
+        if has_ass_control_chars(normalized):
+            raise ValueError("Subtitle text cannot contain ASS control characters")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_time_range(self) -> "SubtitleOverridePatch":
+        if self.end_time <= self.start_time:
+            raise ValueError("Subtitle end_time must be greater than start_time")
+        return self
+
+
 class ReviewSegmentPatch(BaseModel):
     product_name: str | None = None
     title: str | None = None
@@ -34,7 +67,26 @@ class ReviewSegmentPatch(BaseModel):
     status: str | None = None
     cover_strategy: str | None = None
     note: str | None = None
-    subtitle_overrides: list[dict[str, Any]] | None = None
+    subtitle_overrides: list[SubtitleOverridePatch] | None = None
+
+    @field_validator("subtitle_overrides")
+    @classmethod
+    def validate_subtitle_overrides(
+        cls,
+        value: list[SubtitleOverridePatch] | None,
+    ) -> list[SubtitleOverridePatch] | None:
+        if value is None:
+            return value
+        if len(value) > MAX_SUBTITLE_OVERRIDE_LINES:
+            raise ValueError(
+                f"Subtitle overrides cannot exceed {MAX_SUBTITLE_OVERRIDE_LINES} lines"
+            )
+        total_chars = sum(len(item.text) for item in value)
+        if total_chars > MAX_SUBTITLE_OVERRIDE_TOTAL_TEXT_CHARS:
+            raise ValueError(
+                f"Subtitle overrides cannot exceed {MAX_SUBTITLE_OVERRIDE_TOTAL_TEXT_CHARS} total characters"
+            )
+        return value
 
 
 def _read_json(path: Path, fallback: Any) -> Any:

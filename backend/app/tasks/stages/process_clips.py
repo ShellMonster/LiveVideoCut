@@ -7,6 +7,10 @@ from typing import Any
 
 from app.api.settings import SettingsRequest
 from app.services.bgm_selector import BGMSelector, DEFAULT_BGM
+from app.services.subtitle_overrides import (
+    MAX_SUBTITLE_OVERRIDE_LINES,
+    sanitize_subtitle_override_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +70,7 @@ def _collect_clip_subtitle_segments(
     overrides = segment.get("subtitle_overrides")
     if isinstance(overrides, list) and overrides:
         subtitle_segments: list[dict[str, Any]] = []
-        for item in overrides:
+        for item in overrides[:MAX_SUBTITLE_OVERRIDE_LINES]:
             if not isinstance(item, dict):
                 continue
             try:
@@ -74,7 +78,7 @@ def _collect_clip_subtitle_segments(
                 end = float(item.get("end_time", 0.0))
             except (TypeError, ValueError):
                 continue
-            text = str(item.get("text", "")).strip()
+            text = sanitize_subtitle_override_text(item.get("text", ""))
             if not text or end <= start:
                 continue
             relative_start = max(start, clip_start) - clip_start

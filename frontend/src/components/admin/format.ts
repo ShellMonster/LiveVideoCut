@@ -147,7 +147,7 @@ export function userFacingMessage(message?: string | null): string {
     return translated ? `AI 商品素材生成失败：${translated}` : "AI 商品素材生成失败，请检查配置后重试";
   }
 
-  if (/^[\x00-\x7F]+$/.test(text)) {
+  if ([...text].every((char) => char.charCodeAt(0) <= 0x7f)) {
     return "操作失败，请检查配置或稍后重试";
   }
 
