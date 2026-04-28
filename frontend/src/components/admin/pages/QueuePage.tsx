@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Activity, Calendar, Cpu, Ellipsis, Eye, Film, HardDrive, RefreshCw, Search, Server, Trash2, Upload, X } from "lucide-react";
+import { Activity, Calendar, CheckCircle2, Circle, Cpu, Ellipsis, Eye, Film, HardDrive, RefreshCw, Search, Server, Trash2, Upload, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAdminContext } from "@/components/admin/context";
 import { useTaskList, useSystemResources, useTaskEvents, useDeleteTask, useRetryTask } from "@/hooks/useAdminQueries";
@@ -518,10 +518,7 @@ function QueueDetailDrawer({
       <button className="absolute inset-0 bg-slate-950/20" onClick={onClose} aria-label="关闭任务详情" />
       <aside className="absolute right-0 top-0 flex h-full w-full max-w-[460px] flex-col border-l border-slate-200 bg-white shadow-2xl">
         <div className="flex h-16 items-center justify-between border-b border-slate-200 px-5">
-          <div className="min-w-0">
-            <h2 className="truncate text-base font-semibold text-slate-950">任务详情</h2>
-            <p className="mt-0.5 truncate text-xs text-slate-400">{task.task_id}</p>
-          </div>
+          <h2 className="text-base font-semibold text-slate-950">任务详情</h2>
           <button onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-50 hover:text-slate-700" aria-label="关闭">
             <X size={18} />
           </button>
@@ -538,11 +535,13 @@ function QueueDetailDrawer({
           <button
             onClick={() => onRetry(task)}
             disabled={task.status !== "ERROR"}
-            className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
+            <RefreshCw size={15} />
             重试
           </button>
-          <button onClick={() => onDelete(task)} className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50">
+          <button onClick={() => onDelete(task)} className="inline-flex items-center justify-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50">
+            <Trash2 size={15} />
             删除
           </button>
         </div>
@@ -570,11 +569,15 @@ function QueueDetailBody({
     { value: "resources", label: "资源" },
   ];
   const progress = progressByStatus(task);
+  const currentStage = displayQueueStage(task);
+  const currentStageIndex = queueStageSteps.findIndex((item) => item.key === currentStage);
+  const activeStepIndex = currentStageIndex >= 0 ? currentStageIndex : Math.max(0, Math.min(queueStageSteps.length - 1, Math.floor(progress / 20)));
+  const recentEvents = events.slice(-5);
 
   return (
     <>
-      <div className="flex gap-3">
-        <div className="h-20 w-28 shrink-0 overflow-hidden rounded-lg bg-slate-100">
+      <div className="flex gap-4">
+        <div className="relative h-24 w-36 shrink-0 overflow-hidden rounded-lg bg-slate-100">
           {task.thumbnail_url ? (
             <img src={task.thumbnail_url} alt="" className="h-full w-full object-cover" />
           ) : (
@@ -582,21 +585,24 @@ function QueueDetailBody({
               <Film size={24} />
             </div>
           )}
+          <span className="absolute bottom-2 right-2 rounded bg-slate-950/75 px-1.5 py-0.5 text-[11px] font-medium text-white">
+            {formatDuration(task.video_duration_s)}
+          </span>
         </div>
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-sm font-semibold text-slate-900">{displayTaskName(task)}</h3>
-          <p className="mt-1 truncate text-xs text-slate-400">{task.task_id}</p>
-          <div className="mt-2 flex flex-wrap gap-2">
+          <h3 className="truncate text-base font-semibold text-slate-900">{displayTaskName(task)}</h3>
+          <div className="mt-2 space-y-1 text-xs text-slate-500">
+            <div>任务 ID</div>
+            <div className="truncate font-medium text-slate-500">{task.task_id}</div>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
             <span className={cn("rounded-full px-2 py-1 text-xs font-medium ring-1", statusBadgeClass(task.status))}>
-              {stageLabels[task.status] || statusLabel(task.status)}
+              {statusLabel(task.status)}
             </span>
-            <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">{formatDuration(task.video_duration_s)}</span>
-            <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">{progress}%</span>
+            <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">{task.clip_count ?? 0} clips</span>
+            <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">{currentStage}</span>
           </div>
         </div>
-      </div>
-      <div className="mt-4 h-2 rounded-full bg-slate-100">
-        <div className={cn("h-2 rounded-full", task.status === "ERROR" ? "bg-red-500" : "bg-blue-500")} style={{ width: `${progress}%` }} />
       </div>
 
       <div className="mt-5 flex border-b border-slate-200">
@@ -616,22 +622,63 @@ function QueueDetailBody({
 
       {tab === "overview" && (
         <div className="mt-5 space-y-4">
-          <section className="rounded-lg border border-slate-200 p-4">
-            <h4 className="text-sm font-semibold text-slate-900">阶段进度</h4>
-            <div className="mt-4 grid grid-cols-3 gap-2 text-center text-[11px] text-slate-500">
-              {["上传", "抽帧", "转写", "融合", "导出", "完成"].map((label, index) => (
-                <div key={label} className="rounded-lg bg-slate-50 p-2">
-                  <div className={cn("mx-auto mb-1 h-2.5 w-2.5 rounded-full", progress >= (index + 1) * 16 ? "bg-emerald-500" : "bg-slate-200")} />
-                  {label}
-                </div>
-              ))}
+          <section>
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-medium text-slate-700">进度</span>
+              <span className="font-semibold text-slate-700">{progress}%</span>
+            </div>
+            <div className="mt-3 h-2 rounded-full bg-slate-100">
+              <div className={cn("h-2 rounded-full", task.status === "ERROR" ? "bg-red-500" : "bg-blue-600")} style={{ width: `${progress}%` }} />
             </div>
           </section>
-          <section className="rounded-lg border border-slate-200 p-4 text-sm">
-            <InfoRow label="创建时间" value={formatDate(task.created_at)} />
-            <InfoRow label="ASR Provider" value={task.asr_provider || "—"} />
-            <InfoRow label="导出片段" value={String(task.clip_count ?? 0)} />
-            <InfoRow label="当前消息" value={task.message || "—"} />
+
+          <section className="grid grid-cols-3 gap-3">
+            <QueueInfoCard label="开始时间" value={formatDate(task.created_at)} />
+            <QueueInfoCard label="视频时长" value={formatDuration(task.video_duration_s)} />
+            <QueueInfoCard label="导出片段" value={String(task.clip_count ?? 0)} />
+          </section>
+
+          <section className="rounded-lg border border-slate-200 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-xs font-medium text-slate-400">当前阶段</div>
+                <div className="mt-1 text-sm font-semibold text-slate-900">{currentStage}</div>
+                <p className="mt-1 line-clamp-2 text-xs text-slate-500">{task.message || "任务状态正常，等待下一步处理结果。"}</p>
+              </div>
+              <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">{Math.min(activeStepIndex + 1, queueStageSteps.length)} / {queueStageSteps.length}</span>
+            </div>
+            <div className="mt-4 space-y-3">
+              {queueStageSteps.map((step, index) => {
+                const done = progress >= 100 || index < activeStepIndex;
+                const active = index === activeStepIndex && progress < 100;
+                return (
+                  <div key={step.key} className="flex items-center gap-3 text-sm">
+                    {done ? (
+                      <CheckCircle2 size={16} className="text-emerald-500" />
+                    ) : active ? (
+                      <span className="flex h-4 w-4 items-center justify-center rounded-full bg-blue-600">
+                        <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                      </span>
+                    ) : (
+                      <Circle size={16} className="text-slate-300" />
+                    )}
+                    <span className={cn(done || active ? "text-slate-700" : "text-slate-400")}>{step.label}</span>
+                    <span className="ml-auto text-xs text-slate-400">{done ? "完成" : active ? "进行中" : "待开始"}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="rounded-lg border border-slate-200 p-4">
+            <h4 className="text-sm font-semibold text-slate-900">最近日志</h4>
+            <div className="mt-3 space-y-2 text-xs text-slate-600">
+              {recentEvents.length > 0 ? recentEvents.map((event) => (
+                <LogLine key={`${event.time}-${event.file}`} time={formatDate(event.time)} text={`${displayEventStage(event.stage)}：${event.message}`} />
+              )) : (
+                <p className="text-slate-400">暂无任务事件</p>
+              )}
+            </div>
           </section>
         </div>
       )}
@@ -641,7 +688,7 @@ function QueueDetailBody({
           <h4 className="text-sm font-semibold text-slate-900">最近日志</h4>
           <div className="mt-3 space-y-2 font-mono text-xs text-slate-500">
             {events.length > 0 ? events.slice(-8).map((event) => (
-              <LogLine key={`${event.time}-${event.file}`} time={formatDate(event.time)} text={`${event.stage}：${event.message}`} />
+              <LogLine key={`${event.time}-${event.file}`} time={formatDate(event.time)} text={`${displayEventStage(event.stage)}：${event.message}`} />
             )) : (
               <p className="text-slate-400">暂无任务事件</p>
             )}
@@ -664,6 +711,14 @@ function QueueDetailBody({
   );
 }
 
+const queueStageSteps = [
+  { key: "上传完成", label: "视频解码" },
+  { key: "场景切分", label: "场景切分" },
+  { key: "内容理解", label: "内容理解" },
+  { key: "片段筛选", label: "片段筛选" },
+  { key: "片段生成", label: "片段评分" },
+];
+
 function ResourceSummary({ label, value }: { label: string; value: string }) {
   return (
     <span className="rounded-full bg-slate-50 px-2.5 py-1 font-medium text-slate-600 ring-1 ring-slate-200">
@@ -672,11 +727,16 @@ function ResourceSummary({ label, value }: { label: string; value: string }) {
   );
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function QueueInfoCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid grid-cols-[90px_minmax(0,1fr)] gap-3 border-b border-slate-100 py-2 first:pt-0 last:border-b-0 last:pb-0">
-      <span className="text-xs text-slate-400">{label}</span>
-      <span className="break-all font-medium text-slate-800">{value}</span>
+    <div className="rounded-lg border border-slate-200 p-3">
+      <div className="text-xs text-slate-400">{label}</div>
+      <div className="mt-1 truncate text-sm font-semibold text-slate-900">{value}</div>
     </div>
   );
+}
+
+function displayEventStage(stage: string): string {
+  const normalized = stage.trim();
+  return stageLabels[normalized] || stageLabels[normalized.toUpperCase()] || normalized;
 }
