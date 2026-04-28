@@ -50,6 +50,39 @@ def _attach_transcript_text(
     return enriched_segments
 
 
+def _do_transcribe(
+    task_path: Path,
+    settings: Any,
+    video_path: Path,
+    *,
+    context: str,
+) -> list[dict[str, Any]]:
+    from app.tasks.pipeline import (
+        AuthError,
+        TranscriptionError,
+        _create_asr_client,
+        _need_asr,
+    )
+
+    if not _need_asr(settings):
+        logger.info("ASR skipped (subtitles off, LLM off, %s path)", context)
+        transcript: list[dict[str, Any]] = []
+    else:
+        asr_client = _create_asr_client(settings)
+        try:
+            transcript = asr_client.transcribe(str(video_path))
+        except AuthError as e:
+            logger.warning("ASR auth failed [%s]: %s, continuing without transcript", e.provider, e)
+            transcript = []
+        except TranscriptionError as e:
+            logger.error("ASR transcription failed [%s]: %s", e.provider, e)
+            raise
+
+    transcript_file = task_path / "transcript.json"
+    transcript_file.write_text(json.dumps(transcript, ensure_ascii=False, indent=2))
+    return transcript
+
+
 def run_enrich_segments(
     task_id: str,
     task_dir: str,
@@ -58,9 +91,6 @@ def run_enrich_segments(
         TaskStateMachine,
         PipelineErrorHandler,
         TempFileCleaner,
-        DashScopeASRClient,
-        TranscriptionError,
-        AuthError,
         ProductNameMatcher,
         SegmentValidator,
         TextSegmentAnalyzer,
@@ -71,13 +101,9 @@ def run_enrich_segments(
         _get_video_duration,
         _find_video,
         _need_asr,
-        _create_asr_client,
+        _read_json_file,
     )
     from app.tasks.stages.vlm_confirm import _build_export_segments_from_candidates
-    from app.tasks.stages.enrich_segments import (
-        _build_export_segments_from_scenes,
-        _attach_transcript_text,
-    )
 
     task_path = Path(task_dir)
     settings = _load_task_settings(task_path)
@@ -96,26 +122,15 @@ def run_enrich_segments(
             logger.error("No candidates found: %s", candidates_file)
             return {"segments_count": 0, "validated_count": 0}
 
-        candidates = json.loads(candidates_file.read_text())
+        candidates = _read_json_file(candidates_file, [])
+        if not isinstance(candidates, list):
+            candidates = []
         video_path = _find_video(task_path)
         if not video_path:
             logger.error("No video file found in %s", task_dir)
             return {"segments_count": len(candidates), "validated_count": 0}
 
-        asr_client = _create_asr_client(settings)
-        try:
-            transcript = asr_client.transcribe(str(video_path))
-        except AuthError as e:
-            logger.warning("ASR auth failed [%s]: %s, continuing without transcript", e.provider, e)
-            transcript = []
-        except TranscriptionError as e:
-            logger.error("ASR transcription failed [%s]: %s", e.provider, e)
-            raise
-
-        transcript_file = task_path / "transcript.json"
-        transcript_file.write_text(
-            json.dumps(transcript, ensure_ascii=False, indent=2)
-        )
+        transcript = _do_transcribe(task_path, settings, video_path, context="all_candidates")
 
         export_segments = _attach_transcript_text(
             _build_export_segments_from_candidates(candidates), transcript
@@ -136,30 +151,15 @@ def run_enrich_segments(
             logger.error("No scenes found: %s", scenes_file)
             return {"segments_count": 0, "validated_count": 0}
 
-        scenes = json.loads(scenes_file.read_text())
+        scenes = _read_json_file(scenes_file, [])
+        if not isinstance(scenes, list):
+            scenes = []
         video_path = _find_video(task_path)
         if not video_path:
             logger.error("No video file found in %s", task_dir)
             return {"segments_count": len(scenes), "validated_count": 0}
 
-        asr_client = _create_asr_client(settings)
-        if _need_asr(settings):
-            try:
-                transcript = asr_client.transcribe(str(video_path))
-            except AuthError as e:
-                logger.warning("ASR auth failed [%s]: %s, continuing without transcript", e.provider, e)
-                transcript = []
-            except TranscriptionError as e:
-                logger.error("ASR transcription failed [%s]: %s", e.provider, e)
-                raise
-        else:
-            logger.info("ASR skipped (subtitles off, LLM off, all_scenes path)")
-            transcript = []
-
-        transcript_file = task_path / "transcript.json"
-        transcript_file.write_text(
-            json.dumps(transcript, ensure_ascii=False, indent=2)
-        )
+        transcript = _do_transcribe(task_path, settings, video_path, context="all_scenes")
 
         export_segments = _attach_transcript_text(
             _build_export_segments_from_scenes(scenes), transcript
@@ -179,29 +179,16 @@ def run_enrich_segments(
         logger.error("No confirmed segments found: %s", confirmed_file)
         return {"segments_count": 0, "validated_count": 0}
 
-    segments = json.loads(confirmed_file.read_text())
+    segments = _read_json_file(confirmed_file, [])
+    if not isinstance(segments, list):
+        segments = []
 
     video_path = _find_video(task_path)
     if not video_path:
         logger.error("No video file found in %s", task_dir)
         return {"segments_count": len(segments), "validated_count": 0}
 
-    asr_client = _create_asr_client(settings)
-    if _need_asr(settings):
-        try:
-            transcript = asr_client.transcribe(str(video_path))
-        except AuthError as e:
-            logger.warning("ASR auth failed [%s]: %s, continuing without transcript", e.provider, e)
-            transcript = []
-        except TranscriptionError as e:
-            logger.error("ASR transcription failed [%s]: %s", e.provider, e)
-            raise
-    else:
-        logger.info("ASR skipped (subtitles off, LLM off)")
-        transcript = []
-
-    transcript_file = task_path / "transcript.json"
-    transcript_file.write_text(json.dumps(transcript, ensure_ascii=False, indent=2))
+    transcript = _do_transcribe(task_path, settings, video_path, context=export_mode)
     _log_elapsed("enrich_segments.transcribe", enrich_started_at)
 
     cleaner.cleanup_chunks(task_dir)
@@ -233,7 +220,9 @@ def run_enrich_segments(
                 )
 
                 candidates_file = task_path / "candidates.json"
-                visual_candidates = json.loads(candidates_file.read_text()) if candidates_file.exists() else []
+                visual_candidates = _read_json_file(candidates_file, []) if candidates_file.exists() else []
+                if not isinstance(visual_candidates, list):
+                    visual_candidates = []
                 video_duration = _get_video_duration(str(video_path))
 
                 fused = fuse_candidates(visual_candidates, text_boundaries, video_duration, segment_granularity=granularity)

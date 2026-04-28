@@ -14,6 +14,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -26,6 +27,9 @@ _segmenter_instance = None
 _face_detection_instance = None
 _coco_yolo_session = None
 _coco_yolo_available: bool | None = None
+_segmenter_lock = threading.Lock()
+_face_detection_lock = threading.Lock()
+_coco_yolo_lock = threading.Lock()
 
 # COCO 80-class IDs for objects that commonly occlude the presenter
 OCCLUDER_CLASS_IDS = {
@@ -43,20 +47,24 @@ COCO_YOLO_MODEL_PATH = "/app/assets/models/yolov8n.onnx"
 def _get_segmenter():
     global _segmenter_instance
     if _segmenter_instance is None:
-        ClothingSegmenter = importlib.import_module(
-            "app.services.clothing_segmenter"
-        ).ClothingSegmenter
-        _segmenter_instance = ClothingSegmenter()
+        with _segmenter_lock:
+            if _segmenter_instance is None:
+                ClothingSegmenter = importlib.import_module(
+                    "app.services.clothing_segmenter"
+                ).ClothingSegmenter
+                _segmenter_instance = ClothingSegmenter()
     return _segmenter_instance
 
 
 def _get_face_detection():
     global _face_detection_instance
     if _face_detection_instance is None:
-        mp = importlib.import_module("mediapipe")
-        _face_detection_instance = mp.solutions.face_detection.FaceDetection(
-            model_selection=1,
-        )
+        with _face_detection_lock:
+            if _face_detection_instance is None:
+                mp = importlib.import_module("mediapipe")
+                _face_detection_instance = mp.solutions.face_detection.FaceDetection(
+                    model_selection=1,
+                )
     return _face_detection_instance
 
 
@@ -76,23 +84,27 @@ def _get_coco_yolo():
     if _coco_yolo_available is not None:
         return _coco_yolo_session if _coco_yolo_available else None
 
-    model_path = Path(COCO_YOLO_MODEL_PATH)
-    if not model_path.exists():
-        logger.debug("COCO YOLO model not found at %s, skipping occlusion detection", COCO_YOLO_MODEL_PATH)
-        _coco_yolo_available = False
-        return None
+    with _coco_yolo_lock:
+        if _coco_yolo_available is not None:
+            return _coco_yolo_session if _coco_yolo_available else None
 
-    try:
-        import onnxruntime as ort
-        _coco_yolo_session = ort.InferenceSession(
-            str(model_path),
-            providers=["CPUExecutionProvider"],
-        )
-        _coco_yolo_available = True
-        logger.info("COCO YOLOv8n occlusion model loaded from %s", COCO_YOLO_MODEL_PATH)
-    except Exception as exc:
-        logger.warning("COCO YOLO ONNX session failed to load: %s", exc)
-        _coco_yolo_available = False
+        model_path = Path(COCO_YOLO_MODEL_PATH)
+        if not model_path.exists():
+            logger.debug("COCO YOLO model not found at %s, skipping occlusion detection", COCO_YOLO_MODEL_PATH)
+            _coco_yolo_available = False
+            return None
+
+        try:
+            import onnxruntime as ort
+            _coco_yolo_session = ort.InferenceSession(
+                str(model_path),
+                providers=["CPUExecutionProvider"],
+            )
+            _coco_yolo_available = True
+            logger.info("COCO YOLOv8n occlusion model loaded from %s", COCO_YOLO_MODEL_PATH)
+        except Exception as exc:
+            logger.warning("COCO YOLO ONNX session failed to load: %s", exc)
+            _coco_yolo_available = False
     return _coco_yolo_session if _coco_yolo_available else None
 
 

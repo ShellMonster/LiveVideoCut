@@ -165,7 +165,6 @@ def test_start_pipeline_threads_review_mode_from_settings_snapshot(
         (
             task_id,
             str(task_dir_path),
-            "snapshot-key",
             "qwen",
             "https://dashscope.aliyuncs.com/compatible-mode/v1",
             "qwen-vl-plus",

@@ -44,6 +44,7 @@ from app.tasks.shared import (
     _load_task_settings,
     _find_video,
     _get_video_duration,
+    _read_json_file,
 )
 
 # Stage implementations
@@ -90,7 +91,6 @@ def start_pipeline(self, task_id: str, file_path: str) -> str:
         vlm_confirm_task.si(
             task_id,
             task_dir,
-            settings.api_key,
             settings.vlm_provider.value,
             settings.api_base,
             settings.model,
@@ -121,7 +121,8 @@ def visual_prescreen(
     try:
         return run_visual_prescreen(task_id, video_path, task_dir)
     except Exception as exc:
-        PipelineErrorHandler(task_dir=Path(task_dir)).handle_error("VISUAL_FAILED", str(exc), current_state="UPLOADED")
+        if self.request.retries >= self.max_retries:
+            PipelineErrorHandler(task_dir=Path(task_dir)).handle_error("VISUAL_FAILED", str(exc), current_state="UPLOADED")
         raise self.retry(exc=exc, countdown=2**self.request.retries)
 
 
@@ -137,22 +138,64 @@ def vlm_confirm(
     self,
     task_id: str,
     task_dir: str,
-    api_key: str,
-    provider: str = "qwen",
-    base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    model: str = "qwen-vl-plus",
-    review_mode: str = "segment_multiframe",
-    enable_vlm: bool = True,
-    export_mode: str = "smart",
-    review_strictness: str = "standard",
+    *args: Any,
+    **kwargs: Any,
 ) -> dict[str, Any]:
+    legacy_api_key = ""
+    provider = str(kwargs.pop("provider", "qwen"))
+    base_url = str(kwargs.pop("base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1"))
+    model = str(kwargs.pop("model", "qwen-vl-plus"))
+    review_mode = str(kwargs.pop("review_mode", "segment_multiframe"))
+    enable_vlm = bool(kwargs.pop("enable_vlm", True))
+    export_mode = str(kwargs.pop("export_mode", "smart"))
+    review_strictness = str(kwargs.pop("review_strictness", "standard"))
+    if kwargs:
+        raise TypeError(f"Unexpected vlm_confirm keyword arguments: {', '.join(kwargs)}")
+    if len(args) == 8:
+        # Backward-compatible local/test invocation shape:
+        # api_key, provider, base_url, model, review_mode, enable_vlm, export_mode, review_strictness.
+        # The API key value is intentionally ignored so secrets are read from task files.
+        (
+            legacy_api_key,
+            provider,
+            base_url,
+            model,
+            review_mode,
+            enable_vlm,
+            export_mode,
+            review_strictness,
+        ) = args
+    elif len(args) == 1:
+        legacy_api_key = str(args[0] or "")
+    elif len(args) == 7:
+        (
+            provider,
+            base_url,
+            model,
+            review_mode,
+            enable_vlm,
+            export_mode,
+            review_strictness,
+        ) = args
+    elif args:
+        raise TypeError(f"Unexpected vlm_confirm argument count: {len(args)}")
+
     try:
+        api_key = legacy_api_key
+        if enable_vlm and export_mode == "smart":
+            try:
+                settings = _load_task_settings(task_dir)
+                api_key = settings.api_key
+            except Exception:
+                if not api_key:
+                    raise
         return run_vlm_confirm(
             task_id, task_dir, api_key, provider, base_url, model,
             review_mode, enable_vlm, export_mode, review_strictness,
         )
     except Exception as exc:
-        PipelineErrorHandler(task_dir=Path(task_dir)).handle_error("VLM_FAILED", str(exc), current_state="VISUAL_SCREENING")
+        if self.request.retries >= self.max_retries:
+            PipelineErrorHandler(task_dir=Path(task_dir)).handle_error("VLM_FAILED", str(exc), current_state="VISUAL_SCREENING")
         raise self.retry(exc=exc, countdown=2**self.request.retries)
 
 
@@ -172,7 +215,8 @@ def enrich_segments(
     try:
         return run_enrich_segments(task_id, task_dir)
     except Exception as exc:
-        PipelineErrorHandler(task_dir=Path(task_dir)).handle_error("ASR_FAILED", str(exc), current_state="VLM_CONFIRMING")
+        if self.request.retries >= self.max_retries:
+            PipelineErrorHandler(task_dir=Path(task_dir)).handle_error("ASR_FAILED", str(exc), current_state="VLM_CONFIRMING")
         raise self.retry(exc=exc, countdown=2**self.request.retries)
 
 
@@ -188,17 +232,9 @@ def process_clips(self, task_id: str, task_dir: str) -> dict[str, Any]:
     try:
         return run_process_clips(task_id, task_dir)
     except Exception as exc:
-        PipelineErrorHandler(task_dir=Path(task_dir)).handle_error("EXPORT_FAILED", str(exc), current_state="PROCESSING")
+        if self.request.retries >= self.max_retries:
+            PipelineErrorHandler(task_dir=Path(task_dir)).handle_error("EXPORT_FAILED", str(exc), current_state="PROCESSING")
         raise self.retry(exc=exc, countdown=2**self.request.retries)
-
-
-def _read_json_file(path: Path, fallback: Any) -> Any:
-    if not path.exists():
-        return fallback
-    try:
-        return json.loads(path.read_text())
-    except (json.JSONDecodeError, OSError):
-        return fallback
 
 
 def _write_clip_job(task_path: Path, segment_id: str, payload: dict[str, Any]) -> None:

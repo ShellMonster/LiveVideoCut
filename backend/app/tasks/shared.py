@@ -17,6 +17,16 @@ def _log_elapsed(label: str, started_at: float) -> None:
     logger.info("%s finished in %.2fs", label, time.perf_counter() - started_at)
 
 
+def _read_json_file(path: Path, fallback):
+    if not path.exists():
+        return fallback
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        logger.warning("Failed to read JSON file %s, using fallback", path, exc_info=True)
+        return fallback
+
+
 def _need_asr(settings: SettingsRequest) -> bool:
     """ASR is needed when subtitle burning is on OR LLM text analysis is enabled."""
     subtitle_on = settings.subtitle_mode.value != "off"
@@ -128,5 +138,10 @@ def _get_video_duration(video_path: str) -> float:
             timeout=30,
         )
         return float(result.stdout.strip())
-    except (subprocess.TimeoutExpired, ValueError, FileNotFoundError):
+    except (subprocess.TimeoutExpired, ValueError, FileNotFoundError) as exc:
+        logger.warning(
+            "Failed to detect video duration for %s, falling back to 3600s: %s",
+            video_path,
+            exc,
+        )
         return 3600.0

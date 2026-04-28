@@ -3,7 +3,7 @@
 import json
 import os
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Form, HTTPException, UploadFile
@@ -116,7 +116,7 @@ async def upload_file(file: UploadFile, settings_json: str | None = Form(None)):
 
     # 6. Get metadata and save
     metadata = validator.get_metadata(file_path)
-    metadata["created_at"] = datetime.now().isoformat()
+    metadata["created_at"] = datetime.now(UTC).isoformat()
     metadata["original_filename"] = file.filename or "unknown.mp4"
     meta_path = task_dir / "meta.json"
     meta_path.write_text(json.dumps(metadata, indent=2))

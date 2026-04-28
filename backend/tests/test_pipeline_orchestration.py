@@ -77,7 +77,6 @@ def test_start_pipeline_dispatches_full_task_chain(monkeypatch):
             (
                 task_id,
                 task_dir,
-                "snapshot-key",
                 "glm",
                 "https://open.bigmodel.cn/api/paas/v4",
                 "glm-5v-turbo",
@@ -149,7 +148,6 @@ def test_start_pipeline_falls_back_to_environment_without_settings_snapshot(
         (
             task_id,
             task_dir,
-            "env-key",
             "qwen",
             "https://dashscope.aliyuncs.com/compatible-mode/v1",
             "qwen-vl-plus",

@@ -295,6 +295,7 @@ def run_process_clips(task_id: str, task_dir: str) -> dict[str, Any]:
         FFmpegBuilder,
         calculate_parallelism,
         _load_task_settings,
+        _read_json_file,
         _log_elapsed,
         _find_video,
     )
@@ -312,7 +313,11 @@ def run_process_clips(task_id: str, task_dir: str) -> dict[str, Any]:
         sm.transition("PROCESSING", "ERROR", message="No enriched segments found")
         return {"clips_count": 0, "output_dir": str(task_path / "clips")}
 
-    segments = json.loads(enriched_file.read_text())
+    segments = _read_json_file(enriched_file, [])
+    if not isinstance(segments, list):
+        logger.error("Invalid enriched_segments.json format: %s", enriched_file)
+        sm.transition("PROCESSING", "ERROR", message="Invalid enriched_segments.json format")
+        return {"clips_count": 0, "output_dir": str(task_path / "clips")}
     if not segments:
         logger.warning("Empty segments for task %s", task_id)
         sm.transition("PROCESSING", "COMPLETED", step="completed")
@@ -327,7 +332,9 @@ def run_process_clips(task_id: str, task_dir: str) -> dict[str, Any]:
     # person_presence.json is written to scenes/ subdir by ClothingChangeDetector
     person_presence_file = task_path / "scenes" / "person_presence.json"
     if person_presence_file.exists():
-        person_presence = json.loads(person_presence_file.read_text())
+        person_presence = _read_json_file(person_presence_file, [])
+        if not isinstance(person_presence, list):
+            person_presence = []
         if person_presence:
             filtered_segments = []
             for seg in segments:
@@ -406,12 +413,16 @@ def run_process_clips(task_id: str, task_dir: str) -> dict[str, Any]:
     transcript_file = task_path / "transcript.json"
     transcript = []
     if transcript_file.exists():
-        transcript = json.loads(transcript_file.read_text())
+        transcript = _read_json_file(transcript_file, [])
+        if not isinstance(transcript, list):
+            transcript = []
 
     pre_sampled_frames: list[dict[str, Any]] = []
     frames_index = task_path / "frames" / "frames.json"
     if frames_index.exists():
-        pre_sampled_frames = json.loads(frames_index.read_text())
+        pre_sampled_frames = _read_json_file(frames_index, [])
+        if not isinstance(pre_sampled_frames, list):
+            pre_sampled_frames = []
         logger.info("Loaded %d pre-sampled frames for cover selection", len(pre_sampled_frames))
 
     parallelism = calculate_parallelism()

@@ -127,6 +127,7 @@ graph TD
 - **字幕烧录** -- 支持四种模式：off / basic / styled / karaoke（逐字高亮+弹跳动画），支持自定义位置
 - **导出模式** -- smart / no_vlm / all_candidates / all_scenes
 - **实时进度** -- WebSocket 推送处理进度，前端实时展示
+- **任务健壮性** -- Celery 重试中不提前把任务标记为失败，最终失败才写 `ERROR`；VLM API Key 只从任务 `secrets.json`/环境变量读取，不通过 Celery 消息传递
 - **历史记录** -- 分页列表查看所有历史任务，支持服务端搜索、状态筛选、右侧项目详情抽屉、项目切换、删除
 - **任务队列** -- 队列流式任务列表 + 可关闭右侧任务详情抽屉 / 窄屏任务卡片；抽屉按设计图展示任务摘要、进度信息卡、阶段 checklist、最近日志、Worker 资源、重试和删除；当前阶段统一中文展示，操作列使用固定图标按钮避免挤压
 - **剪辑复核** -- 卡片式片段队列 + 右侧复核抽屉，支持状态筛选、片段预览、字幕草稿文本/起止秒编辑、AI 建议和单片段重导出
@@ -141,7 +142,7 @@ graph TD
 - **进程内读缓存** -- 不引入 Redis 缓存；`/api/system/resources` 使用 3 秒 TTL，任务 summary/diagnostics/events/review、`/api/tasks/{id}/clips` 和 `/api/music/library` 使用 mtime 指纹内存缓存，文件变化后自动失效
 - **前端性能** -- 项目总览、任务队列、片段资产和音乐库搜索输入使用 300ms debounce；任务列表轮询会根据是否存在处理中/等待中任务在 5s 与 30s 间切换；复核、音乐库、片段资产、诊断页的大列表派生数据使用 memo 化减少重复计算
 - **语气词过滤** -- 三级词表（38词），支持仅过滤字幕或同时裁剪视频片段，默认关闭
-- **智能封面** -- content_first（商品优先）/ person_first（主播优先），最多 30 帧评分选最佳；优先复用 visual_prescreen 已抽帧，不足时再用 FFmpeg 补足候选，COCO YOLO 遮挡检测自动排除手机等遮挡帧
+- **智能封面** -- content_first（商品优先）/ person_first（主播优先），最多 30 帧评分选最佳；优先复用 visual_prescreen 已抽帧，不足时再用 FFmpeg 补足候选，COCO YOLO 遮挡检测自动排除手机等遮挡帧；封面检测模型单例使用线程锁保护并发初始化
 - **视频变速** -- 0.5x~3x 倍速，先烧字幕再变速，默认 1.25x
 - **并发处理** -- cgroup-aware 资源检测，ThreadPoolExecutor 并行处理多 clip，4GB 容器通常约 3 workers（由 CPU/内存实时计算）
 - **BGM 自动选曲** -- 双库架构（内置曲库+用户上传），按商品类型自动匹配背景音乐，用户曲目优先，跨 clip 去重，前端支持拖拽上传/编辑标签/删除
