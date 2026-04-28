@@ -1,5 +1,23 @@
 import { useRef, useState } from "react";
-import { Pause, Play, RefreshCw, SlidersHorizontal, Trash2, Upload, X } from "lucide-react";
+import {
+  Folder,
+  ListMusic,
+  MoreVertical,
+  Music,
+  Pause,
+  Play,
+  RefreshCw,
+  Repeat,
+  Search,
+  Shuffle,
+  SkipBack,
+  SkipForward,
+  SlidersHorizontal,
+  Tag,
+  Upload,
+  Volume2,
+  X,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { useConfirmStore } from "@/stores/confirmStore";
@@ -11,10 +29,8 @@ import {
   Field,
   Header,
   InputField,
-  MetricCard,
   MultiSelectField,
   Pagination,
-  SelectField,
   TagGroup,
 } from "../shared";
 import type { MusicTrack } from "../types";
@@ -177,24 +193,44 @@ export function AdminMusicPage() {
           }}
         />
 
-        <section className="grid gap-4 lg:grid-cols-4">
-          <MetricCard label="我的音乐" value={String(userCount)} hint="用户上传曲目" />
-          <MetricCard label="内置曲目" value={String(builtInCount)} hint="系统预置 BGM" />
-          <MetricCard label="已匹配分类" value={String(categoryCount)} hint="商品类型标签" />
-          <MetricCard label="默认音量" value={`${Math.round(bgmVolume * 100)}%`} hint="导出混音配置" />
+        <section className="grid gap-4 xl:grid-cols-4">
+          <MusicMetricCard icon={Music} tone="emerald" label="我的音乐" value={String(userCount)} suffix="首" />
+          <MusicMetricCard icon={Folder} tone="slate" label="内置曲目" value={String(builtInCount)} suffix="首" />
+          <MusicMetricCard icon={Tag} tone="blue" label="已匹配分类" value={`${categoryCount}`} suffix="类" />
+          <MusicMetricCard icon={Volume2} tone="violet" label="默认音量" value={bgmVolume.toFixed(2)} />
         </section>
 
-        <section className="rounded-lg border border-slate-200 bg-white p-4">
-          <div className="flex flex-wrap gap-3">
-            <input
-              value={query}
-              onChange={(event) => {
-                setQuery(event.target.value);
+        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white xl:mr-[360px]">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">曲目列表</h2>
+              <p className="mt-0.5 text-xs text-slate-400">播放曲目，按来源、Mood 和商品分类筛选后编辑标签。</p>
+            </div>
+            <button
+              onClick={() => {
+                setQuery("");
+                setSourceFilter("all");
                 setPage(1);
               }}
-              placeholder="搜索曲目 / mood / 商品分类"
-              className="min-w-72 flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none placeholder:text-slate-400"
-            />
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+            >
+              <SlidersHorizontal size={15} />
+              重置筛选
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-3 border-b border-slate-100 px-4 py-3">
+            <label className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500 sm:min-w-72">
+              <Search size={16} />
+              <input
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setPage(1);
+                }}
+                placeholder="搜索标题 / 艺术家 / 编号"
+                className="min-w-0 flex-1 bg-transparent text-slate-700 outline-none placeholder:text-slate-400"
+              />
+            </label>
             <select
               value={sourceFilter}
               onChange={(event) => {
@@ -203,34 +239,33 @@ export function AdminMusicPage() {
               }}
               className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600"
             >
-              <option value="all">全部来源</option>
+              <option value="all">来源 全部</option>
               <option value="user">我的音乐</option>
               <option value="built-in">内置曲目</option>
             </select>
-          </div>
-        </section>
-
-        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
-            <div>
-              <h2 className="text-sm font-semibold text-slate-900">曲目列表</h2>
-              <p className="mt-0.5 text-xs text-slate-400">播放曲目或打开标签编辑抽屉。</p>
-            </div>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              上传 MP3
-            </button>
+            <select className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+              <option>商品分类 全部</option>
+              {editableCategoryOptions.map((item) => (
+                <option key={item}>{item}</option>
+              ))}
+            </select>
+            <select className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+              <option>Mood 全部</option>
+              {editableMoodOptions.map((item) => (
+                <option key={item}>{item}</option>
+              ))}
+            </select>
           </div>
 
           <div className="overflow-x-auto">
-            <div className="grid min-w-[1080px] grid-cols-[minmax(220px,1fr)_220px_110px_90px_minmax(260px,1.2fr)_120px] gap-4 border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-medium text-slate-500">
+            <div className="grid min-w-[1120px] grid-cols-[32px_minmax(220px,1fr)_210px_110px_80px_150px_minmax(190px,1fr)_56px] gap-4 border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-medium text-slate-500">
+              <div />
               <div>曲目</div>
               <div>波形</div>
               <div>来源</div>
               <div>时长</div>
-              <div>Mood / 商品分类</div>
+              <div>Mood</div>
+              <div>商品分类</div>
               <div className="text-right">操作</div>
             </div>
             {loading ? (
@@ -246,7 +281,6 @@ export function AdminMusicPage() {
                   playing={playingId === track.id}
                   onSelect={() => selectTrack(track, true)}
                   onPlay={() => togglePlay(track)}
-                  onDelete={() => void handleDelete(track.id)}
                 />
               ))
             )}
@@ -276,21 +310,22 @@ function TrackRow({
   playing,
   onSelect,
   onPlay,
-  onDelete,
 }: {
   track: MusicTrack;
   selected: boolean;
   playing: boolean;
   onSelect: () => void;
   onPlay: () => void;
-  onDelete: () => void;
 }) {
   return (
-    <article className={cn("grid min-w-[1080px] grid-cols-[minmax(220px,1fr)_220px_110px_90px_minmax(260px,1.2fr)_120px] gap-4 border-b border-slate-100 px-4 py-3 last:border-b-0 hover:bg-slate-50 items-center", selected && "bg-blue-50/40")}>
+    <article className={cn("grid min-w-[1120px] grid-cols-[32px_minmax(220px,1fr)_210px_110px_80px_150px_minmax(190px,1fr)_56px] items-center gap-4 border-b border-slate-100 px-4 py-3 last:border-b-0 hover:bg-slate-50", selected && "bg-blue-50/40")}>
+      <label className="flex h-5 w-5 items-center justify-center">
+        <input type="checkbox" checked={selected} onChange={onSelect} className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+      </label>
       <div className="flex min-w-0 items-center gap-3">
         <button
           onClick={onPlay}
-          className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-full", playing ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-700")}
+          className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-full border", playing ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 bg-white text-slate-600 hover:bg-blue-50 hover:text-blue-700")}
           aria-label={playing ? "暂停" : "播放"}
         >
           {playing ? <Pause size={15} /> : <Play size={15} />}
@@ -303,30 +338,23 @@ function TrackRow({
       <Waveform active={playing} seed={track.id} />
       <div>
         <span className={cn("rounded-full px-2 py-1 text-xs font-medium", track.source === "user" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600")}>
-          {track.source === "user" ? "我的" : "内置"}
+          {track.source === "user" ? "我的音乐" : "内置曲目"}
         </span>
       </div>
       <div className="text-xs text-slate-500">{formatDuration(track.duration_s)}</div>
       <div className="flex min-w-0 flex-wrap gap-1.5">
         {(track.mood.length ? track.mood.slice(0, 3) : ["—"]).map((item) => (
-          <span key={item} className="rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">{item}</span>
-        ))}
-        {(track.categories.length ? track.categories.slice(0, 2) : ["default"]).map((item) => (
-          <span key={item} className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">{item}</span>
+          <span key={item} className="rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">{item}</span>
         ))}
       </div>
-      <div className="grid grid-cols-2 gap-2">
-        <button onClick={onSelect} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50">
-          <SlidersHorizontal size={14} />
-          编辑
-        </button>
-        <button
-          onClick={onDelete}
-          disabled={track.source !== "user"}
-          className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-red-100 px-2 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white"
-        >
-          <Trash2 size={14} />
-          删除
+      <div className="flex min-w-0 flex-wrap gap-1.5">
+        {(track.categories.length ? track.categories.slice(0, 2) : ["default"]).map((item) => (
+          <span key={item} className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">{item}</span>
+        ))}
+      </div>
+      <div className="flex justify-end">
+        <button onClick={onSelect} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50 hover:text-slate-800" aria-label="编辑标签">
+          <MoreVertical size={16} />
         </button>
       </div>
     </article>
@@ -337,13 +365,13 @@ function Waveform({ active, seed }: { active: boolean; seed: string }) {
   const base = seed.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
   return (
     <div className="flex h-8 items-center gap-0.5">
-      {Array.from({ length: 34 }).map((_, index) => {
+      {Array.from({ length: 38 }).map((_, index) => {
         const height = 18 + ((base + index * 13) % 18);
         return (
           <span
             key={index}
             className={cn("w-0.5 rounded-full", active ? "bg-blue-500" : "bg-slate-300")}
-            style={{ height: `${height}px`, opacity: active || index % 3 !== 0 ? 1 : 0.55 }}
+            style={{ height: `${height}px`, opacity: active || index % 3 !== 0 ? 1 : 0.45 }}
           />
         );
       })}
@@ -377,16 +405,14 @@ function TrackEditorDrawer({
       <button className="absolute inset-0 bg-slate-950/20" onClick={onClose} aria-label="关闭标签编辑" />
       <aside className="absolute right-0 top-0 flex h-full w-full max-w-[460px] flex-col border-l border-slate-200 bg-white shadow-2xl">
         <div className="flex h-16 items-center justify-between border-b border-slate-200 px-5">
-          <div className="min-w-0">
-            <h2 className="truncate text-base font-semibold text-slate-950">标签编辑</h2>
-            <p className="mt-0.5 truncate text-xs text-slate-400">{track.title}</p>
-          </div>
+          <h2 className="text-base font-semibold text-slate-950">标签编辑</h2>
           <button onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-50 hover:text-slate-700" aria-label="关闭">
             <X size={18} />
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-5">
+          <p className="mb-5 text-sm text-slate-500">选择曲目后编辑标签</p>
           {track.source !== "user" ? (
             <div className="space-y-4">
               <Field label="标题" value={track.title} />
@@ -399,9 +425,37 @@ function TrackEditorDrawer({
               <InputField label="标题" value={draft.title} onChange={(title) => onDraftChange({ ...draft, title })} />
               <MultiSelectField label="Mood" options={editableMoodOptions} values={draft.mood} onChange={(mood) => onDraftChange({ ...draft, mood })} />
               <MultiSelectField label="商品分类" options={editableCategoryOptions} values={draft.categories} onChange={(categories) => onDraftChange({ ...draft, categories })} />
-              <div className="grid grid-cols-2 gap-3">
-                <SelectField label="节奏" value={draft.tempo} onChange={(tempo) => onDraftChange({ ...draft, tempo })} options={["slow", "medium", "fast"]} />
-                <SelectField label="能量" value={draft.energy} onChange={(energy) => onDraftChange({ ...draft, energy })} options={["low", "medium", "high"]} />
+              <div>
+                <div className="mb-2 text-xs font-medium text-slate-500">节奏</div>
+                <div className="grid grid-cols-4 gap-2">
+                  {["slow", "medium", "fast", "very_fast"].map((tempo) => (
+                    <button
+                      key={tempo}
+                      onClick={() => onDraftChange({ ...draft, tempo })}
+                      className={cn(
+                        "rounded-lg border px-3 py-2 text-sm font-medium",
+                        draft.tempo === tempo ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-200 text-slate-600 hover:bg-slate-50",
+                      )}
+                    >
+                      {tempoLabel(tempo)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="mb-2 flex items-center justify-between text-xs font-medium text-slate-500">
+                  <span>能量</span>
+                  <span className="rounded-md bg-slate-50 px-2 py-1 text-slate-600 ring-1 ring-slate-200">{energyLabel(draft.energy)}</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={2}
+                  step={1}
+                  value={energyIndex(draft.energy)}
+                  onChange={(event) => onDraftChange({ ...draft, energy: ["low", "medium", "high"][Number(event.target.value)] })}
+                  className="w-full accent-blue-600"
+                />
               </div>
               <InputField label="风格" value={draft.genre} onChange={(genre) => onDraftChange({ ...draft, genre })} />
             </div>
@@ -445,19 +499,105 @@ function MusicPlayerBar({
   if (!track) return null;
 
   return (
-    <div className="fixed inset-x-0 bottom-4 z-30 px-4">
-      <div className="mx-auto flex max-w-4xl flex-col gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-2xl sm:flex-row sm:items-center">
-        <button onClick={() => onPlay(track)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
-          {playing ? <Pause size={16} /> : <Play size={16} />}
-        </button>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold text-slate-900">{track.title}</div>
-          <div className="mt-2 h-1.5 rounded-full bg-slate-100">
-            <div className="h-1.5 rounded-full bg-blue-500" style={{ width: `${playing ? progress : 0}%` }} />
+    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white px-4 py-3 shadow-2xl lg:left-64">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:gap-6">
+        <div className="flex min-w-0 items-center gap-3 xl:w-80">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-slate-200 text-slate-500">
+            <Music size={22} />
+          </div>
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold text-slate-900">{track.title}</div>
+            <div className="mt-1 flex items-center gap-2">
+              <span className="truncate text-xs text-slate-500">{track.genre || "未设置风格"}</span>
+              <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", track.source === "user" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600")}>
+                {track.source === "user" ? "我的音乐" : "内置曲目"}
+              </span>
+            </div>
           </div>
         </div>
-        <span className="shrink-0 text-xs text-slate-400">音量 {Math.round(volume * 100)}%</span>
+        <div className="flex flex-1 items-center gap-4">
+          <button className="hidden text-slate-500 hover:text-slate-800 sm:inline-flex" aria-label="随机播放"><Shuffle size={18} /></button>
+          <button className="hidden text-slate-500 hover:text-slate-800 sm:inline-flex" aria-label="上一首"><SkipBack size={18} /></button>
+          <button onClick={() => onPlay(track)} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg shadow-blue-200">
+            {playing ? <Pause size={18} /> : <Play size={18} />}
+          </button>
+          <button className="hidden text-slate-500 hover:text-slate-800 sm:inline-flex" aria-label="下一首"><SkipForward size={18} /></button>
+          <button className="hidden text-slate-500 hover:text-slate-800 sm:inline-flex" aria-label="循环播放"><Repeat size={18} /></button>
+          <span className="w-20 shrink-0 text-right text-xs text-slate-500">{playing ? `${Math.round(progress)}%` : "0%"}</span>
+          <div className="h-1.5 flex-1 rounded-full bg-slate-100">
+            <div className="h-1.5 rounded-full bg-blue-500" style={{ width: `${playing ? progress : 0}%` }} />
+          </div>
+          <div className="hidden items-center gap-3 text-slate-500 md:flex">
+            <Volume2 size={18} />
+            <div className="h-1.5 w-28 rounded-full bg-slate-100">
+              <div className="h-1.5 rounded-full bg-blue-500" style={{ width: `${Math.min(100, volume * 100)}%` }} />
+            </div>
+            <span className="w-10 text-xs text-slate-500">{volume.toFixed(2)}</span>
+          </div>
+          <ListMusic className="hidden text-slate-500 xl:block" size={20} />
+        </div>
       </div>
     </div>
   );
+}
+
+function MusicMetricCard({
+  icon: Icon,
+  label,
+  value,
+  suffix,
+  tone,
+}: {
+  icon: typeof Music;
+  label: string;
+  value: string;
+  suffix?: string;
+  tone: "emerald" | "slate" | "blue" | "violet";
+}) {
+  const toneClass = {
+    emerald: "bg-emerald-50 text-emerald-600",
+    slate: "bg-slate-100 text-slate-600",
+    blue: "bg-blue-50 text-blue-600",
+    violet: "bg-violet-50 text-violet-600",
+  }[tone];
+
+  return (
+    <div className="flex items-center gap-4 rounded-lg border border-slate-200 bg-white p-5">
+      <div className={cn("flex h-14 w-14 items-center justify-center rounded-full", toneClass)}>
+        <Icon size={24} />
+      </div>
+      <div>
+        <div className="text-sm font-medium text-slate-500">{label}</div>
+        <div className="mt-1 flex items-baseline gap-1">
+          <span className="text-2xl font-semibold text-slate-950">{value}</span>
+          {suffix && <span className="text-sm text-slate-500">{suffix}</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function tempoLabel(tempo: string): string {
+  const labels: Record<string, string> = {
+    slow: "慢",
+    medium: "中",
+    fast: "快",
+    very_fast: "极快",
+  };
+  return labels[tempo] ?? tempo;
+}
+
+function energyIndex(energy: string): number {
+  if (energy === "low") return 0;
+  if (energy === "high") return 2;
+  return 1;
+}
+
+function energyLabel(energy: string): string {
+  const labels: Record<string, string> = {
+    low: "0.30",
+    medium: "0.60",
+    high: "0.90",
+  };
+  return labels[energy] ?? "0.60";
 }
