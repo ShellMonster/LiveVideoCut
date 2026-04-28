@@ -47,6 +47,7 @@ export function ReviewPage() {
     currentClip?.end_time ?? 0,
   );
   const isCurrentReprocessing = currentJob?.status === "queued" || currentJob?.status === "running";
+  const isMutating = patchMutation.isPending || reprocessMutation.isPending;
   const approvedClipIds = clips
     .filter((_clip, index) => reviewData?.segments[index]?.review_status === "approved")
     .map((clip) => clip.clip_id);
@@ -55,7 +56,7 @@ export function ReviewPage() {
       if (!currentSegment) return true;
       return line.end_time >= currentSegment.start_time && line.start_time <= currentSegment.end_time;
     })
-    .slice(0, 6) ?? [];
+    .slice(0, 10) ?? [];
 
   const handlePatch = (segmentId: string, patch: Partial<ReviewSegment>) => {
     patchMutation.mutate({ segmentId, patch: patch as Record<string, unknown> });
@@ -73,14 +74,18 @@ export function ReviewPage() {
         action={
           <>
             <span className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
-              操作实时生效
+              {isMutating ? "操作提交中" : "操作实时生效"}
             </span>
             <button
               onClick={() => {
                 if (approvedClipIds.length === 0) return;
                 window.open(`${API_BASE}/api/clips/batch?ids=${approvedClipIds.join(",")}`, "_blank");
               }}
-              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              disabled={approvedClipIds.length === 0}
+              className={cn(
+                "inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700",
+                approvedClipIds.length === 0 && "cursor-not-allowed opacity-50 hover:bg-blue-600",
+              )}
             >
               <Download size={16} />
               下载通过片段
@@ -99,7 +104,11 @@ export function ReviewPage() {
                 value={selectedTask?.task_id || ""}
                 onChange={(event) => {
                   const next = tasks.find((task) => task.task_id === event.target.value);
-                  if (next) setSelectedTask(next);
+                  if (next) {
+                    setSelectedTask(next);
+                    setSelectedIndex(0);
+                    setPreviewClip(null);
+                  }
                 }}
               >
                 <option value="">选择项目</option>
@@ -147,7 +156,6 @@ export function ReviewPage() {
                     key={clip.clip_id}
                     onClick={() => {
                       setSelectedIndex(index);
-                      setPreviewClip(clip);
                     }}
                     className={cn(
                       "overflow-hidden rounded-lg border bg-white text-left hover:border-blue-200 hover:shadow-sm",
@@ -201,33 +209,53 @@ export function ReviewPage() {
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     onClick={() => handlePatch(currentSegment.segment_id, { review_status: "approved" })}
-                    className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+                    disabled={patchMutation.isPending}
+                    className={cn(
+                      "rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700",
+                      patchMutation.isPending && "cursor-not-allowed opacity-60 hover:bg-emerald-600",
+                    )}
                   >
                     通过
                   </button>
                   <button
                     onClick={() => handlePatch(currentSegment.segment_id, { review_status: "skipped" })}
-                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    disabled={patchMutation.isPending}
+                    className={cn(
+                      "rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50",
+                      patchMutation.isPending && "cursor-not-allowed opacity-60 hover:bg-white",
+                    )}
                   >
                     跳过
                   </button>
                   <button
                     onClick={() => handlePatch(currentSegment.segment_id, { review_status: "needs_adjustment" })}
-                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    disabled={patchMutation.isPending}
+                    className={cn(
+                      "rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50",
+                      patchMutation.isPending && "cursor-not-allowed opacity-60 hover:bg-white",
+                    )}
                   >
                     标记需调整
                   </button>
                   <button
                     onClick={() => handleReprocess(currentSegment.segment_id)}
-                    disabled={isCurrentReprocessing}
+                    disabled={isCurrentReprocessing || reprocessMutation.isPending}
                     className={cn(
                       "rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50",
-                      isCurrentReprocessing && "cursor-not-allowed opacity-60",
+                      (isCurrentReprocessing || reprocessMutation.isPending) && "cursor-not-allowed opacity-60",
                     )}
                   >
                     {isCurrentReprocessing ? "重导出中" : "重跑单片段"}
                   </button>
                 </div>
+                {currentClip && (
+                  <button
+                    onClick={() => setPreviewClip(currentClip)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    弹窗预览当前片段
+                  </button>
+                )}
                 {currentJob?.status && (
                   <div
                     className={cn(

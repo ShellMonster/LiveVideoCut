@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils";
 import { useAdminContext } from "@/components/admin/context";
 import { useTaskDiagnostics, useTasks } from "@/hooks/useAdminQueries";
 import { API_BASE } from "../api";
+import { stageLabels } from "../constants";
 import { displayTaskName, formatDate, formatElapsed } from "../format";
 import { Header, MetricCard, Warning } from "../shared";
 
@@ -12,7 +13,9 @@ export function DiagnosticsPage() {
   const { data: diagnostics } = useTaskDiagnostics(selectedTask?.task_id);
 
   const summary = diagnostics?.summary;
-  const maxFunnel = Math.max(...(diagnostics?.funnel.map((item) => item.count) ?? [1]), 1);
+  const funnel = diagnostics?.funnel ?? [];
+  const eventLog = diagnostics?.event_log ?? [];
+  const maxFunnel = Math.max(...funnel.map((item) => item.count), 1);
   const taskId = selectedTask?.task_id;
 
   return (
@@ -48,31 +51,34 @@ export function DiagnosticsPage() {
         }
       />
       <main className="space-y-5 p-6">
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <span>当前项目</span>
-          <select
-            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700"
-            value={selectedTask?.task_id || ""}
-            onChange={(event) => {
-              const next = tasks.find((task) => task.task_id === event.target.value);
-              if (next) setSelectedTask(next);
-            }}
-          >
-            <option value="">选择项目</option>
-            {tasks.map((task) => (
-              <option key={task.task_id} value={task.task_id}>
-                {displayTaskName(task)}
-              </option>
-            ))}
-          </select>
+        <div className="rounded-lg border border-slate-200 bg-white p-4">
+          <label className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
+            <span className="font-medium text-slate-900">当前项目</span>
+            <select
+              className="min-w-80 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+              value={selectedTask?.task_id || ""}
+              onChange={(event) => {
+                const next = tasks.find((task) => task.task_id === event.target.value);
+                if (next) setSelectedTask(next);
+              }}
+            >
+              <option value="">选择项目</option>
+              {tasks.map((task) => (
+                <option key={task.task_id} value={task.task_id}>
+                  {displayTaskName(task)}
+                </option>
+              ))}
+            </select>
+            {!taskId && <span className="text-xs text-slate-400">选择一个任务后查看耗时、漏斗、事件和诊断包。</span>}
+          </label>
         </div>
 
         <section className="grid gap-4 lg:grid-cols-5">
-          <MetricCard label="总耗时" value={formatElapsed(diagnostics?.total_elapsed_s)} hint="按产物生成时间推导" />
-          <MetricCard label="候选片段" value={String(summary?.candidates_count ?? 0)} hint="视觉预筛输出" />
-          <MetricCard label="VLM确认" value={String(summary?.confirmed_count ?? 0)} hint="智能模式复核" />
-          <MetricCard label="最终导出" value={String(summary?.clips_count ?? selectedTask?.clip_count ?? 0)} hint="clips 目录统计" />
-          <MetricCard label="未导出" value={String(summary?.empty_screen_dropped_estimate ?? 0)} hint="空镜/时长/导出过滤" />
+          <MetricCard label="总耗时" value={taskId ? formatElapsed(diagnostics?.total_elapsed_s) : "—"} hint="按产物生成时间推导" />
+          <MetricCard label="候选片段" value={taskId ? String(summary?.candidates_count ?? 0) : "—"} hint="视觉预筛输出" />
+          <MetricCard label="VLM确认" value={taskId ? String(summary?.confirmed_count ?? 0) : "—"} hint="智能模式复核" />
+          <MetricCard label="最终导出" value={taskId ? String(summary?.clips_count ?? selectedTask?.clip_count ?? 0) : "—"} hint="clips 目录统计" />
+          <MetricCard label="未导出" value={taskId ? String(summary?.empty_screen_dropped_estimate ?? 0) : "—"} hint="空镜/时长/导出过滤" />
         </section>
 
         <section className="rounded-lg border border-slate-200 bg-white p-4">
@@ -82,7 +88,7 @@ export function DiagnosticsPage() {
               <div key={item.stage} className="relative rounded-lg bg-slate-50 p-3">
                 <div className="flex items-center gap-2">
                   <span className={cn("h-2.5 w-2.5 rounded-full", item.status === "done" ? "bg-emerald-500" : item.status === "skipped" ? "bg-slate-300" : "bg-amber-500")} />
-                  <span className="text-xs font-medium text-slate-700">{item.stage}</span>
+                  <span className="text-xs font-medium text-slate-700">{stageLabels[item.stage] || item.stage}</span>
                 </div>
                 <div className="mt-2 truncate text-xs font-mono text-slate-500">{item.artifact}</div>
                 <div className="mt-2 text-xs font-medium text-slate-600">{formatElapsed(item.duration_s)}</div>
@@ -98,7 +104,7 @@ export function DiagnosticsPage() {
           <div className="rounded-lg border border-slate-200 bg-white p-4">
             <h2 className="text-sm font-semibold text-slate-900">片段漏斗</h2>
             <div className="mt-4 space-y-3">
-              {(diagnostics?.funnel ?? []).map((item) => (
+              {funnel.length > 0 ? funnel.map((item) => (
                 <div key={item.label} className="grid grid-cols-[90px_minmax(0,1fr)_40px] items-center gap-3 text-sm">
                   <span className="text-slate-600">{item.label}</span>
                   <div className="h-2 rounded-full bg-slate-100">
@@ -106,7 +112,9 @@ export function DiagnosticsPage() {
                   </div>
                   <span className="text-right font-medium text-slate-900">{item.count}</span>
                 </div>
-              ))}
+              )) : (
+                <p className="py-6 text-center text-sm text-slate-400">选择项目后查看片段漏斗</p>
+              )}
             </div>
           </div>
 
@@ -127,32 +135,40 @@ export function DiagnosticsPage() {
           <div className="border-b border-slate-100 px-4 py-3">
             <h2 className="text-sm font-semibold text-slate-900">详细事件日志</h2>
           </div>
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-xs text-slate-500">
-              <tr>
-                <th className="px-4 py-3">时间</th>
-                <th className="px-4 py-3">阶段</th>
-                <th className="px-4 py-3">级别</th>
-                <th className="px-4 py-3">信息</th>
-                <th className="px-4 py-3">文件</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {(diagnostics?.event_log ?? []).map((event) => (
-                <tr key={`${event.time}-${event.file}`}>
-                  <td className="px-4 py-3 font-mono text-xs text-slate-500">{formatDate(event.time)}</td>
-                  <td className="px-4 py-3 text-slate-700">{event.stage}</td>
-                  <td className="px-4 py-3">
-                    <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", event.level === "WARN" ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700")}>
-                      {event.level}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">{event.message}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-slate-500">{event.file}</td>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[880px] text-left text-sm">
+              <thead className="bg-slate-50 text-xs text-slate-500">
+                <tr>
+                  <th className="px-4 py-3">时间</th>
+                  <th className="px-4 py-3">阶段</th>
+                  <th className="px-4 py-3">级别</th>
+                  <th className="px-4 py-3">信息</th>
+                  <th className="px-4 py-3">文件</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {eventLog.length > 0 ? eventLog.map((event) => (
+                  <tr key={`${event.time}-${event.file}`}>
+                    <td className="px-4 py-3 font-mono text-xs text-slate-500">{formatDate(event.time)}</td>
+                    <td className="px-4 py-3 text-slate-700">{stageLabels[event.stage] || event.stage}</td>
+                    <td className="px-4 py-3">
+                      <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", event.level === "WARN" ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700")}>
+                        {event.level}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-slate-600">{event.message}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-slate-500">{event.file}</td>
+                  </tr>
+                )) : (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-10 text-center text-sm text-slate-400">
+                      选择项目后查看详细事件日志
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </section>
       </main>
     </>

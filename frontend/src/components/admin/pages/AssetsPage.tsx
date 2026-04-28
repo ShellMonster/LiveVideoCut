@@ -1,6 +1,7 @@
-import { useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { Download, Eye, Film, Search } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useClipAssets } from "@/hooks/useAdminQueries";
 import { API_BASE } from "../api";
 import { formatBytes, formatDuration, reviewStatusLabel } from "../format";
@@ -8,13 +9,22 @@ import { Header, MetricCard } from "../shared";
 
 export function AssetsPage() {
   const location = useLocation();
-  const selectedProjectId = (location.state as { projectId?: string } | null)?.projectId;
+  const [searchParams, setSearchParams] = useSearchParams();
+  const stateProjectId = (location.state as { projectId?: string } | null)?.projectId;
+  const selectedProjectId = searchParams.get("project_id") || stateProjectId;
   const [selectedClips, setSelectedClips] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [durationFilter, setDurationFilter] = useState("all");
 
   const { data: { items: assets = [], summary = null } = {} } = useClipAssets(selectedProjectId, statusFilter);
+
+  useEffect(() => {
+    if (!stateProjectId || searchParams.get("project_id") === stateProjectId) return;
+    const next = new URLSearchParams(searchParams);
+    next.set("project_id", stateProjectId);
+    setSearchParams(next, { replace: true });
+  }, [stateProjectId, searchParams, setSearchParams]);
 
   const toggleClip = (clipId: string) => {
     setSelectedClips((current) => {
@@ -38,6 +48,10 @@ export function AssetsPage() {
       (durationFilter === "long" && clip.duration > 90);
     return matchesQuery && matchesDuration;
   });
+  const selectedAssets = visibleAssets.filter((clip) => selectedClips.has(clip.clip_id));
+  const selectedClipIds = selectedAssets.map((clip) => clip.clip_id);
+  const hasSelectedClips = selectedClipIds.length > 0;
+  const batchDownloadUrl = `${API_BASE}/api/clips/batch?ids=${selectedClipIds.join(",")}`;
 
   return (
     <>
@@ -58,10 +72,14 @@ export function AssetsPage() {
             </button>
             <button
               onClick={() => {
-                if (selectedClips.size === 0) return;
-                window.open(`${API_BASE}/api/clips/batch?ids=${Array.from(selectedClips).join(",")}`, "_blank");
+                if (!hasSelectedClips) return;
+                window.open(batchDownloadUrl, "_blank");
               }}
-              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              disabled={!hasSelectedClips}
+              className={cn(
+                "inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700",
+                !hasSelectedClips && "cursor-not-allowed opacity-50 hover:bg-blue-600",
+              )}
             >
               <Download size={16} />
               批量下载
@@ -76,19 +94,36 @@ export function AssetsPage() {
               <Search size={16} />
               <input
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setSelectedClips(new Set());
+                }}
                 placeholder="搜索商品名 / 项目 / 片段 ID"
                 className="min-w-0 flex-1 bg-transparent text-slate-700 outline-none placeholder:text-slate-400"
               />
             </label>
-            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+            <select
+              value={statusFilter}
+              onChange={(event) => {
+                setStatusFilter(event.target.value);
+                setSelectedClips(new Set());
+              }}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600"
+            >
               <option value="all">全部状态</option>
               <option value="pending">待复核</option>
               <option value="approved">已通过</option>
               <option value="skipped">已跳过</option>
               <option value="needs_adjustment">需调整</option>
             </select>
-            <select value={durationFilter} onChange={(event) => setDurationFilter(event.target.value)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+            <select
+              value={durationFilter}
+              onChange={(event) => {
+                setDurationFilter(event.target.value);
+                setSelectedClips(new Set());
+              }}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600"
+            >
               <option value="all">全部时长</option>
               <option value="short">30 秒内</option>
               <option value="medium">30-90 秒</option>
@@ -165,30 +200,48 @@ export function AssetsPage() {
             <h2 className="text-sm font-semibold text-slate-900">批量操作</h2>
             <div className="mt-4 rounded-lg bg-slate-50 p-3">
               <div className="text-xs text-slate-500">已选片段</div>
-              <div className="mt-1 text-2xl font-semibold text-slate-900">{selectedClips.size}</div>
+              <div className="mt-1 text-2xl font-semibold text-slate-900">{selectedClipIds.length}</div>
             </div>
             <div className="mt-4 space-y-2 text-sm text-slate-500">
               <div className="flex justify-between">
                 <span>总时长</span>
-                <span>{formatDuration(assets.filter((clip) => selectedClips.has(clip.clip_id)).reduce((sum, clip) => sum + clip.duration, 0))}</span>
+                <span>{formatDuration(selectedAssets.reduce((sum, clip) => sum + clip.duration, 0))}</span>
               </div>
               <div className="flex justify-between">
                 <span>预计 ZIP</span>
-                <span>{formatBytes(assets.filter((clip) => selectedClips.has(clip.clip_id)).reduce((sum, clip) => sum + clip.file_size, 0))}</span>
+                <span>{formatBytes(selectedAssets.reduce((sum, clip) => sum + clip.file_size, 0))}</span>
               </div>
             </div>
             <button
               onClick={() => {
-                if (selectedClips.size === 0) return;
-                window.open(`${API_BASE}/api/clips/batch?ids=${Array.from(selectedClips).join(",")}`, "_blank");
+                if (!hasSelectedClips) return;
+                window.open(batchDownloadUrl, "_blank");
               }}
-              className="mt-5 w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              disabled={!hasSelectedClips}
+              className={cn(
+                "mt-5 w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700",
+                !hasSelectedClips && "cursor-not-allowed opacity-50 hover:bg-blue-600",
+              )}
             >
               下载所选
             </button>
             <button
+              onClick={() => setSelectedClips(new Set(visibleAssets.map((clip) => clip.clip_id)))}
+              disabled={visibleAssets.length === 0}
+              className={cn(
+                "mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50",
+                visibleAssets.length === 0 && "cursor-not-allowed opacity-50 hover:bg-white",
+              )}
+            >
+              选择当前可见
+            </button>
+            <button
               onClick={() => setSelectedClips(new Set())}
-              className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+              disabled={!hasSelectedClips}
+              className={cn(
+                "mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50",
+                !hasSelectedClips && "cursor-not-allowed opacity-50 hover:bg-white",
+              )}
             >
               清空选择
             </button>

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState, type RefObject } from "react";
 import { Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSettingsStore, type Settings } from "@/stores/settingsStore";
@@ -129,16 +129,27 @@ function buildUploadSettingsPayload(settings: Settings): UploadSettingsPayload {
   };
 }
 
-export function UploadZone() {
+export function UploadZone({
+  settingsOverride,
+  fileInputRef: externalFileInputRef,
+}: {
+  settingsOverride?: Settings;
+  fileInputRef?: RefObject<HTMLInputElement | null>;
+} = {}) {
   const [dragging, setDragging] = useState(false);
   const [activeUploadContext, setActiveUploadContext] = useState<UploadContext | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const internalFileInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = externalFileInputRef ?? internalFileInputRef;
   const { status, progress, error, setTask, setStatus, setError, setProgress, reset } =
     useTaskStore();
-  const provider = useSettingsStore((state) => state.provider);
-  const enableVlm = useSettingsStore((state) => state.enableVlm);
-  const exportMode = useSettingsStore((state) => state.exportMode);
-  const subtitleMode = useSettingsStore((state) => state.subtitleMode);
+  const storeProvider = useSettingsStore((state) => state.provider);
+  const storeEnableVlm = useSettingsStore((state) => state.enableVlm);
+  const storeExportMode = useSettingsStore((state) => state.exportMode);
+  const storeSubtitleMode = useSettingsStore((state) => state.subtitleMode);
+  const provider = settingsOverride?.provider ?? storeProvider;
+  const enableVlm = settingsOverride?.enableVlm ?? storeEnableVlm;
+  const exportMode = settingsOverride?.exportMode ?? storeExportMode;
+  const subtitleMode = settingsOverride?.subtitleMode ?? storeSubtitleMode;
 
   const previewContext = useMemo<UploadContext>(
     () => ({ enableVlm, exportMode, provider, subtitleMode }),
@@ -155,7 +166,7 @@ export function UploadZone() {
         return;
       }
 
-      const currentSettings = useSettingsStore.getState();
+      const currentSettings = settingsOverride ?? useSettingsStore.getState();
       const uploadContext: UploadContext = {
         enableVlm: currentSettings.enableVlm,
         exportMode: currentSettings.exportMode,
@@ -202,7 +213,7 @@ export function UploadZone() {
         setError(err instanceof Error ? err.message : "上传失败");
       }
     },
-    [reset, setTask, setStatus, setError, setProgress],
+    [settingsOverride, reset, setTask, setStatus, setError, setProgress],
   );
 
   const onDrop = useCallback(
@@ -226,7 +237,7 @@ export function UploadZone() {
   const isUploading = status === "uploading";
 
   return (
-    <div className="w-full max-w-xl mx-auto p-6">
+    <div className="w-full">
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -236,7 +247,7 @@ export function UploadZone() {
         onDrop={onDrop}
         onClick={() => !isUploading && fileInputRef.current?.click()}
         className={cn(
-          "upload-zone flex flex-col items-center justify-center gap-4 rounded-2xl border-2 border-dashed p-12 cursor-pointer transition-colors",
+          "upload-zone flex cursor-pointer flex-col items-center justify-center gap-4 rounded-lg border-2 border-dashed p-10 transition-colors",
           dragging
             ? "border-blue-500 bg-blue-50"
             : "border-gray-300 bg-gray-50 hover:border-gray-400 hover:bg-gray-100",

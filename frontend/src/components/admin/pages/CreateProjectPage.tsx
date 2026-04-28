@@ -1,21 +1,36 @@
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { UploadZone } from "@/components/UploadZone";
 import { cn } from "@/lib/utils";
 import { useTaskStore } from "@/stores/taskStore";
-import { useSettingsStore } from "@/stores/settingsStore";
+import { useSettingsStore, type Settings } from "@/stores/settingsStore";
 import { stageLabels } from "../constants";
 import { ChecklistItem, Chip, Header } from "../shared";
 
+function settingsSnapshot(): Settings {
+  const state = useSettingsStore.getState();
+  const { setSettings, reset, ...settings } = state;
+  void setSettings;
+  void reset;
+  return settings;
+}
+
 export function CreateProjectPage() {
   const navigate = useNavigate();
-  const settings = useSettingsStore();
+  useSettingsStore();
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const [draftSettings, setDraftSettings] = useState<Settings>(() => settingsSnapshot());
   const uploadTaskId = useTaskStore((state) => state.taskId);
   const uploadStatus = useTaskStore((state) => state.status);
   const uploadProgress = useTaskStore((state) => state.progress);
   const uploadState = useTaskStore((state) => state.currentState);
+  const updateDraftSettings = (partial: Partial<Settings>) => {
+    setDraftSettings((current) => ({ ...current, ...partial }));
+  };
   const applyPreset = (title: string) => {
     if (title === "高质量字幕版") {
-      settings.setSettings({
+      updateDraftSettings({
+        enableVlm: true,
         exportMode: "smart",
         asrProvider: "volcengine_vc",
         subtitleMode: "karaoke",
@@ -23,19 +38,22 @@ export function CreateProjectPage() {
         exportResolution: "1080p",
       });
     } else if (title === "快速低成本版") {
-      settings.setSettings({
+      updateDraftSettings({
+        enableVlm: false,
         exportMode: "no_vlm",
         subtitleMode: "basic",
         asrProvider: "dashscope",
         bgmEnabled: false,
       });
     } else if (title === "全量候选调试版") {
-      settings.setSettings({
+      updateDraftSettings({
+        enableVlm: false,
         exportMode: "all_candidates",
         subtitleMode: "basic",
+        bgmEnabled: false,
       });
     } else if (title === "只切不烧字幕版") {
-      settings.setSettings({
+      updateDraftSettings({
         subtitleMode: "off",
         bgmEnabled: false,
       });
@@ -45,22 +63,22 @@ export function CreateProjectPage() {
     {
       title: "高质量字幕版",
       desc: "火山 VC + Karaoke 字幕 + BGM，适合正式交付。",
-      active: settings.asrProvider === "volcengine_vc" && settings.subtitleMode === "karaoke",
+      active: draftSettings.asrProvider === "volcengine_vc" && draftSettings.subtitleMode === "karaoke",
     },
     {
       title: "快速低成本版",
       desc: "跳过 VLM 或使用基础字幕，适合快速预览。",
-      active: settings.exportMode === "no_vlm" || settings.subtitleMode === "basic",
+      active: draftSettings.exportMode === "no_vlm" || draftSettings.subtitleMode === "basic",
     },
     {
       title: "全量候选调试版",
       desc: "导出所有候选，用于排查召回和误切。",
-      active: settings.exportMode === "all_candidates",
+      active: draftSettings.exportMode === "all_candidates",
     },
     {
       title: "只切不烧字幕版",
       desc: "关闭字幕烧录，快速获得原声片段。",
-      active: settings.subtitleMode === "off",
+      active: draftSettings.subtitleMode === "off",
     },
   ];
 
@@ -78,7 +96,7 @@ export function CreateProjectPage() {
               取消
             </button>
             <button
-              onClick={() => document.querySelector<HTMLElement>(".upload-zone")?.click()}
+              onClick={() => uploadInputRef.current?.click()}
               className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
             >
               选择文件开始
@@ -106,7 +124,7 @@ export function CreateProjectPage() {
               <h2 className="text-sm font-semibold text-slate-900">上传直播录像</h2>
               <p className="mt-1 text-xs text-slate-500">支持 MP4，上传后会保存当前设置快照并启动 Celery 流水线。</p>
               <div className="mt-4">
-                <UploadZone />
+                <UploadZone settingsOverride={draftSettings} fileInputRef={uploadInputRef} />
               </div>
             </div>
 
@@ -141,13 +159,14 @@ export function CreateProjectPage() {
           <aside className="space-y-5">
             <div className="rounded-lg border border-slate-200 bg-white p-5">
               <h2 className="text-sm font-semibold text-slate-900">本次任务配置</h2>
+              <p className="mt-1 text-xs text-slate-500">预设只影响本次上传，不会覆盖系统设置默认值。</p>
               <div className="mt-4 flex flex-wrap gap-2">
-                <Chip label={settings.exportMode === "smart" ? "智能模式" : settings.exportMode} tone="blue" />
-                <Chip label={settings.provider.toUpperCase()} tone="blue" />
-                <Chip label={settings.asrProvider === "volcengine_vc" ? "火山 VC" : settings.asrProvider} tone="emerald" />
-                <Chip label={`${settings.subtitleMode} 字幕`} tone="amber" />
-                <Chip label={settings.exportResolution} tone="blue" />
-                <Chip label={settings.bgmEnabled ? "BGM开启" : "BGM关闭"} tone="emerald" />
+                <Chip label={draftSettings.exportMode === "smart" ? "智能模式" : draftSettings.exportMode} tone="blue" />
+                <Chip label={draftSettings.provider.toUpperCase()} tone="blue" />
+                <Chip label={draftSettings.asrProvider === "volcengine_vc" ? "火山 VC" : draftSettings.asrProvider} tone="emerald" />
+                <Chip label={`${draftSettings.subtitleMode} 字幕`} tone="amber" />
+                <Chip label={draftSettings.exportResolution} tone="blue" />
+                <Chip label={draftSettings.bgmEnabled ? "BGM开启" : "BGM关闭"} tone="emerald" />
               </div>
               <div className="mt-5 space-y-3 text-sm">
                 <ChecklistItem label="格式校验" state={uploadTaskId ? "done" : "pending"} />

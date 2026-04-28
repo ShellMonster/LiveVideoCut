@@ -227,7 +227,9 @@ export function useUploadTrack() {
     mutationFn: async (file: File) => {
       const form = new FormData();
       form.append("file", file);
-      await fetch(`${API_BASE}/api/music/upload`, { method: "POST", body: form });
+      const resp = await fetch(`${API_BASE}/api/music/upload`, { method: "POST", body: form });
+      if (!resp.ok) throw new Error("Upload failed");
+      return (await resp.json()) as MusicTrack;
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: adminKeys.musicLibrary });

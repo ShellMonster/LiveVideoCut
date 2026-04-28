@@ -82,12 +82,12 @@ export function Header({
   action?: React.ReactNode;
 }) {
   return (
-    <header className="flex min-h-16 items-center justify-between border-b border-slate-200 bg-white px-6">
-      <div>
+    <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-6 py-3">
+      <div className="min-w-0">
         <h1 className="text-lg font-semibold text-slate-950">{title}</h1>
         <p className="mt-0.5 text-xs text-slate-500">{description}</p>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2">
         {action}
       </div>
     </header>

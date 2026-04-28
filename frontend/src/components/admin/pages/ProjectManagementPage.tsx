@@ -182,7 +182,21 @@ export function ProjectManagementPage() {
                         <td className="px-4 py-3 text-slate-500">{formatDate(task.created_at)}</td>
                         <td className="px-4 py-3">
                           <div className="flex justify-end gap-1">
-                            <button className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="查看">
+                            <button
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSelectedTask(task);
+                                if (task.status === "COMPLETED") {
+                                  navigate("/assets", { state: { projectId: task.task_id } });
+                                } else if (task.status === "ERROR") {
+                                  navigate("/diagnostics");
+                                } else {
+                                  navigate("/queue");
+                                }
+                              }}
+                              className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                              aria-label="查看"
+                            >
                               <Eye size={15} />
                             </button>
                             <button
