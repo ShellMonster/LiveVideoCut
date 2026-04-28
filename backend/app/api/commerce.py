@@ -392,6 +392,7 @@ async def get_clip_commerce_asset(task_id: str, segment_id: str):
             "end_time": meta.get("end_time", 0),
             "confidence": confidence,
             "video_url": f"/api/clips/{task_id}/{segment_id}/download",
+            "preview_url": f"/api/clips/{task_id}/{segment_id}/preview",
             "thumbnail_url": f"/api/clips/{task_id}/{segment_id}/thumbnail",
             "has_video": (UPLOAD_DIR / task_id / "clips" / f"{segment_id}.mp4").exists(),
             "has_thumbnail": (UPLOAD_DIR / task_id / "covers" / f"{segment_id}.jpg").exists(),

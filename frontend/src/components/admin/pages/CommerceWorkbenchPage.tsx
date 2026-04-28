@@ -9,7 +9,6 @@ import {
   FileText,
   Image,
   Loader2,
-  Play,
   RefreshCw,
   Settings2,
   Sparkles,
@@ -82,7 +81,7 @@ export function CommerceWorkbenchPage() {
 
   const clip = data.clip;
   const thumbnailUrl = `${API_BASE}${clip.thumbnail_url}`;
-  const videoUrl = `${API_BASE}${clip.video_url}`;
+  const previewUrl = `${API_BASE}${clip.preview_url ?? clip.video_url}`;
 
   return (
     <>
@@ -114,22 +113,21 @@ export function CommerceWorkbenchPage() {
         <aside className="space-y-4">
           <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
             <div className="relative aspect-video bg-slate-950">
-              {clip.has_thumbnail ? (
+              {clip.has_video ? (
+                <video
+                  src={previewUrl}
+                  poster={clip.has_thumbnail ? thumbnailUrl : undefined}
+                  controls
+                  preload="metadata"
+                  className="h-full w-full bg-black object-contain"
+                />
+              ) : clip.has_thumbnail ? (
                 <img src={thumbnailUrl} alt="" className="h-full w-full object-cover" />
               ) : (
                 <div className="flex h-full items-center justify-center text-slate-500">
                   <Image size={28} />
                 </div>
               )}
-              <a
-                href={videoUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="absolute left-3 top-3 inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/95 text-slate-900 shadow-sm hover:bg-white"
-                aria-label="播放片段"
-              >
-                <Play size={16} />
-              </a>
               <span className="absolute bottom-3 right-3 rounded bg-black/75 px-2 py-1 text-xs font-medium text-white">
                 {formatDuration(clip.duration)}
               </span>

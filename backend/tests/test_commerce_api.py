@@ -81,6 +81,7 @@ async def test_get_clip_commerce_asset_returns_clip_and_saved_analysis(client):
     data = response.json()
     assert data["clip"]["product_name"] == "米白针织连衣裙"
     assert data["clip"]["thumbnail_url"] == f"/api/clips/{TASK_ID}/clip_001/thumbnail"
+    assert data["clip"]["preview_url"] == f"/api/clips/{TASK_ID}/clip_001/preview"
     assert data["analysis"]["status"] == "completed"
     assert data["analysis"]["product_type"] == "连衣裙"
     assert data["copywriting"]["status"] == "not_started"

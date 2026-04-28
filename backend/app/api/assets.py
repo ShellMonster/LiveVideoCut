@@ -116,6 +116,7 @@ async def list_clip_assets(
                 "file_size": file_size,
                 "created_at": created_at,
                 "video_url": f"/api/clips/{task_dir.name}/{segment_id}/download",
+                "preview_url": f"/api/clips/{task_dir.name}/{segment_id}/preview",
                 "thumbnail_url": f"/api/clips/{task_dir.name}/{segment_id}/thumbnail",
                 "has_video": video_path.exists(),
                 "has_thumbnail": cover_path.exists(),

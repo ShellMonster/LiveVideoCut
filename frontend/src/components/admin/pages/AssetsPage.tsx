@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { Check, Download, Eye, Film, ListChecks, MoreHorizontal, Search, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useClipAssets, useCommerceBatchAction } from "@/hooks/useAdminQueries";
@@ -12,7 +12,6 @@ type AssetDrawerTab = "preview" | "metadata" | "actions";
 
 export function AssetsPage() {
   const location = useLocation();
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const stateProjectId = (location.state as { projectId?: string } | null)?.projectId;
   const selectedProjectId = searchParams.get("project_id") || stateProjectId;
@@ -230,7 +229,7 @@ export function AssetsPage() {
                         onToggle={() => toggleClip(clip.clip_id)}
                         onOpen={() => openDrawer(clip)}
                         onMore={() => openDrawer(clip, "actions")}
-                        onCommerce={() => navigate(`/assets/${clip.task_id}/${clip.segment_id}/commerce`)}
+                        commerceHref={`/assets/${clip.task_id}/${clip.segment_id}/commerce`}
                       />
                     ))}
                   </div>
@@ -404,7 +403,7 @@ function AssetCard({
   onToggle,
   onOpen,
   onMore,
-  onCommerce,
+  commerceHref,
 }: {
   clip: ClipAsset;
   selected: boolean;
@@ -412,7 +411,7 @@ function AssetCard({
   onToggle: () => void;
   onOpen: () => void;
   onMore: () => void;
-  onCommerce: () => void;
+  commerceHref: string;
 }) {
   return (
     <article className={cn("overflow-hidden rounded-lg border bg-white", active ? "border-blue-300 ring-2 ring-blue-100" : "border-slate-200")}>
@@ -464,13 +463,15 @@ function AssetCard({
           <Download size={15} />
           <span className="truncate">下载</span>
         </a>
-        <button
-          onClick={onCommerce}
+        <a
+          href={commerceHref}
+          target="_blank"
+          rel="noreferrer"
           className="inline-flex min-w-0 items-center justify-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-2 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100"
         >
           <Sparkles size={15} />
           <span className="truncate">AI素材</span>
-        </button>
+        </a>
         <button onClick={onMore} className="rounded-lg border border-slate-200 px-2 py-2 text-slate-600 hover:bg-slate-50" aria-label="更多">
           <MoreHorizontal size={15} />
         </button>

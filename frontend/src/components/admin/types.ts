@@ -99,6 +99,7 @@ export interface ClipAsset {
   file_size: number;
   created_at: string;
   video_url: string;
+  preview_url?: string;
   thumbnail_url: string;
   has_video: boolean;
   has_thumbnail: boolean;

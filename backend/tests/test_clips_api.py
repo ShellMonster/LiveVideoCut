@@ -58,6 +58,7 @@ async def test_list_clips(client):
     assert clip["duration"] == 16.0
     assert clip["has_video"] is True
     assert clip["has_thumbnail"] is True
+    assert clip["preview_url"] == f"/api/clips/{FIXTURE_TASK}/clip_001/preview"
 
 
 @pytest.mark.anyio
@@ -71,6 +72,15 @@ async def test_download_clip(client):
     resp = await client.get(f"/api/clips/{FIXTURE_TASK}/clip_001/download")
     assert resp.status_code == 200
     assert resp.headers["content-type"] == "video/mp4"
+    assert resp.content == b"fake-mp4-data"
+
+
+@pytest.mark.anyio
+async def test_preview_clip_is_inline(client):
+    resp = await client.get(f"/api/clips/{FIXTURE_TASK}/clip_001/preview")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "video/mp4"
+    assert resp.headers["content-disposition"].startswith("inline")
     assert resp.content == b"fake-mp4-data"
 
 

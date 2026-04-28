@@ -38,6 +38,7 @@ def _collect_clips(clips_dir: Path) -> list[dict]:
                 "end_time": meta.get("end_time", 0),
                 "confidence": meta.get("confidence", 0),
                 "video_url": f"/api/clips/{clip_id}/download",
+                "preview_url": f"/api/clips/{clip_id}/preview",
                 "thumbnail_url": f"/api/clips/{clip_id}/thumbnail",
                 "has_video": video_path.exists(),
                 "has_thumbnail": thumb_path.exists(),
@@ -72,6 +73,21 @@ async def download_clip(task_id: str, clip_name: str):
         path=str(video_path),
         media_type="video/mp4",
         filename=f"{clip_name}.mp4",
+    )
+
+
+@router.get("/api/clips/{task_id}/{clip_name}/preview")
+async def preview_clip(task_id: str, clip_name: str):
+    if not _TASK_ID_RE.match(task_id) or not _CLIP_NAME_RE.match(clip_name):
+        return JSONResponse(status_code=400, content={"detail": "Invalid task_id or clip_name format"})
+    video_path = _clips_dir(task_id) / f"{clip_name}.mp4"
+    if not video_path.exists():
+        return JSONResponse(status_code=404, content={"detail": "Clip not found"})
+
+    return FileResponse(
+        path=str(video_path),
+        media_type="video/mp4",
+        headers={"Content-Disposition": f'inline; filename="{clip_name}.mp4"'},
     )
 
 
