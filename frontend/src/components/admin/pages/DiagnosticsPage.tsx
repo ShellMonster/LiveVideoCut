@@ -61,12 +61,12 @@ export function DiagnosticsPage() {
           <div>
             <h1 className="text-xl font-semibold text-slate-950">任务诊断报告</h1>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
             <button
               disabled={!taskId}
               onClick={() => taskId && window.open(`${API_BASE}/api/tasks/${taskId}/diagnostics/export`, "_blank")}
               className={cn(
-                "inline-flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50",
+                "inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 sm:px-4",
                 !taskId && "cursor-not-allowed opacity-50",
               )}
             >
@@ -77,7 +77,7 @@ export function DiagnosticsPage() {
               disabled={!taskId}
               onClick={() => taskId && window.open(`${API_BASE}/api/tasks/${taskId}/artifacts.zip`, "_blank")}
               className={cn(
-                "inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm shadow-blue-600/20 hover:bg-blue-700",
+                "inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-sm shadow-blue-600/20 hover:bg-blue-700 sm:px-4",
                 !taskId && "cursor-not-allowed opacity-50",
               )}
             >
@@ -86,11 +86,11 @@ export function DiagnosticsPage() {
             </button>
           </div>
         </div>
-        <div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <label className="flex min-w-0 flex-wrap items-center gap-3 text-slate-500">
+        <div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-3 text-sm lg:flex-row lg:items-center lg:justify-between sm:px-6">
+          <label className="grid min-w-0 gap-2 text-slate-500 sm:grid-cols-[auto_minmax(240px,360px)_minmax(0,1fr)] sm:items-center">
             <span className="font-medium text-slate-700">当前项目</span>
             <select
-              className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 sm:min-w-72"
+              className="h-10 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700"
               value={selectedTask?.task_id || ""}
               onChange={(event) => {
                 const next = tasks.find((task) => task.task_id === event.target.value);
@@ -126,8 +126,8 @@ export function DiagnosticsPage() {
         </div>
       </header>
 
-      <main className="space-y-4 p-4 sm:p-5">
-        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+      <main className="space-y-3 p-3 sm:space-y-4 sm:p-5">
+        <section className="grid grid-cols-2 gap-3 xl:grid-cols-5">
           <DiagnosticsMetric icon={Clock3} tone="blue" label="总耗时" value={taskId ? formatStopwatch(diagnostics?.total_elapsed_s) : "—"} hint="按产物时间推导" />
           <DiagnosticsMetric icon={Filter} tone="blue" label="候选片段" value={taskId ? String(summary?.candidates_count ?? 0) : "—"} hint="预筛输出" />
           <DiagnosticsMetric icon={CheckCircle2} tone="blue" label="VLM确认" value={taskId ? String(summary?.confirmed_count ?? 0) : "—"} hint="通过确认" />
@@ -363,14 +363,14 @@ function DiagnosticsMetric({
   }[tone];
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
-      <div className="flex items-center gap-4">
-        <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ring-1", toneClass)}>
-          <Icon size={19} />
+    <div className="rounded-lg border border-slate-200 bg-white p-3 sm:p-4">
+      <div className="flex items-center gap-3 sm:gap-4">
+        <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ring-1 sm:h-10 sm:w-10", toneClass)}>
+          <Icon size={18} />
         </div>
         <div className="min-w-0">
           <div className="text-xs text-slate-500">{label}</div>
-          <div className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">{value}</div>
+          <div className="mt-1 text-xl font-semibold tracking-tight text-slate-950 sm:text-2xl">{value}</div>
           <div className={cn("mt-1 text-xs", trend === "down" ? "text-emerald-600" : "text-slate-400")}>{hint}</div>
         </div>
       </div>
@@ -394,21 +394,25 @@ function PipelineStep({
   return (
     <div className="relative">
       {index < total - 1 && <div className="absolute left-[calc(50%+2.25rem)] top-1/2 hidden h-0.5 w-[calc(100%-4.5rem)] -translate-y-1/2 bg-blue-500 xl:block" />}
-      <div className="relative rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="relative rounded-lg border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
             {pipelineIcon(item.stage)}
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-semibold text-slate-800">{stageLabels[item.stage] || item.stage}</div>
             <div className={cn("mt-1 flex items-center gap-1 text-xs", done ? "text-emerald-600" : item.status === "skipped" ? "text-slate-400" : "text-amber-600")}>
               <CheckCircle2 size={12} />
               {done ? "完成" : item.status === "skipped" ? "跳过" : "处理中"}
             </div>
           </div>
+          <div className="text-right sm:hidden">
+            <div className="text-sm font-semibold text-slate-950">{formatStopwatch(item.duration_s)}</div>
+            <div className="text-xs text-slate-400">{totalSeconds && item.duration_s ? `${((item.duration_s / totalSeconds) * 100).toFixed(1)}%` : "—"}</div>
+          </div>
         </div>
-        <div className="mt-4 text-center text-lg font-semibold text-slate-950">{formatStopwatch(item.duration_s)}</div>
-        <div className="mt-1 text-center text-xs text-slate-400">占比 {totalSeconds && item.duration_s ? `${((item.duration_s / totalSeconds) * 100).toFixed(1)}%` : "—"}</div>
+        <div className="mt-4 hidden text-center text-lg font-semibold text-slate-950 sm:block">{formatStopwatch(item.duration_s)}</div>
+        <div className="mt-1 hidden text-center text-xs text-slate-400 sm:block">占比 {totalSeconds && item.duration_s ? `${((item.duration_s / totalSeconds) * 100).toFixed(1)}%` : "—"}</div>
       </div>
     </div>
   );
