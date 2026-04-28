@@ -211,9 +211,10 @@ export function AdminSettingsPage() {
           )}
 
           {activeSection === 1 && (
+          <>
           <SettingsCard
             id="settings-section-1"
-            title="AI 服务"
+            title="剪辑 VLM 服务"
             desc="控制视觉多模态确认和模型调用。非智能模式会自动收起 VLM 凭证。"
             badge={needsVlmKey ? "VLM 已启用" : "VLM 未启用"}
           >
@@ -272,21 +273,15 @@ export function AdminSettingsPage() {
             ) : (
               <Notice text="当前导出模式不会调用 VLM，Provider、Model 和 VLM API Key 会保留但不会用于新任务。" />
             )}
+          </SettingsCard>
 
-            <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold text-slate-950">AI 商品素材</h3>
-                  <p className="mt-1 text-xs leading-5 text-slate-500">
-                    独立用于片段封面识图、抖音/淘宝文案和 gpt-image-2 商品图生成，不影响剪辑流水线。
-                  </p>
-                </div>
-                <span className="w-fit rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
-                  独立配置
-                </span>
-              </div>
-
-              <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <SettingsCard
+            id="settings-section-1-commerce"
+            title="AI 商品素材"
+            desc="独立用于片段封面识图、抖音/淘宝文案和 gpt-image-2 商品图生成，不影响剪辑流水线。"
+            badge="独立配置"
+          >
+              <div className="grid gap-4 md:grid-cols-2">
                 <Field label="Gemini API Base" hint="建议只填域名，不带 /v1 路径">
                   <input
                     value={draft.commerceGeminiApiBase}
@@ -378,8 +373,8 @@ export function AdminSettingsPage() {
                   onChange={(commerceImageTimeoutSeconds) => updateDraft({ commerceImageTimeoutSeconds })}
                 />
               </div>
-            </div>
           </SettingsCard>
+          </>
           )}
 
           {activeSection === 2 && (
