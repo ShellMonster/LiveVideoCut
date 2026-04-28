@@ -82,6 +82,7 @@ class SegmentGranularity(str, Enum):
 
 
 class CommerceImageSize(str, Enum):
+    r2k = "2K"
     square = "1024x1024"
     portrait = "1024x1536"
     landscape = "1536x1024"
@@ -182,7 +183,7 @@ class SettingsRequest(BaseModel):
     commerce_image_api_key: str = ""
     commerce_image_api_base: str = "https://api.openai.com/v1"
     commerce_image_model: str = "gpt-image-2"
-    commerce_image_size: CommerceImageSize = CommerceImageSize.portrait
+    commerce_image_size: CommerceImageSize = CommerceImageSize.r2k
     commerce_image_quality: CommerceImageQuality = CommerceImageQuality.auto
     commerce_image_timeout_seconds: int = Field(default=500, ge=60, le=1200)
 

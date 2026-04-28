@@ -333,7 +333,7 @@ def run_commerce_actions(task_id: str, segment_id: str, actions: list[str], imag
             image_bytes = client.generate_with_reference(
                 image_prompt["prompt"],
                 cover,
-                size=str(_get_setting(settings, "commerce_image_size", "1024x1536")),
+                size=str(_get_setting(settings, "commerce_image_size", "2K")),
                 quality=str(_get_setting(settings, "commerce_image_quality", "auto")),
             )
             (image_dir / filename).write_bytes(image_bytes)

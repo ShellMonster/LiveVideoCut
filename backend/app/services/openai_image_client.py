@@ -26,7 +26,7 @@ class OpenAIImageClient:
         fields = {
             "model": self.model,
             "prompt": prompt,
-            "size": size,
+            "size": _resolve_image_size(size),
             "n": "1",
         }
         if quality and quality != "auto":
@@ -60,3 +60,17 @@ class OpenAIImageClient:
             image_response.raise_for_status()
             return image_response.content
         raise ValueError("OpenAI Images response has no image payload")
+
+
+def _resolve_image_size(size: str) -> str:
+    normalized = (size or "").strip()
+    if not normalized:
+        return "2048x2048"
+    upper = normalized.upper()
+    if upper == "1K":
+        return "1024x1024"
+    if upper == "2K":
+        return "2048x2048"
+    if upper == "4K":
+        return "3840x3840"
+    return normalized

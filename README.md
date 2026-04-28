@@ -131,7 +131,7 @@ graph TD
 - **任务队列** -- 队列流式任务列表 + 可关闭右侧任务详情抽屉 / 窄屏任务卡片；抽屉按设计图展示任务摘要、进度信息卡、阶段 checklist、最近日志、Worker 资源、重试和删除；当前阶段统一中文展示，操作列使用固定图标按钮避免挤压
 - **剪辑复核** -- 卡片式片段队列 + 右侧复核抽屉，支持状态筛选、片段预览、字幕草稿文本/起止秒编辑、AI 建议和单片段重导出
 - **片段资产** -- 按项目分组的资产卡片 + 右侧详情抽屉 + 底部批量选择条，支持服务端筛选、分页、预览、下载、AI 商品素材状态筛选、批量生成和批量队列抽屉
-- **AI 商品素材** -- 独立工作台页面，基于片段封面异步调用 Gemini 商品识别/平台文案生成，并异步调用 OpenAI Image/gpt-image-2 生成模特图与淘宝详情页示例图；从片段资产页新标签打开，片段视频在工作台内嵌播放，单张图片可独立重新生成
+- **AI 商品素材** -- 独立工作台页面，基于片段封面异步调用 Gemini 商品识别/平台文案生成，并异步调用 OpenAI Image/gpt-image-2 生成默认 2K 的模特图与淘宝详情页示例图；从片段资产页新标签打开，片段视频在工作台内嵌播放，单张图片可独立重新生成
 - **中文提示** -- 商品素材、上传、复核、重导出等前端错误和成功反馈统一走自定义 toast/页面组件，避免直接暴露浏览器原生提示或后端英文异常
 - **音乐库** -- 指标卡 + 曲目表格 + 覆盖式右侧标签编辑抽屉 + 全宽底部播放器，支持上传、播放、标签编辑和用户曲目删除；列表按设计图拆分来源、时长、Mood、商品分类和居中操作列，Mood/商品分类前端中文展示但保存值保持英文
 - **任务诊断** -- 设计图式诊断仪表盘，包含项目工具栏、紧凑指标卡、横向流水线耗时、Recharts 漏斗图、右侧异常建议/事件详情和分页事件日志；窄屏下指标与流水线自动降密度展示
@@ -204,7 +204,7 @@ docker compose up -d
 - `POST /api/commerce/clips/{task_id}/{segment_id}/images` 提交 OpenAI Image `/images/edits` 异步任务，使用片段封面作为参考图生成正面、侧面、背面/细节和淘宝详情页示例图，写入 `commerce/<segment_id>/images/` 与 `images.json`。
 - `POST /api/commerce/clips/{task_id}/{segment_id}/images/{item_key}` 支持单张商品素材图独立重新生成，`item_key` 为 `model_front` / `model_side` / `model_back` / `detail_page`。
 - `POST /api/commerce/batch` 支持按 clip_id 批量提交 `analyze` / `copywriting` / `images` 商品素材任务，片段资产页底部批量条会调用该接口，并用右侧批量队列抽屉展示已排队和提交失败的片段。
-- 设置页 **AI 服务** 页签内上下分成两个面板：上方是剪辑 VLM/导出模式，下方是独立的 **AI 商品素材** 配置。商品素材配置内部继续分成 **Gemini 商品识图** 和 **OpenAI Image 生图** 两个子块，保存 `commerce_gemini_api_base/model/api_key/timeout` 与 `commerce_image_api_base/model/api_key/size/quality/timeout`。两个 API Key 属于敏感字段，上传时写入 `secrets.json`，不会进入 `settings.json`。
+- 设置页 **AI 服务** 页签内上下分成两个面板：上方是剪辑 VLM/导出模式，下方是独立的 **AI 商品素材** 配置。商品素材配置内部继续分成 **Gemini 商品识图** 和 **OpenAI Image 生图** 两个子块，保存 `commerce_gemini_api_base/model/api_key/timeout` 与 `commerce_image_api_base/model/api_key/size/quality/timeout`。OpenAI Image 默认尺寸为 `2K`，请求时会解析为 `2048x2048`；两个 API Key 属于敏感字段，上传时写入 `secrets.json`，不会进入 `settings.json`。
 - 前端项目总览、任务队列、片段资产页直接使用后端分页；剪辑复核片段队列、音乐库、诊断事件日志使用固定页大小的前端分页。
 - 项目总览点击行或“详情”打开右侧抽屉，抽屉内聚合概览、片段预览和诊断日志；操作列保留主操作按钮，删除收进“更多”菜单。
 - 任务队列采用队列流式行布局，任务详情、日志和资源监控在右侧抽屉内切换；删除仍走自定义确认弹窗。

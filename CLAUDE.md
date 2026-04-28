@@ -47,7 +47,7 @@
 - **queue** — 任务队列（队列流、可关闭右侧详情抽屉、设计图式任务摘要/阶段 checklist/最近日志、窄屏任务卡片、Worker 资源 CPU/内存/Redis、中文阶段、固定图标操作）
 - **review** — 片段审核（卡片队列、右侧复核抽屉、approve/skip/needs_adjustment/reprocess、字幕草稿文本与起止秒覆盖、单片段重导出）
 - **assets** — 跨项目素材资产浏览器（项目分组卡片、右侧详情抽屉、多选、底部批量下载/批量 AI 素材生成条、批量队列抽屉、文件大小估算、AI 商品素材入口）
-- **assets/:taskId/:segmentId/commerce** — 独立 AI 商品素材工作台，从片段资产页新标签打开；异步调用 Gemini 商品识别/平台文案生成，并异步调用 OpenAI Image/gpt-image-2 生成模特图和淘宝详情页示例；片段视频用 `/preview` 内嵌播放，支持单张素材图独立重试
+- **assets/:taskId/:segmentId/commerce** — 独立 AI 商品素材工作台，从片段资产页新标签打开；异步调用 Gemini 商品识别/平台文案生成，并异步调用 OpenAI Image/gpt-image-2 生成默认 2K 的模特图和淘宝详情页示例；片段视频用 `/preview` 内嵌播放，支持单张素材图独立重试
 - **music** — 音乐库管理（指标卡、曲目表格、覆盖式右侧标签编辑抽屉、全宽底部播放器、上传、删除）
 - **diagnostics** — 任务诊断（项目工具栏、指标卡、横向管线阶段、Recharts 漏斗图、异常建议、分页事件日志、右侧事件详情、导出报告/artifacts.zip）
 - **settings** — 设置编辑器（侧栏+面板布局）
@@ -56,7 +56,7 @@
 
 布局约定：`AdminDashboard.tsx` 使用固定视口高度的后台壳，右侧内容区独立滚动；桌面端左侧导航栏保持整屏高度，Worker 资源/服务状态卡固定在侧栏底部。列表页不要做无限下滑。项目总览、任务队列、片段资产使用后端 `offset/limit` 分页；剪辑复核片段队列、音乐库、诊断事件日志使用 `Pagination` 组件做页面内分页。项目总览、任务队列、剪辑复核、片段资产、音乐库、诊断报告的详情信息优先用右侧抽屉承载，避免列表被详情面板挤压；AI 商品素材采用独立工作台页面，不放在片段资产抽屉里。
 
-AI 商品素材设置位于设置页 **AI 服务** 页签内，但必须和剪辑 VLM 上下分成两个独立面板：上方为剪辑 VLM/导出模式，下方为 **AI 商品素材**。商品素材配置独立于剪辑流水线 VLM/LLM，并且在 AI 商品素材面板内继续分成 **Gemini 商品识图** 和 **OpenAI Image 生图** 两个子块：`commerce_gemini_api_base/model/api_key/timeout` 用于 Gemini 封面识图和抖音/淘宝文案生成，默认 `https://generativelanguage.googleapis.com` + `gemini-3-flash-preview`；`commerce_image_api_base/model/api_key/size/quality/timeout` 用于 OpenAI Image 生图，默认 `https://api.openai.com/v1` + `gpt-image-2`。`commerce_gemini_api_key` 和 `commerce_image_api_key` 是敏感字段，上传时只写入 `secrets.json`。
+AI 商品素材设置位于设置页 **AI 服务** 页签内，但必须和剪辑 VLM 上下分成两个独立面板：上方为剪辑 VLM/导出模式，下方为 **AI 商品素材**。商品素材配置独立于剪辑流水线 VLM/LLM，并且在 AI 商品素材面板内继续分成 **Gemini 商品识图** 和 **OpenAI Image 生图** 两个子块：`commerce_gemini_api_base/model/api_key/timeout` 用于 Gemini 封面识图和抖音/淘宝文案生成，默认 `https://generativelanguage.googleapis.com` + `gemini-3-flash-preview`；`commerce_image_api_base/model/api_key/size/quality/timeout` 用于 OpenAI Image 生图，默认 `https://api.openai.com/v1` + `gpt-image-2` + `2K`。后端会把 `commerce_image_size=2K` 解析为 `2048x2048` 发送给 OpenAI Images；`commerce_gemini_api_key` 和 `commerce_image_api_key` 是敏感字段，上传时只写入 `secrets.json`。
 
 AI 商品素材后端接口：`GET /api/commerce/clips/{task_id}/{segment_id}` 返回工作台数据和异步 job 状态；`POST /api/commerce/clips/{task_id}/{segment_id}/analyze` 提交 Gemini `generateContent` 封面识图任务并写 `product_analysis.json`；`POST /api/commerce/clips/{task_id}/{segment_id}/copywriting` 提交 Gemini 文案任务并写 `copywriting.json`；`POST /api/commerce/clips/{task_id}/{segment_id}/images` 提交 OpenAI Image `/images/edits` 任务，以片段封面作为参考图生成正面、侧面、背面/细节和淘宝详情页示例图，写入 `commerce/<segment_id>/images/` 与 `images.json`；`POST /api/commerce/clips/{task_id}/{segment_id}/images/{item_key}` 支持单张图独立重试，`item_key` 限 `model_front` / `model_side` / `model_back` / `detail_page`；`POST /api/commerce/batch` 支持片段资产页批量提交 `analyze` / `copywriting` / `images`，前端提交后用右侧队列抽屉展示 accepted/rejected。
 

@@ -204,7 +204,7 @@ export function CommerceWorkbenchPage() {
             <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
               <ParameterChip label="模特风格" value="自然通勤" />
               <ParameterChip label="背景" value="浅色棚拍" />
-              <ParameterChip label="尺寸" value="竖图优先" />
+              <ParameterChip label="尺寸" value="默认 2K" />
               <ParameterChip label="模型" value="gpt-image-2" />
             </div>
           </section>

@@ -98,6 +98,7 @@ async def test_upload_persists_resolved_settings_snapshot(
     assert settings_snapshot["commerce_gemini_api_base"] == "https://generativelanguage.googleapis.com"
     assert settings_snapshot["commerce_image_api_base"] == "https://api.openai.com/v1"
     assert settings_snapshot["commerce_image_model"] == "gpt-image-2"
+    assert settings_snapshot["commerce_image_size"] == "2K"
     assert queued == [(task_id, str(task_dir / "original.mp4"))]
 
 

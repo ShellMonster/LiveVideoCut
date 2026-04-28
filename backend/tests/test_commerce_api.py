@@ -26,7 +26,7 @@ def _setup_commerce(tmp_path, monkeypatch):
                 "commerce_gemini_timeout_seconds": 90,
                 "commerce_image_api_base": "https://openai.example.com/v1",
                 "commerce_image_model": "gpt-image-2",
-                "commerce_image_size": "1024x1536",
+                "commerce_image_size": "2K",
                 "commerce_image_quality": "auto",
                 "commerce_image_timeout_seconds": 120,
             },
@@ -175,7 +175,7 @@ async def test_generate_clip_images_calls_openai_and_serves_images(client, monke
 
         def generate_with_reference(self, prompt, image_path, *, size, quality):
             assert image_path == tmp_path / TASK_ID / "covers" / "clip_001.jpg"
-            assert size == "1024x1536"
+            assert size == "2K"
             assert quality == "auto"
             return b"png-data"
 

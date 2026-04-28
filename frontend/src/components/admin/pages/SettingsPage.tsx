@@ -364,6 +364,7 @@ export function AdminSettingsPage() {
                         onChange={(event) => updateDraft({ commerceImageSize: event.target.value as CommerceImageSize })}
                         className={fieldClassName}
                       >
+                        <option value="2K">2K 高清图（默认）</option>
                         <option value="1024x1024">1024x1024 方图</option>
                         <option value="1024x1536">1024x1536 模特竖图</option>
                         <option value="1536x1024">1536x1024 横图</option>
@@ -371,7 +372,7 @@ export function AdminSettingsPage() {
                         <option value="2160x3840">2160x3840 详情长图</option>
                       </select>
                     </Field>
-                    <Field label="默认生成质量">
+                    <Field label="默认生成质量" hint="gpt-image-2 默认使用自动质量">
                       <select
                         value={draft.commerceImageQuality}
                         onChange={(event) => updateDraft({ commerceImageQuality: event.target.value as CommerceImageQuality })}
