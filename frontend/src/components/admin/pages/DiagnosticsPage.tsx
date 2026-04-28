@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import type React from "react";
 import { useState } from "react";
+import { Cell, Funnel, FunnelChart, LabelList, ResponsiveContainer, Tooltip } from "recharts";
 import { cn } from "@/lib/utils";
 import { useAdminContext } from "@/components/admin/context";
 import { useTaskDiagnostics, useTasks } from "@/hooks/useAdminQueries";
@@ -26,6 +27,13 @@ import { Pagination } from "../shared";
 import type { DiagnosticReport } from "../types";
 
 type DiagnosticEvent = DiagnosticReport["event_log"][number];
+type FunnelChartDatum = DiagnosticReport["funnel"][number] & {
+  name: string;
+  value: number;
+  percent: number;
+  description: string;
+  fill: string;
+};
 
 export function DiagnosticsPage() {
   const { selectedTask, setSelectedTask } = useAdminContext();
@@ -49,6 +57,14 @@ export function DiagnosticsPage() {
   const dataUpdatedAt = eventLog[0]?.time || selectedTask?.created_at;
   const funnelStart = funnel[0]?.count || 0;
   const funnelEnd = funnel[funnel.length - 1]?.count || 0;
+  const funnelChartData = funnel.map((item, index) => ({
+    ...item,
+    name: item.label,
+    value: Math.max(36, 100 - index * 11),
+    percent: maxFunnel > 0 ? Math.round((item.count / maxFunnel) * 100) : 0,
+    description: funnelDescription(index),
+    fill: funnelColor(index),
+  }));
   const overallPassRate = funnelStart > 0 ? (funnelEnd / funnelStart) * 100 : 0;
   const vlmDropRate = rateBetween(summary?.confirmed_count, summary?.candidates_count, true);
   const asrPassRate = rateBetween(summary?.enriched_segments_count, summary?.confirmed_count);
@@ -164,19 +180,36 @@ export function DiagnosticsPage() {
             <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-4">
               <h2 className="text-base font-semibold text-slate-900">片段漏斗</h2>
               <div className="mt-4 grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
-                <div className="min-w-0 space-y-3">
-                  {funnel.length > 0 ? funnel.map((item, index) => (
-                    <FunnelStageRow key={item.label} item={item} index={index} max={maxFunnel} />
-                  )) : (
-                    <p className="rounded-lg bg-slate-50 py-8 text-center text-sm text-slate-400">选择项目后查看片段漏斗</p>
-                  )}
-                </div>
+                {funnelChartData.length > 0 ? (
+                  <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(280px,1fr)_220px]">
+                    <div className="h-72 min-w-0 rounded-lg bg-slate-50 px-2 py-3">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <FunnelChart margin={{ top: 12, right: 24, bottom: 12, left: 24 }}>
+                          <Tooltip content={<FunnelTooltip />} />
+                          <Funnel dataKey="value" nameKey="name" data={funnelChartData} lastShapeType="rectangle" isAnimationActive={false} stroke="#ffffff" strokeWidth={2}>
+                            {funnelChartData.map((entry) => (
+                              <Cell key={entry.label} fill={entry.fill} />
+                            ))}
+                            <LabelList dataKey="name" position="inside" fill="#ffffff" stroke="none" fontSize={12} fontWeight={600} />
+                          </Funnel>
+                        </FunnelChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="min-w-0 space-y-2">
+                      {funnelChartData.map((item) => (
+                        <FunnelLegendItem key={item.label} item={item} />
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="rounded-lg bg-slate-50 py-8 text-center text-sm text-slate-400">选择项目后查看片段漏斗</p>
+                )}
                 <div className="rounded-lg border border-slate-200 text-sm">
                   <RateRow label="整体通过率" value={`${overallPassRate.toFixed(1)}%`} tone="emerald" />
                   <RateRow label="VLM过滤率" value={`${vlmDropRate.toFixed(1)}%`} tone={vlmDropRate > 30 ? "amber" : "emerald"} />
                   <RateRow label="ASR通过率" value={`${asrPassRate.toFixed(1)}%`} tone="emerald" />
                   <RateRow label="导出失败率" value={`${exportFailRate.toFixed(1)}%`} tone={exportFailRate > 0 ? "amber" : "emerald"} />
-                  <p className="px-3 py-2 text-xs text-slate-400">* 比率根据现有诊断字段推导</p>
+                  <p className="px-3 py-2 text-xs text-slate-400">* 漏斗图按阶段顺序收敛，数量来自诊断接口</p>
                 </div>
               </div>
             </div>
@@ -396,33 +429,31 @@ function PipelineStep({
   );
 }
 
-function FunnelStageRow({
-  item,
-  index,
-  max,
-}: {
-  item: DiagnosticReport["funnel"][number];
-  index: number;
-  max: number;
-}) {
-  const descriptions = ["视觉候选输出的候选片段", "通过 VLM 语义确认", "成功转写文本", "融合后的候选片段", "阶段输出数量", "最终成功导出"];
-  const percent = max > 0 ? Math.round((item.count / max) * 100) : 0;
-  const color = index < 2 ? "bg-blue-600" : index === 2 ? "bg-sky-500" : index === 3 ? "bg-cyan-500" : "bg-emerald-500";
-
+function FunnelLegendItem({ item }: { item: FunnelChartDatum }) {
   return (
-    <div className="rounded-lg border border-slate-100 bg-slate-50/60 p-3">
-      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_72px] sm:items-start sm:gap-3">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-slate-800">{item.label}</div>
-          <div className="mt-0.5 text-xs text-slate-400">{descriptions[index] ?? "阶段输出数量"}</div>
-        </div>
-        <div className="flex items-baseline gap-2 sm:block sm:text-right">
-          <div className="text-sm font-semibold text-slate-950">{item.count}</div>
-          <div className="text-xs font-medium text-blue-600">{percent}%</div>
-        </div>
+    <div className="grid grid-cols-[10px_minmax(0,1fr)_56px] items-center gap-2 rounded-lg border border-slate-100 bg-white px-3 py-2">
+      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.fill }} />
+      <div className="min-w-0">
+        <div className="truncate text-sm font-semibold text-slate-800">{item.label}</div>
+        <div className="truncate text-xs text-slate-400">{item.description}</div>
       </div>
-      <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-200">
-        <div className={cn("h-full rounded-full", color)} style={{ width: `${Math.max(4, percent)}%` }} />
+      <div className="text-right">
+        <div className="text-sm font-semibold text-slate-950">{item.count}</div>
+        <div className="text-xs font-medium text-blue-600">{item.percent}%</div>
+      </div>
+    </div>
+  );
+}
+
+function FunnelTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: FunnelChartDatum }> }) {
+  const item = payload?.[0]?.payload;
+  if (!active || !item) return null;
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-lg">
+      <div className="font-semibold text-slate-900">{item.label}</div>
+      <div className="mt-1 text-xs text-slate-500">{item.description}</div>
+      <div className="mt-2 text-xs text-slate-500">
+        数量 <span className="font-semibold text-slate-900">{item.count}</span> · 占比 <span className="font-semibold text-blue-600">{item.percent}%</span>
       </div>
     </div>
   );
@@ -540,6 +571,16 @@ function pipelineIcon(stage: string) {
   if (stage.includes("TRANSCRIB")) return <FileText size={18} />;
   if (stage.includes("PROCESS") || stage.includes("EXPORT") || stage.includes("COMPLETED")) return <Download size={18} />;
   return <CheckCircle2 size={18} />;
+}
+
+function funnelDescription(index: number): string {
+  const descriptions = ["视觉候选输出", "VLM 语义确认", "成功转写文本", "融合后的候选", "阶段输出数量", "最终成功导出"];
+  return descriptions[index] ?? "阶段输出数量";
+}
+
+function funnelColor(index: number): string {
+  const colors = ["#2563eb", "#3b82f6", "#0ea5e9", "#06b6d4", "#10b981", "#22c55e"];
+  return colors[index % colors.length];
 }
 
 function normalizeLevel(level: string): "error" | "warn" | "info" | "ok" {
