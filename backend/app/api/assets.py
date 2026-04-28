@@ -1,12 +1,16 @@
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Query
 
 from app.api.commerce import commerce_status_for_clip
+from app.services.list_index import query_clip_assets
 
 UPLOAD_DIR = Path("uploads")
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -66,6 +70,20 @@ async def list_clip_assets(
             "offset": offset,
             "limit": limit,
         }
+
+    try:
+        return query_clip_assets(
+            UPLOAD_DIR,
+            status=status,
+            commerce_status=commerce_status,
+            project_id=project_id,
+            q=q,
+            duration=duration,
+            offset=offset,
+            limit=limit,
+        )
+    except Exception:
+        logger.warning("SQLite clip asset index failed, falling back to file scan", exc_info=True)
 
     items: list[dict[str, Any]] = []
     for task_dir in sorted(UPLOAD_DIR.iterdir()):

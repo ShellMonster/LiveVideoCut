@@ -65,6 +65,14 @@ async def test_clip_assets_filter_by_status(client):
 
 
 @pytest.mark.anyio
+async def test_clip_assets_create_sqlite_index(client, tmp_path):
+    response = await client.get("/api/assets/clips")
+
+    assert response.status_code == 200
+    assert (tmp_path / "index.sqlite3").exists()
+
+
+@pytest.mark.anyio
 async def test_clip_assets_search_duration_and_pagination(client):
     response = await client.get("/api/assets/clips?q=资产&duration=short&offset=0&limit=1")
 
@@ -86,6 +94,22 @@ async def test_task_list_summary_search_and_processing_filter(client):
     assert data["summary"]["total"] == 2
     assert data["summary"]["completed"] == 1
     assert data["summary"]["uploaded"] == 1
+
+
+@pytest.mark.anyio
+async def test_review_patch_refreshes_clip_asset_index(client):
+    tid = "c3d4e5f6-a7b8-9012-cdef-234567890123"
+    patch_response = await client.patch(
+        f"/api/tasks/{tid}/review/segments/clip_000",
+        json={"status": "skipped"},
+    )
+    assert patch_response.status_code == 200
+
+    response = await client.get("/api/assets/clips?status=skipped")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert data["items"][0]["review_status"] == "skipped"
 
 
 @pytest.mark.anyio
@@ -123,11 +147,15 @@ async def test_task_events_and_artifact_download(client):
 
 @pytest.mark.anyio
 async def test_delete_legacy_safe_task_id(client, tmp_path):
+    await client.get("/api/tasks")
     response = await client.delete("/api/tasks/waiting-task")
 
     assert response.status_code == 200
     assert response.json()["task_id"] == "waiting-task"
     assert not (tmp_path / "waiting-task").exists()
+    list_response = await client.get("/api/tasks?q=waiting")
+    assert list_response.status_code == 200
+    assert list_response.json()["total"] == 0
 
 
 @pytest.mark.anyio

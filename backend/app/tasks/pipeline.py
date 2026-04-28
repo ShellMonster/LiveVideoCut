@@ -213,6 +213,12 @@ def _write_clip_job(task_path: Path, segment_id: str, payload: dict[str, Any]) -
     current["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     jobs[segment_id] = current
     jobs_path.write_text(json.dumps(jobs, ensure_ascii=False, indent=2))
+    try:
+        from app.services.list_index import refresh_task_index
+
+        refresh_task_index(task_path.parent, task_path.name)
+    except Exception:
+        logger.warning("Failed to refresh list index for clip job %s", segment_id, exc_info=True)
 
 
 @celery_app.task(bind=True, max_retries=1)
@@ -242,6 +248,12 @@ def process_commerce_assets(
         (commerce_dir / "state.json").write_text(
             json.dumps({"status": "failed", "message": payload["message"]}, ensure_ascii=False, indent=2)
         )
+        try:
+            from app.services.list_index import refresh_task_index
+
+            refresh_task_index(Path(task_dir).parent, task_id)
+        except Exception:
+            logger.warning("Failed to refresh list index after commerce failure", exc_info=True)
         raise
 
 

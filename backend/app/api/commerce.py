@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from fastapi.responses import FileResponse, JSONResponse
 
 from app.services.gemini_vision_client import GeminiVisionClient
+from app.services.list_index import refresh_task_index
 from app.services.openai_image_client import OpenAIImageClient
 
 UPLOAD_DIR = Path("uploads")
@@ -103,6 +104,7 @@ def _write_commerce_job(task_id: str, segment_id: str, payload: dict[str, Any]) 
         "status": current.get("status", "not_started"),
         "message": current.get("message", "尚未生成 AI 商品素材"),
     })
+    refresh_task_index(UPLOAD_DIR, task_id)
     return current
 
 

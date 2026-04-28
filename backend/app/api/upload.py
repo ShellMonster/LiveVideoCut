@@ -10,6 +10,7 @@ from fastapi import APIRouter, Form, HTTPException, UploadFile
 from pydantic import ValidationError as PydanticValidationError
 
 from app.api.settings import SENSITIVE_FIELDS, SettingsRequest
+from app.services.list_index import refresh_task_index
 from app.services.validator import MAX_FILE_SIZE, ValidationError, VideoValidator
 from app.tasks.pipeline import start_pipeline
 
@@ -137,6 +138,7 @@ async def upload_file(file: UploadFile, settings_json: str | None = Form(None)):
         secrets_path.chmod(0o600)
 
     # 7. Dispatch Celery task
+    refresh_task_index(UPLOAD_DIR, task_id)
     start_pipeline.delay(task_id, file_path)
 
     return {"task_id": task_id, "metadata": metadata}

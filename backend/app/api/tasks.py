@@ -2,6 +2,7 @@ import asyncio
 import datetime
 import io
 import json
+import logging
 import os
 import re
 import shutil
@@ -22,9 +23,12 @@ from app.services.subtitle_overrides import (
     normalize_subtitle_override_text,
 )
 from app.services.state_machine import TaskStateMachine
+from app.services.list_index import delete_task_index, query_tasks, refresh_task_index
 from app.tasks.pipeline import reprocess_clip, start_pipeline
 
 UPLOAD_DIR = Path("uploads")
+
+logger = logging.getLogger(__name__)
 
 _TASK_ID_RE = re.compile(r"^[a-f0-9\-]{36}$", re.IGNORECASE)
 _SAFE_TASK_DIR_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
@@ -304,6 +308,17 @@ async def list_tasks(
             },
         }
 
+    try:
+        return query_tasks(
+            UPLOAD_DIR,
+            offset=offset,
+            limit=limit,
+            status=status,
+            q=q,
+        )
+    except Exception:
+        logger.warning("SQLite task list index failed, falling back to file scan", exc_info=True)
+
     items: list[dict] = []
     summary = {
         "total": 0,
@@ -443,6 +458,7 @@ async def delete_task(task_id: str):
     if isinstance(task_dir, JSONResponse):
         return task_dir
     shutil.rmtree(task_dir)
+    delete_task_index(UPLOAD_DIR, task_id)
     return {"detail": "Task deleted", "task_id": task_id}
 
 
@@ -690,6 +706,7 @@ async def patch_review_segment(task_id: str, segment_id: str, patch: ReviewSegme
     current["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     segments[segment_id] = current
     _write_review_state(task_dir, review)
+    refresh_task_index(UPLOAD_DIR, task_id)
     return {"task_id": task_id, "segment_id": segment_id, "review": current}
 
 
@@ -710,6 +727,7 @@ async def retry_task(task_id: str):
             indent=2,
         )
     )
+    refresh_task_index(UPLOAD_DIR, task_id)
     start_pipeline.delay(task_id, str(original))
     return {"task_id": task_id, "status": "queued"}
 
@@ -744,6 +762,7 @@ async def reprocess_task_clip(task_id: str, segment_id: str):
     )
     result = reprocess_clip.delay(task_id, str(task_dir), segment_id)
     _write_clip_job_api(task_dir, segment_id, {"celery_id": result.id})
+    refresh_task_index(UPLOAD_DIR, task_id)
     return {"task_id": task_id, "segment_id": segment_id, "status": "queued", "celery_id": result.id}
 
 

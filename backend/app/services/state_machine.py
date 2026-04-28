@@ -63,3 +63,9 @@ class TaskStateMachine:
             data["step"] = step
 
         state_file.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+        try:
+            from app.services.list_index import refresh_task_index
+
+            refresh_task_index(self.task_dir.parent, self.task_dir.name)
+        except Exception:
+            pass
