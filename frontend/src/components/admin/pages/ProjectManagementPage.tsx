@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { ProgressBar } from "@/components/ProgressBar";
 import { useAdminContext } from "@/components/admin/context";
 import { useTaskList, useTaskSummary, useTaskDiagnostics, useDeleteTask, useTaskClips } from "@/hooks/useAdminQueries";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useConfirmStore } from "@/stores/confirmStore";
 import {
   Header,
@@ -36,11 +37,12 @@ export function ProjectManagementPage() {
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("overview");
   const [menuTaskId, setMenuTaskId] = useState<string | null>(null);
   const pageSize = 10;
+  const debouncedQuery = useDebouncedValue(query);
   const { data: taskList, isLoading: loading } = useTaskList({
     page,
     pageSize,
     status: statusFilter,
-    query,
+    query: debouncedQuery,
   });
   const tasks = taskList?.items ?? [];
   const totalTasks = taskList?.total ?? 0;

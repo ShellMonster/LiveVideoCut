@@ -15,7 +15,7 @@ import {
   XCircle,
 } from "lucide-react";
 import type React from "react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Cell, Funnel, FunnelChart, LabelList, ResponsiveContainer, Tooltip } from "recharts";
 import { cn } from "@/lib/utils";
 import { useAdminContext } from "@/components/admin/context";
@@ -41,30 +41,42 @@ export function DiagnosticsPage() {
   const { data: diagnostics, refetch, isFetching } = useTaskDiagnostics(selectedTask?.task_id);
 
   const summary = diagnostics?.summary;
-  const funnel = diagnostics?.funnel ?? [];
-  const eventLog = diagnostics?.event_log ?? [];
+  const funnel = useMemo(() => diagnostics?.funnel ?? [], [diagnostics?.funnel]);
+  const eventLog = useMemo(() => diagnostics?.event_log ?? [], [diagnostics?.event_log]);
   const [eventPage, setEventPage] = useState(1);
   const [selectedEvent, setSelectedEvent] = useState<DiagnosticEvent | null>(null);
   const eventPageSize = 10;
-  const visibleEvents = eventLog.slice((eventPage - 1) * eventPageSize, eventPage * eventPageSize);
-  const maxFunnel = Math.max(...funnel.map((item) => item.count), 1);
+  const visibleEvents = useMemo(
+    () => eventLog.slice((eventPage - 1) * eventPageSize, eventPage * eventPageSize),
+    [eventLog, eventPage],
+  );
+  const maxFunnel = useMemo(() => Math.max(...funnel.map((item) => item.count), 1), [funnel]);
   const taskId = selectedTask?.task_id;
   const pipeline = diagnostics?.pipeline ?? [];
   const warningItems = diagnostics?.warnings ?? [];
-  const errorCount = eventLog.filter((event) => normalizeLevel(event.level) === "error").length;
-  const warningCount = warningItems.length + eventLog.filter((event) => normalizeLevel(event.level) === "warn").length;
-  const infoCount = eventLog.filter((event) => normalizeLevel(event.level) === "info").length;
+  const errorCount = useMemo(
+    () => eventLog.filter((event) => normalizeLevel(event.level) === "error").length,
+    [eventLog],
+  );
+  const warningCount = useMemo(
+    () => warningItems.length + eventLog.filter((event) => normalizeLevel(event.level) === "warn").length,
+    [eventLog, warningItems.length],
+  );
+  const infoCount = useMemo(
+    () => eventLog.filter((event) => normalizeLevel(event.level) === "info").length,
+    [eventLog],
+  );
   const dataUpdatedAt = eventLog[0]?.time || selectedTask?.created_at;
   const funnelStart = funnel[0]?.count || 0;
   const funnelEnd = funnel[funnel.length - 1]?.count || 0;
-  const funnelChartData = funnel.map((item, index) => ({
+  const funnelChartData = useMemo(() => funnel.map((item, index) => ({
     ...item,
     name: item.label,
     value: Math.max(36, 100 - index * 11),
     percent: maxFunnel > 0 ? Math.round((item.count / maxFunnel) * 100) : 0,
     description: funnelDescription(index),
     fill: funnelColor(index),
-  }));
+  })), [funnel, maxFunnel]);
   const overallPassRate = funnelStart > 0 ? (funnelEnd / funnelStart) * 100 : 0;
   const vlmDropRate = rateBetween(summary?.confirmed_count, summary?.candidates_count, true);
   const asrPassRate = rateBetween(summary?.enriched_segments_count, summary?.confirmed_count);

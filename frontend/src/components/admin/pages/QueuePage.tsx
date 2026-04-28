@@ -4,6 +4,7 @@ import { Activity, Calendar, CheckCircle2, Circle, Cpu, Ellipsis, Eye, Film, Har
 import { cn } from "@/lib/utils";
 import { useAdminContext } from "@/components/admin/context";
 import { useTaskList, useSystemResources, useTaskEvents, useDeleteTask, useRetryTask } from "@/hooks/useAdminQueries";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useConfirmStore } from "@/stores/confirmStore";
 import { stageLabels } from "../constants";
 import {
@@ -31,7 +32,8 @@ export function QueuePage() {
   const [drawerTab, setDrawerTab] = useState<QueueDrawerTab>("overview");
   const [openMenuTaskId, setOpenMenuTaskId] = useState<string | null>(null);
   const pageSize = 10;
-  const { data: taskList } = useTaskList({ page, pageSize, query, status: statusFilter });
+  const debouncedQuery = useDebouncedValue(query);
+  const { data: taskList } = useTaskList({ page, pageSize, query: debouncedQuery, status: statusFilter });
   const tasks = taskList?.items ?? [];
   const { data: resources } = useSystemResources();
   const { data: events = [] } = useTaskEvents(selectedTask?.task_id);

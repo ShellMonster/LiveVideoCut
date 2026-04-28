@@ -69,27 +69,30 @@ export function ReviewPage() {
     currentSegment?.segment_id,
   );
 
-  const timelineDuration = Math.max(
+  const timelineDuration = useMemo(() => Math.max(
     selectedTask?.video_duration_s ?? 0,
     ...(reviewData?.segments.map((segment) => segment.end_time) ?? [0]),
     currentClip?.end_time ?? 0,
-  );
+  ), [currentClip?.end_time, reviewData?.segments, selectedTask?.video_duration_s]);
   const isCurrentReprocessing = currentJob?.status === "queued" || currentJob?.status === "running";
   const isMutating = patchMutation.isPending || reprocessMutation.isPending;
-  const approvedClipIds = clips
+  const approvedClipIds = useMemo(() => clips
     .filter((_clip, index) => reviewData?.segments[index]?.review_status === "approved")
-    .map((clip) => clip.clip_id);
-  const clipEntries = clips.map((clip, index) => ({
+    .map((clip) => clip.clip_id), [clips, reviewData?.segments]);
+  const clipEntries = useMemo(() => clips.map((clip, index) => ({
     clip,
     index,
     segment: reviewData?.segments[index],
-  }));
-  const filteredEntries = clipEntries.filter(({ segment }) => {
+  })), [clips, reviewData?.segments]);
+  const filteredEntries = useMemo(() => clipEntries.filter(({ segment }) => {
     if (statusFilter === "all") return true;
     return (segment?.review_status ?? "pending") === statusFilter;
-  });
+  }), [clipEntries, statusFilter]);
   const clipPageStart = (clipPage - 1) * clipPageSize;
-  const visibleEntries = filteredEntries.slice(clipPageStart, clipPageStart + clipPageSize);
+  const visibleEntries = useMemo(
+    () => filteredEntries.slice(clipPageStart, clipPageStart + clipPageSize),
+    [clipPageStart, filteredEntries],
+  );
   const currentSegmentStart = currentSegment?.start_time;
   const currentSegmentEnd = currentSegment?.end_time;
   const transcriptLines = useMemo(() => (
@@ -107,7 +110,7 @@ export function ReviewPage() {
       ...source.map((line) => `${line.start_time}:${line.end_time}:${line.text}`),
     ].join("|");
   }, [currentSegment, transcriptLines]);
-  const statusCounts = reviewFilters.reduce<Record<ReviewFilter, number>>((acc, option) => {
+  const statusCounts = useMemo(() => reviewFilters.reduce<Record<ReviewFilter, number>>((acc, option) => {
     acc[option.value] = option.value === "all"
       ? clipEntries.length
       : clipEntries.filter(({ segment }) => (segment?.review_status ?? "pending") === option.value).length;
@@ -118,7 +121,7 @@ export function ReviewPage() {
     approved: 0,
     needs_adjustment: 0,
     skipped: 0,
-  });
+  }), [clipEntries]);
 
   const handlePatch = (segmentId: string, patch: Partial<ReviewSegment>) => {
     patchMutation.mutate({ segmentId, patch: patch as Record<string, unknown> });

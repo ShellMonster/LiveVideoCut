@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { Check, Download, Eye, Film, ListChecks, MoreHorizontal, Search, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useClipAssets, useCommerceBatchAction } from "@/hooks/useAdminQueries";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { API_BASE } from "../api";
 import { formatBytes, formatConfidence, formatDate, formatDuration, reviewStatusLabel } from "../format";
 import { Header, MetricCard, MetricPill, Pagination } from "../shared";
@@ -26,12 +27,13 @@ export function AssetsPage() {
   const [batchDrawerOpen, setBatchDrawerOpen] = useState(false);
   const [batchResult, setBatchResult] = useState<CommerceBatchResponse | null>(null);
   const pageSize = 12;
+  const debouncedQuery = useDebouncedValue(query);
 
   const { data: { items: assets = [], summary = null, total = 0 } = {} } = useClipAssets({
     projectId: selectedProjectId,
     statusFilter,
     commerceStatusFilter,
-    query,
+    query: debouncedQuery,
     durationFilter,
     page,
     pageSize,
@@ -55,11 +57,17 @@ export function AssetsPage() {
   };
 
   const visibleAssets = assets;
-  const selectedAssets = assets.filter((clip) => selectedClips.has(clip.clip_id));
-  const selectedClipIds = selectedAssets.map((clip) => clip.clip_id);
+  const selectedAssets = useMemo(
+    () => assets.filter((clip) => selectedClips.has(clip.clip_id)),
+    [assets, selectedClips],
+  );
+  const selectedClipIds = useMemo(
+    () => selectedAssets.map((clip) => clip.clip_id),
+    [selectedAssets],
+  );
   const hasSelectedClips = selectedClipIds.length > 0;
   const batchDownloadUrl = `${API_BASE}/api/clips/batch?ids=${selectedClipIds.join(",")}`;
-  const groupedAssets = groupAssetsByProject(visibleAssets);
+  const groupedAssets = useMemo(() => groupAssetsByProject(visibleAssets), [visibleAssets]);
 
   const clearSelection = () => setSelectedClips(new Set());
 

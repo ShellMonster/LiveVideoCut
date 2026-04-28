@@ -16,6 +16,15 @@ import type {
   TaskSummary,
 } from "@/components/admin/types";
 
+const ACTIVE_TASK_REFETCH_MS = 5_000;
+const IDLE_TASK_REFETCH_MS = 30_000;
+
+function taskListRefetchInterval(data?: TaskListResponse): number {
+  const summary = data?.summary;
+  const activeCount = (summary?.processing ?? 0) + (summary?.uploaded ?? 0);
+  return activeCount > 0 ? ACTIVE_TASK_REFETCH_MS : IDLE_TASK_REFETCH_MS;
+}
+
 // ---------- Query key factories ----------
 
 export const adminKeys = {
@@ -68,7 +77,7 @@ export function useTaskList({
         summary: data.summary,
       };
     },
-    refetchInterval: 5000,
+    refetchInterval: (query) => taskListRefetchInterval(query.state.data),
   });
 }
 
@@ -79,7 +88,12 @@ export function useTasks() {
       const data = await fetchJson<TaskListResponse>(`${API_BASE}/api/tasks?offset=0&limit=100`);
       return data.items ?? [];
     },
-    refetchInterval: 5000,
+    refetchInterval: (query) => {
+      const items = query.state.data ?? [];
+      return items.some((task) => task.status !== "COMPLETED" && task.status !== "ERROR")
+        ? ACTIVE_TASK_REFETCH_MS
+        : IDLE_TASK_REFETCH_MS;
+    },
   });
 }
 

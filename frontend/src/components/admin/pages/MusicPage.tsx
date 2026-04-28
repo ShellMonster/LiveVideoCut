@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Folder,
   ListMusic,
@@ -21,6 +21,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { useConfirmStore } from "@/stores/confirmStore";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { API_BASE } from "../api";
 import { useMusicLibrary, useUploadTrack, useDeleteTrack, useSaveTrackTags } from "@/hooks/useAdminQueries";
 import { editableCategoryOptions, editableMoodOptions } from "../constants";
@@ -75,6 +76,7 @@ export function AdminMusicPage() {
   const pageSize = 10;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const debouncedQuery = useDebouncedValue(query);
 
   const selectTrack = (track: MusicTrack | null, openDrawer = true) => {
     setSelectedTrack(track);
@@ -82,17 +84,23 @@ export function AdminMusicPage() {
     if (openDrawer && track) setDrawerOpen(true);
   };
 
-  const userCount = tracks.filter((track) => track.source === "user").length;
-  const builtInCount = tracks.filter((track) => track.source === "built-in").length;
-  const categoryCount = new Set(tracks.flatMap((track) => track.categories)).size;
-  const filteredTracks = tracks.filter((track) => {
+  const userCount = useMemo(() => tracks.filter((track) => track.source === "user").length, [tracks]);
+  const builtInCount = useMemo(() => tracks.filter((track) => track.source === "built-in").length, [tracks]);
+  const categoryCount = useMemo(() => new Set(tracks.flatMap((track) => track.categories)).size, [tracks]);
+  const filteredTracks = useMemo(() => tracks.filter((track) => {
     if (sourceFilter !== "all" && track.source !== sourceFilter) return false;
-    if (!query.trim()) return true;
+    if (!debouncedQuery.trim()) return true;
     const text = `${track.title} ${track.mood.join(" ")} ${track.mood.map(moodLabel).join(" ")} ${track.categories.join(" ")} ${track.categories.map(categoryLabel).join(" ")} ${track.genre} ${genreLabel(track.genre)}`.toLowerCase();
-    return text.includes(query.trim().toLowerCase());
-  });
-  const visibleTracks = filteredTracks.slice((page - 1) * pageSize, page * pageSize);
-  const currentTrack = tracks.find((track) => track.id === playingId) ?? selectedTrack;
+    return text.includes(debouncedQuery.trim().toLowerCase());
+  }), [debouncedQuery, sourceFilter, tracks]);
+  const visibleTracks = useMemo(
+    () => filteredTracks.slice((page - 1) * pageSize, page * pageSize),
+    [filteredTracks, page],
+  );
+  const currentTrack = useMemo(
+    () => tracks.find((track) => track.id === playingId) ?? selectedTrack,
+    [playingId, selectedTrack, tracks],
+  );
 
   const togglePlay = (track: MusicTrack) => {
     selectTrack(track, false);
