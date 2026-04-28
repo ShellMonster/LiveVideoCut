@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronRight, Download, Film, MoreHorizontal, Play, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAdminContext } from "@/components/admin/context";
@@ -24,7 +24,6 @@ import {
   MetricPill,
   Pagination,
   SegmentTimeline,
-  TranscriptLine,
 } from "../shared";
 import type { ClipData } from "@/stores/taskStore";
 import type { ReviewSegment } from "../types";
@@ -381,9 +380,23 @@ function ReviewInspectorDrawer({
 
   const tabs: { value: DrawerTab; label: string }[] = [
     { value: "details", label: "详情" },
-    { value: "subtitles", label: "字幕" },
+    { value: "subtitles", label: "字幕草稿" },
     { value: "advice", label: "AI建议" },
   ];
+  const [subtitleDraft, setSubtitleDraft] = useState<{ start_time: number; end_time: number; text: string }[]>([]);
+
+  useEffect(() => {
+    if (!segment) {
+      setSubtitleDraft([]);
+      return;
+    }
+    const source = segment.subtitle_overrides?.length ? segment.subtitle_overrides : transcriptLines;
+    setSubtitleDraft(source.map((line) => ({
+      start_time: Number(line.start_time),
+      end_time: Number(line.end_time),
+      text: line.text ?? "",
+    })));
+  }, [segment?.segment_id, segment?.subtitle_overrides, transcriptLines]);
 
   return (
     <div className="fixed inset-0 z-40">
@@ -510,22 +523,74 @@ function ReviewInspectorDrawer({
           {tab === "subtitles" && (
             <div className="mt-5 rounded-lg border border-slate-200 p-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-slate-900">字幕文本</h3>
-                <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-500">只读预览</span>
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900">字幕草稿</h3>
+                  <p className="mt-1 text-xs text-slate-500">不修改原始 ASR，保存后重导出会使用覆盖草稿。</p>
+                </div>
+                <span className="rounded-full bg-amber-50 px-2 py-1 text-xs text-amber-700">
+                  {segment?.subtitle_overrides?.length ? "已有草稿" : "未保存草稿"}
+                </span>
               </div>
               <div className="mt-3 max-h-[420px] space-y-2 overflow-y-auto text-xs text-slate-600">
-                {transcriptLines.length > 0 ? (
-                  transcriptLines.map((line) => (
-                    <TranscriptLine
-                      key={`${line.start_time}-${line.end_time}`}
-                      time={formatDuration(line.start_time)}
-                      text={line.text}
-                    />
+                {subtitleDraft.length > 0 ? (
+                  subtitleDraft.map((line, index) => (
+                    <div key={`${line.start_time}-${line.end_time}-${index}`} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <span className="font-medium text-slate-500">
+                          {formatDuration(line.start_time)} - {formatDuration(line.end_time)}
+                        </span>
+                        <button
+                          onClick={() => setSubtitleDraft((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+                          className="text-xs font-medium text-red-600 hover:text-red-700"
+                        >
+                          删除
+                        </button>
+                      </div>
+                      <textarea
+                        value={line.text}
+                        onChange={(event) => {
+                          const text = event.target.value;
+                          setSubtitleDraft((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, text } : item));
+                        }}
+                        className="min-h-16 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-700 outline-none focus:border-blue-400"
+                      />
+                    </div>
                   ))
                 ) : (
                   <p className="text-sm text-slate-400">暂无可展示字幕文本</p>
                 )}
               </div>
+              {segment && (
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => {
+                      const source = transcriptLines.map((line) => ({
+                        start_time: line.start_time,
+                        end_time: line.end_time,
+                        text: line.text,
+                      }));
+                      setSubtitleDraft(source);
+                    }}
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    还原原字幕
+                  </button>
+                  <button
+                    onClick={() => onPatch(segment.segment_id, { subtitle_overrides: subtitleDraft.filter((line) => line.text.trim()) })}
+                    disabled={patchPending}
+                    className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    保存字幕草稿
+                  </button>
+                  <button
+                    onClick={() => onReprocess(segment.segment_id)}
+                    disabled={isCurrentReprocessing || reprocessPending}
+                    className="col-span-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isCurrentReprocessing ? "重导出中" : "用草稿重导出单片段"}
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

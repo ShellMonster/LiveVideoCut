@@ -215,6 +215,29 @@ def _write_clip_job(task_path: Path, segment_id: str, payload: dict[str, Any]) -
     jobs_path.write_text(json.dumps(jobs, ensure_ascii=False, indent=2))
 
 
+@celery_app.task(bind=True, max_retries=1)
+def process_commerce_assets(self, task_id: str, task_dir: str, segment_id: str, actions: list[str]) -> dict[str, Any]:
+    try:
+        from app.api.commerce import run_commerce_actions
+
+        return run_commerce_actions(task_id, segment_id, actions)
+    except Exception as exc:
+        commerce_dir = Path(task_dir) / "commerce" / segment_id
+        commerce_dir.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "status": "failed",
+            "message": f"AI 商品素材生成失败：{exc}",
+            "error": str(exc),
+            "finished_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        }
+        (commerce_dir / "job.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2))
+        (commerce_dir / "state.json").write_text(
+            json.dumps({"status": "failed", "message": payload["message"]}, ensure_ascii=False, indent=2)
+        )
+        raise
+
+
 def _load_review_segment(task_path: Path, segment_id: str) -> tuple[int, dict[str, Any]]:
     if not segment_id.startswith("clip_"):
         raise ValueError("Invalid segment id")

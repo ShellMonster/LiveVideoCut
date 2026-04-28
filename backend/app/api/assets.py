@@ -4,6 +4,8 @@ from typing import Any
 
 from fastapi import APIRouter, Query
 
+from app.api.commerce import commerce_status_for_clip
+
 UPLOAD_DIR = Path("uploads")
 
 router = APIRouter()
@@ -41,6 +43,7 @@ def _task_created_at(task_dir: Path) -> str:
 @router.get("/api/assets/clips")
 async def list_clip_assets(
     status: str | None = Query(None),
+    commerce_status: str | None = Query(None),
     project_id: str | None = Query(None),
     q: str | None = Query(None, max_length=120),
     duration: str | None = Query(None),
@@ -87,6 +90,9 @@ async def list_clip_assets(
             review_status = _review_status(task_dir, segment_id)
             if status and review_status != status:
                 continue
+            commerce = commerce_status_for_clip(task_dir.name, segment_id)
+            if commerce_status and commerce.get("status") != commerce_status:
+                continue
 
             clip_duration = meta.get("duration", 0)
             if duration == "short" and clip_duration >= 30:
@@ -113,6 +119,10 @@ async def list_clip_assets(
                 "thumbnail_url": f"/api/clips/{task_dir.name}/{segment_id}/thumbnail",
                 "has_video": video_path.exists(),
                 "has_thumbnail": cover_path.exists(),
+                "commerce_status": commerce.get("status", "not_started"),
+                "commerce_analysis_status": commerce.get("analysis_status", "not_started"),
+                "commerce_copywriting_status": commerce.get("copywriting_status", "not_started"),
+                "commerce_images_status": commerce.get("images_status", "not_started"),
             }
 
             normalized_q = (q or "").strip().lower()
@@ -141,6 +151,8 @@ async def list_clip_assets(
         ),
         "downloadable": sum(1 for item in items if item["has_video"]),
         "total_size": sum(int(item["file_size"]) for item in items),
+        "commerce_completed": sum(1 for item in items if item.get("commerce_status") == "completed"),
+        "commerce_failed": sum(1 for item in items if item.get("commerce_status") == "failed"),
     }
 
     page = items[offset : offset + limit]

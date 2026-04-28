@@ -34,6 +34,7 @@ class ReviewSegmentPatch(BaseModel):
     status: str | None = None
     cover_strategy: str | None = None
     note: str | None = None
+    subtitle_overrides: list[dict[str, Any]] | None = None
 
 
 def _read_json(path: Path, fallback: Any) -> Any:

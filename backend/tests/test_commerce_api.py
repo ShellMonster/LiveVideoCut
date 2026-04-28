@@ -120,12 +120,18 @@ async def test_analyze_clip_cover_calls_gemini_and_saves_result(client, monkeypa
 
     monkeypatch.setattr("app.api.commerce.GeminiVisionClient", FakeGeminiClient)
 
-    response = await client.post(f"/api/commerce/clips/{TASK_ID}/clip_001/analyze")
+    monkeypatch.setattr("app.tasks.pipeline.process_commerce_assets.delay", lambda *args: type("Result", (), {"id": "celery-1"})())
 
+    response = await client.post(f"/api/commerce/clips/{TASK_ID}/clip_001/analyze")
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "completed"
-    assert data["product_type"] == "连衣裙"
+    assert data["status"] == "queued"
+    assert data["job"]["celery_id"] == "celery-1"
+
+    from app.api.commerce import run_commerce_actions
+
+    result = run_commerce_actions(TASK_ID, "clip_001", ["analyze"])
+    assert result["analysis_status"] == "completed"
     saved = json.loads((tmp_path / TASK_ID / "commerce" / "clip_001" / "product_analysis.json").read_text())
     assert saved["confidence"] == 0.93
 
@@ -145,11 +151,17 @@ async def test_generate_clip_copywriting_calls_gemini_and_saves_result(client, m
 
     monkeypatch.setattr("app.api.commerce.GeminiVisionClient", FakeGeminiClient)
 
-    response = await client.post(f"/api/commerce/clips/{TASK_ID}/clip_001/copywriting")
+    monkeypatch.setattr("app.tasks.pipeline.process_commerce_assets.delay", lambda *args: type("Result", (), {"id": "celery-2"})())
 
+    response = await client.post(f"/api/commerce/clips/{TASK_ID}/clip_001/copywriting")
     assert response.status_code == 200
     data = response.json()
-    assert data["douyin"]["title"] == "米白连衣裙通勤穿搭"
+    assert data["status"] == "queued"
+    assert data["job"]["celery_id"] == "celery-2"
+
+    from app.api.commerce import run_commerce_actions
+
+    run_commerce_actions(TASK_ID, "clip_001", ["copywriting"])
     saved = json.loads((tmp_path / TASK_ID / "commerce" / "clip_001" / "copywriting.json").read_text())
     assert saved["taobao"]["selling_points"] == ["通勤"]
 
@@ -168,11 +180,19 @@ async def test_generate_clip_images_calls_openai_and_serves_images(client, monke
 
     monkeypatch.setattr("app.api.commerce.OpenAIImageClient", FakeOpenAIImageClient)
 
-    response = await client.post(f"/api/commerce/clips/{TASK_ID}/clip_001/images")
+    monkeypatch.setattr("app.tasks.pipeline.process_commerce_assets.delay", lambda *args: type("Result", (), {"id": "celery-3"})())
 
+    response = await client.post(f"/api/commerce/clips/{TASK_ID}/clip_001/images")
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "completed"
+    assert data["status"] == "queued"
+    assert data["job"]["celery_id"] == "celery-3"
+
+    from app.api.commerce import run_commerce_actions
+
+    result = run_commerce_actions(TASK_ID, "clip_001", ["images"])
+    assert result["images_status"] == "completed"
+    data = json.loads((tmp_path / TASK_ID / "commerce" / "clip_001" / "images.json").read_text())
     assert len(data["items"]) == 4
     assert data["items"][0]["url"].endswith("/model_front.png")
 

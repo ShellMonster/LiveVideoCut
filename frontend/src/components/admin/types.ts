@@ -65,6 +65,7 @@ export interface ReviewSegment {
   end_time: number;
   confidence?: number;
   text?: string;
+  subtitle_overrides?: { start_time: number; end_time: number; text: string }[];
   review_status: "pending" | "approved" | "skipped" | "needs_adjustment";
 }
 
@@ -101,6 +102,10 @@ export interface ClipAsset {
   thumbnail_url: string;
   has_video: boolean;
   has_thumbnail: boolean;
+  commerce_status?: "not_started" | "partial" | "queued" | "running" | "completed" | "failed";
+  commerce_analysis_status?: string;
+  commerce_copywriting_status?: string;
+  commerce_images_status?: string;
 }
 
 export interface ClipAssetsResponse {
@@ -116,6 +121,8 @@ export interface ClipAssetsResponse {
     needs_adjustment: number;
     downloadable: number;
     total_size: number;
+    commerce_completed?: number;
+    commerce_failed?: number;
   };
 }
 
@@ -166,8 +173,18 @@ export interface CommerceAssetResponse {
   copywriting: CommerceCopywriting;
   images: CommerceImages;
   state: {
-    status: "not_started" | "running" | "completed" | "failed";
+    status: "not_started" | "queued" | "running" | "completed" | "failed" | "partial";
     message?: string;
+  };
+  job?: {
+    status?: "queued" | "running" | "completed" | "failed";
+    actions?: string[];
+    current_action?: string;
+    current_item?: string;
+    message?: string;
+    error?: string;
+    celery_id?: string;
+    updated_at?: string;
   };
 }
 

@@ -158,6 +158,7 @@ export function useMusicLibrary() {
 export function useClipAssets({
   projectId,
   statusFilter,
+  commerceStatusFilter,
   query,
   durationFilter,
   page = 1,
@@ -165,6 +166,7 @@ export function useClipAssets({
 }: {
   projectId?: string;
   statusFilter?: string;
+  commerceStatusFilter?: string;
   query?: string;
   durationFilter?: string;
   page?: number;
@@ -176,6 +178,7 @@ export function useClipAssets({
   });
   if (projectId) params.set("project_id", projectId);
   if (statusFilter && statusFilter !== "all") params.set("status", statusFilter);
+  if (commerceStatusFilter && commerceStatusFilter !== "all") params.set("commerce_status", commerceStatusFilter);
   if (query?.trim()) params.set("q", query.trim());
   if (durationFilter && durationFilter !== "all") params.set("duration", durationFilter);
   const qs = params.toString();
@@ -200,6 +203,11 @@ export function useCommerceAsset(taskId: string | undefined, segmentId: string |
     queryKey: adminKeys.commerceAsset(taskId ?? "", segmentId ?? ""),
     queryFn: () => fetchJson<CommerceAssetResponse>(`${API_BASE}/api/commerce/clips/${taskId}/${segmentId}`),
     enabled: !!taskId && !!segmentId,
+    refetchInterval: (query) => {
+      const status = query.state.data?.job?.status ?? query.state.data?.state?.status;
+      if (status === "queued" || status === "running") return 2500;
+      return false;
+    },
   });
 }
 
@@ -223,9 +231,9 @@ export function useCommerceAction(taskId: string | undefined, segmentId: string 
     },
     onSuccess: (_, action) => {
       const messageMap = {
-        analyze: "商品识别已完成",
-        copywriting: "平台文案已生成",
-        images: "商品素材图已生成",
+        analyze: "商品识别任务已排队",
+        copywriting: "平台文案任务已排队",
+        images: "商品素材图任务已排队",
       };
       useToastStore.getState().showToast(messageMap[action], "success");
       if (taskId && segmentId) {
@@ -234,6 +242,32 @@ export function useCommerceAction(taskId: string | undefined, segmentId: string 
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : "生成失败";
+      useToastStore.getState().showToast(message, "error");
+    },
+  });
+}
+
+export function useCommerceBatchAction() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ clipIds, actions }: { clipIds: string[]; actions: ("analyze" | "copywriting" | "images")[] }) => {
+      const resp = await fetch(`${API_BASE}/api/commerce/batch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clip_ids: clipIds, actions }),
+      });
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => null);
+        throw new Error(typeof body?.detail === "string" ? body.detail : "批量生成失败");
+      }
+      return resp.json() as Promise<{ accepted: unknown[]; rejected: unknown[]; total: number }>;
+    },
+    onSuccess: (data) => {
+      useToastStore.getState().showToast(`已提交 ${data.accepted.length} 个 AI 素材任务`, "success");
+      void queryClient.invalidateQueries({ queryKey: ["admin", "assets"] });
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : "批量生成失败";
       useToastStore.getState().showToast(message, "error");
     },
   });

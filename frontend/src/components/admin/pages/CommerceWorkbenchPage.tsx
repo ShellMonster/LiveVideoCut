@@ -201,13 +201,30 @@ export function CommerceWorkbenchPage() {
               <ParameterChip label="模型" value="gpt-image-2" />
             </div>
           </section>
+
+          <section className="rounded-lg border border-slate-200 bg-white p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm font-semibold text-slate-950">生成任务</div>
+              <StatusPill label="Job" status={data.job?.status ?? data.state.status} />
+            </div>
+            <div className="mt-3 space-y-2 text-xs text-slate-500">
+              <MetadataLine label="当前动作" value={commerceActionText(data.job?.current_action)} />
+              <MetadataLine label="当前图片" value={data.job?.current_item || "—"} />
+              <MetadataLine label="任务 ID" value={data.job?.celery_id || "—"} />
+            </div>
+            {data.job?.error && (
+              <div className="mt-3 rounded-lg bg-red-50 p-3 text-xs leading-5 text-red-700">
+                {data.job.error}
+              </div>
+            )}
+          </section>
         </aside>
 
         <section className="min-w-0 rounded-lg border border-slate-200 bg-white">
           <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h2 className="text-base font-semibold text-slate-950">生成结果</h2>
-              <p className="mt-0.5 text-xs text-slate-500">{data.state.message ?? "素材状态会在这里同步"}</p>
+              <p className="mt-0.5 text-xs text-slate-500">{data.state.message ?? "素材状态会在这里同步，长耗时生成会自动轮询更新。"}</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <button
@@ -305,7 +322,9 @@ export function CommerceWorkbenchPage() {
 function StatusPill({ label, status }: { label: string; status: string }) {
   const statusMap: Record<string, { text: string; className: string }> = {
     completed: { text: "已完成", className: "bg-emerald-50 text-emerald-700" },
+    queued: { text: "排队中", className: "bg-blue-50 text-blue-700" },
     running: { text: "生成中", className: "bg-blue-50 text-blue-700" },
+    partial: { text: "部分完成", className: "bg-amber-50 text-amber-700" },
     failed: { text: "失败", className: "bg-rose-50 text-rose-700" },
     not_started: { text: "待生成", className: "bg-slate-100 text-slate-600" },
   };
@@ -468,7 +487,7 @@ function ImageResultCard({ item, tall = false, onRegenerate }: { item: CommerceI
             <Image size={34} />
             <div>
               <div className="text-sm font-medium text-slate-500">{item.label}</div>
-              <div className="mt-1 text-xs">等待接入 gpt-image-2 生成</div>
+              <div className="mt-1 text-xs">点击生成图片后显示结果</div>
             </div>
           </div>
         )}
@@ -506,4 +525,11 @@ function statusText(status: string) {
   if (status === "running") return "生成中";
   if (status === "failed") return "生成失败";
   return "待生成";
+}
+
+function commerceActionText(action?: string) {
+  if (action === "analyze") return "Gemini 商品识图";
+  if (action === "copywriting") return "平台文案";
+  if (action === "images") return "OpenAI Image 生图";
+  return "—";
 }

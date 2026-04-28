@@ -63,6 +63,32 @@ def _collect_clip_subtitle_segments(
 ) -> list[dict[str, Any]]:
     clip_start = float(segment.get("start_time", 0.0))
     clip_end = float(segment.get("end_time", 0.0))
+    overrides = segment.get("subtitle_overrides")
+    if isinstance(overrides, list) and overrides:
+        subtitle_segments: list[dict[str, Any]] = []
+        for item in overrides:
+            if not isinstance(item, dict):
+                continue
+            try:
+                start = float(item.get("start_time", 0.0))
+                end = float(item.get("end_time", 0.0))
+            except (TypeError, ValueError):
+                continue
+            text = str(item.get("text", "")).strip()
+            if not text or end <= start:
+                continue
+            relative_start = max(start, clip_start) - clip_start
+            relative_end = min(end, clip_end) - clip_start
+            if relative_end <= relative_start:
+                continue
+            subtitle_segments.append({
+                "text": text,
+                "start_time": relative_start,
+                "end_time": relative_end,
+            })
+        if subtitle_segments:
+            return subtitle_segments
+
     subtitle_segments: list[dict[str, Any]] = []
 
     for transcript_segment in transcript:

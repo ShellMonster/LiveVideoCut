@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Check, Download, Eye, Film, MoreHorizontal, Search, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useClipAssets } from "@/hooks/useAdminQueries";
+import { useClipAssets, useCommerceBatchAction } from "@/hooks/useAdminQueries";
 import { API_BASE } from "../api";
 import { formatBytes, formatConfidence, formatDate, formatDuration, reviewStatusLabel } from "../format";
 import { Header, MetricCard, MetricPill, Pagination } from "../shared";
@@ -19,6 +19,7 @@ export function AssetsPage() {
   const [selectedClips, setSelectedClips] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [commerceStatusFilter, setCommerceStatusFilter] = useState("all");
   const [durationFilter, setDurationFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [activeClip, setActiveClip] = useState<ClipAsset | null>(null);
@@ -28,11 +29,13 @@ export function AssetsPage() {
   const { data: { items: assets = [], summary = null, total = 0 } = {} } = useClipAssets({
     projectId: selectedProjectId,
     statusFilter,
+    commerceStatusFilter,
     query,
     durationFilter,
     page,
     pageSize,
   });
+  const commerceBatch = useCommerceBatchAction();
 
   useEffect(() => {
     if (!stateProjectId || searchParams.get("project_id") === stateProjectId) return;
@@ -143,6 +146,23 @@ export function AssetsPage() {
               <option value="medium">30-90 秒</option>
               <option value="long">90 秒以上</option>
             </select>
+            <select
+              value={commerceStatusFilter}
+              onChange={(event) => {
+                setCommerceStatusFilter(event.target.value);
+                clearSelection();
+                setPage(1);
+              }}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600"
+            >
+              <option value="all">全部 AI 素材</option>
+              <option value="not_started">未生成</option>
+              <option value="partial">部分完成</option>
+              <option value="queued">已排队</option>
+              <option value="running">生成中</option>
+              <option value="completed">已完成</option>
+              <option value="failed">失败</option>
+            </select>
           </div>
         </section>
 
@@ -150,7 +170,7 @@ export function AssetsPage() {
           <MetricCard label="全部片段" value={String(summary?.total ?? assets.length)} hint="跨项目统计" />
           <MetricCard label="待复核" value={String(summary?.pending ?? 0)} hint="等待人工确认" />
           <MetricCard label="已通过" value={String(summary?.approved ?? 0)} hint="可交付片段" />
-          <MetricCard label="可下载" value={String(summary?.downloadable ?? 0)} hint="文件存在的片段" />
+          <MetricCard label="AI素材完成" value={String(summary?.commerce_completed ?? 0)} hint={`失败 ${summary?.commerce_failed ?? 0} 个`} />
         </section>
 
         <section className="rounded-lg border border-slate-200 bg-white">
@@ -237,7 +257,13 @@ export function AssetsPage() {
         selected={activeClip ? selectedClips.has(activeClip.clip_id) : false}
         onToggleSelected={() => activeClip && toggleClip(activeClip.clip_id)}
       />
-      <SelectionBar clips={selectedAssets} batchDownloadUrl={batchDownloadUrl} onClear={clearSelection} />
+      <SelectionBar
+        clips={selectedAssets}
+        batchDownloadUrl={batchDownloadUrl}
+        commercePending={commerceBatch.isPending}
+        onCommerceBatch={(actions) => commerceBatch.mutate({ clipIds: selectedClipIds, actions })}
+        onClear={clearSelection}
+      />
     </>
   );
 }
@@ -297,6 +323,9 @@ function AssetCard({
           </span>
           <span className="absolute left-2 top-2 rounded-full bg-white/95 px-2 py-0.5 text-xs font-medium text-slate-700 shadow-sm">
             {reviewStatusLabel(clip.review_status)}
+          </span>
+          <span className={cn("absolute left-2 top-9 rounded-full px-2 py-0.5 text-xs font-medium shadow-sm", commerceStatusClass(clip.commerce_status))}>
+            AI素材 {commerceStatusLabel(clip.commerce_status)}
           </span>
         </div>
         <div className="p-3">
@@ -476,10 +505,14 @@ function MetadataRow({ label, value }: { label: string; value: string }) {
 function SelectionBar({
   clips,
   batchDownloadUrl,
+  commercePending,
+  onCommerceBatch,
   onClear,
 }: {
   clips: ClipAsset[];
   batchDownloadUrl: string;
+  commercePending: boolean;
+  onCommerceBatch: (actions: ("analyze" | "copywriting" | "images")[]) => void;
   onClear: () => void;
 }) {
   if (clips.length === 0) return null;
@@ -504,6 +537,22 @@ function SelectionBar({
             清空
           </button>
           <button
+            onClick={() => onCommerceBatch(["analyze", "copywriting"])}
+            disabled={commercePending}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Sparkles size={15} />
+            批量识图文案
+          </button>
+          <button
+            onClick={() => onCommerceBatch(["images"])}
+            disabled={commercePending}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Sparkles size={15} />
+            批量生图
+          </button>
+          <button
             onClick={() => {
               if (overLimit) return;
               window.open(batchDownloadUrl, "_blank");
@@ -518,4 +567,21 @@ function SelectionBar({
       </div>
     </div>
   );
+}
+
+function commerceStatusLabel(status?: ClipAsset["commerce_status"]) {
+  if (status === "completed") return "已完成";
+  if (status === "running") return "生成中";
+  if (status === "queued") return "排队中";
+  if (status === "failed") return "失败";
+  if (status === "partial") return "部分完成";
+  return "未生成";
+}
+
+function commerceStatusClass(status?: ClipAsset["commerce_status"]) {
+  if (status === "completed") return "bg-emerald-50 text-emerald-700";
+  if (status === "running" || status === "queued") return "bg-blue-50 text-blue-700";
+  if (status === "failed") return "bg-red-50 text-red-700";
+  if (status === "partial") return "bg-amber-50 text-amber-700";
+  return "bg-white/95 text-slate-600";
 }
