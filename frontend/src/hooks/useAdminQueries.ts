@@ -205,6 +205,40 @@ export function useCommerceAsset(taskId: string | undefined, segmentId: string |
 
 // ---------- Mutations ----------
 
+async function postCommerceAction(taskId: string, segmentId: string, action: "analyze" | "copywriting" | "images") {
+  const resp = await fetch(`${API_BASE}/api/commerce/clips/${taskId}/${segmentId}/${action}`, { method: "POST" });
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => null);
+    throw new Error(typeof body?.detail === "string" ? body.detail : "生成请求失败");
+  }
+  return resp.json();
+}
+
+export function useCommerceAction(taskId: string | undefined, segmentId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (action: "analyze" | "copywriting" | "images") => {
+      if (!taskId || !segmentId) throw new Error("缺少片段信息");
+      return postCommerceAction(taskId, segmentId, action);
+    },
+    onSuccess: (_, action) => {
+      const messageMap = {
+        analyze: "商品识别已完成",
+        copywriting: "平台文案已生成",
+        images: "商品素材图已生成",
+      };
+      useToastStore.getState().showToast(messageMap[action], "success");
+      if (taskId && segmentId) {
+        void queryClient.invalidateQueries({ queryKey: adminKeys.commerceAsset(taskId, segmentId) });
+      }
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : "生成失败";
+      useToastStore.getState().showToast(message, "error");
+    },
+  });
+}
+
 export function useDeleteTask() {
   const queryClient = useQueryClient();
   return useMutation({

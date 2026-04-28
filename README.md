@@ -131,7 +131,7 @@ graph TD
 - **任务队列** -- 队列流式任务列表 + 可关闭右侧任务详情抽屉 / 窄屏任务卡片；抽屉按设计图展示任务摘要、进度信息卡、阶段 checklist、最近日志、Worker 资源、重试和删除；当前阶段统一中文展示，操作列使用固定图标按钮避免挤压
 - **剪辑复核** -- 卡片式片段队列 + 右侧复核抽屉，支持状态筛选、片段预览、字幕只读预览、AI 建议和单片段重导出
 - **片段资产** -- 按项目分组的资产卡片 + 右侧详情抽屉 + 底部批量选择条，支持服务端筛选、分页、预览、下载和跳转 AI 商品素材工作台
-- **AI 商品素材** -- 独立工作台页面，基于片段封面承载 Gemini 商品识别、抖音/淘宝文案、gpt-image-2 模特图和淘宝详情页示例的生成状态与结果展示
+- **AI 商品素材** -- 独立工作台页面，基于片段封面调用 Gemini 商品识别和平台文案生成，并调用 OpenAI Image/gpt-image-2 生成模特图与淘宝详情页示例图
 - **音乐库** -- 指标卡 + 曲目表格 + 覆盖式右侧标签编辑抽屉 + 全宽底部播放器，支持上传、播放、标签编辑和用户曲目删除；列表按设计图拆分来源、时长、Mood、商品分类和居中操作列，Mood/商品分类前端中文展示但保存值保持英文
 - **任务诊断** -- 设计图式诊断仪表盘，包含项目工具栏、紧凑指标卡、横向流水线耗时、Recharts 漏斗图、右侧异常建议/事件详情和分页事件日志；窄屏下指标与流水线自动降密度展示
 - **后台布局** -- 桌面端左侧导航栏固定为视口高度，右侧页面内容独立滚动；Worker 资源/服务状态卡固定在侧栏底部，不随长页面滚出视口
@@ -196,8 +196,11 @@ docker compose up -d
 
 - `GET /api/tasks?offset=0&limit=20&q=关键词&status=processing` 返回分页任务、总数和全局状态统计；`status=processing` 会聚合所有处理中状态。
 - `GET /api/assets/clips?offset=0&limit=12&q=关键词&status=approved&duration=short` 返回分页片段资产、筛选后的总数和复核状态汇总。
-- `GET /api/commerce/clips/{task_id}/{segment_id}` 返回单个片段的 AI 商品素材状态、商品识别摘要、平台文案和图片结果清单；当前作为工作台只读数据源，生成任务后续接入。
-- 设置页 **AI 服务** 页签内上下分成两个面板：上方是剪辑 VLM/导出模式，下方是独立的 **AI 商品素材** 配置。商品素材配置保存 Gemini 识图和 OpenAI Image 生图字段：`commerce_gemini_api_base/model/api_key/timeout` 与 `commerce_image_api_base/model/api_key/size/quality/timeout`。两个 API Key 属于敏感字段，上传时写入 `secrets.json`，不会进入 `settings.json`。
+- `GET /api/commerce/clips/{task_id}/{segment_id}` 返回单个片段的 AI 商品素材状态、商品识别摘要、平台文案和图片结果清单。
+- `POST /api/commerce/clips/{task_id}/{segment_id}/analyze` 调用 Gemini `generateContent` 读取片段封面并写入 `commerce/<segment_id>/product_analysis.json`。
+- `POST /api/commerce/clips/{task_id}/{segment_id}/copywriting` 基于商品识别结果调用 Gemini 生成抖音/淘宝标题、描述、卖点和详情模块，写入 `copywriting.json`。
+- `POST /api/commerce/clips/{task_id}/{segment_id}/images` 调用 OpenAI Image `/images/edits`，使用片段封面作为参考图生成正面、侧面、背面/细节和淘宝详情页示例图，写入 `commerce/<segment_id>/images/` 与 `images.json`。
+- 设置页 **AI 服务** 页签内上下分成两个面板：上方是剪辑 VLM/导出模式，下方是独立的 **AI 商品素材** 配置。商品素材配置内部继续分成 **Gemini 商品识图** 和 **OpenAI Image 生图** 两个子块，保存 `commerce_gemini_api_base/model/api_key/timeout` 与 `commerce_image_api_base/model/api_key/size/quality/timeout`。两个 API Key 属于敏感字段，上传时写入 `secrets.json`，不会进入 `settings.json`。
 - 前端项目总览、任务队列、片段资产页直接使用后端分页；剪辑复核片段队列、音乐库、诊断事件日志使用固定页大小的前端分页。
 - 项目总览点击行或“详情”打开右侧抽屉，抽屉内聚合概览、片段预览和诊断日志；操作列保留主操作按钮，删除收进“更多”菜单。
 - 任务队列采用队列流式行布局，任务详情、日志和资源监控在右侧抽屉内切换；删除仍走自定义确认弹窗。

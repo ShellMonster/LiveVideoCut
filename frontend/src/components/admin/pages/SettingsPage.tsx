@@ -281,97 +281,117 @@ export function AdminSettingsPage() {
             desc="独立用于片段封面识图、抖音/淘宝文案和 gpt-image-2 商品图生成，不影响剪辑流水线。"
             badge="独立配置"
           >
-              <div className="grid gap-4 md:grid-cols-2">
-                <Field label="Gemini API Base" hint="建议只填域名，不带 /v1 路径">
-                  <input
-                    value={draft.commerceGeminiApiBase}
-                    onChange={(event) => updateDraft({ commerceGeminiApiBase: event.target.value })}
-                    className={fieldClassName}
-                    placeholder="https://generativelanguage.googleapis.com"
-                  />
-                </Field>
-                <Field label="Gemini 识图模型">
-                  <input
-                    value={draft.commerceGeminiModel}
-                    onChange={(event) => updateDraft({ commerceGeminiModel: event.target.value })}
-                    className={fieldClassName}
-                    placeholder="gemini-3-flash-preview"
-                  />
-                </Field>
-                <Field label="Gemini API Key" hint="用于封面识图和商品结构化分析" className="md:col-span-2">
-                  <input
-                    type="password"
-                    value={draft.commerceGeminiApiKey}
-                    onChange={(event) => updateDraft({ commerceGeminiApiKey: event.target.value })}
-                    className={fieldClassName}
-                  />
-                </Field>
-                <NumberField
-                  label="Gemini 超时 (秒)"
-                  value={draft.commerceGeminiTimeoutSeconds}
-                  min={30}
-                  max={600}
-                  onChange={(commerceGeminiTimeoutSeconds) => updateDraft({ commerceGeminiTimeoutSeconds })}
-                />
-              </div>
+              <div className="space-y-4">
+                <div className="rounded-lg border border-slate-200 bg-white p-4">
+                  <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-950">Gemini 商品识图</h3>
+                      <p className="mt-1 text-xs leading-5 text-slate-500">读取片段封面，识别商品品类、颜色、版型、可见卖点和不确定字段。</p>
+                    </div>
+                    <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">识图 / 文案前置</span>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Field label="Gemini API Base" hint="建议只填域名，不带 /v1 路径">
+                      <input
+                        value={draft.commerceGeminiApiBase}
+                        onChange={(event) => updateDraft({ commerceGeminiApiBase: event.target.value })}
+                        className={fieldClassName}
+                        placeholder="https://generativelanguage.googleapis.com"
+                      />
+                    </Field>
+                    <Field label="Gemini 识图模型">
+                      <input
+                        value={draft.commerceGeminiModel}
+                        onChange={(event) => updateDraft({ commerceGeminiModel: event.target.value })}
+                        className={fieldClassName}
+                        placeholder="gemini-3-flash-preview"
+                      />
+                    </Field>
+                    <Field label="Gemini API Key" hint="用于封面识图和商品结构化分析" className="md:col-span-2">
+                      <input
+                        type="password"
+                        value={draft.commerceGeminiApiKey}
+                        onChange={(event) => updateDraft({ commerceGeminiApiKey: event.target.value })}
+                        className={fieldClassName}
+                      />
+                    </Field>
+                    <NumberField
+                      label="Gemini 超时 (秒)"
+                      value={draft.commerceGeminiTimeoutSeconds}
+                      min={30}
+                      max={600}
+                      onChange={(commerceGeminiTimeoutSeconds) => updateDraft({ commerceGeminiTimeoutSeconds })}
+                    />
+                  </div>
+                </div>
 
-              <div className="mt-5 grid gap-4 md:grid-cols-2">
-                <Field label="OpenAI Image API Base">
-                  <input
-                    value={draft.commerceImageApiBase}
-                    onChange={(event) => updateDraft({ commerceImageApiBase: event.target.value })}
-                    className={fieldClassName}
-                    placeholder="https://api.openai.com/v1"
-                  />
-                </Field>
-                <Field label="图片模型">
-                  <input
-                    value={draft.commerceImageModel}
-                    onChange={(event) => updateDraft({ commerceImageModel: event.target.value })}
-                    className={fieldClassName}
-                    placeholder="gpt-image-2"
-                  />
-                </Field>
-                <Field label="OpenAI Image API Key" hint="用于 AI 模特图和详情页示例图" className="md:col-span-2">
-                  <input
-                    type="password"
-                    value={draft.commerceImageApiKey}
-                    onChange={(event) => updateDraft({ commerceImageApiKey: event.target.value })}
-                    className={fieldClassName}
-                  />
-                </Field>
-                <Field label="默认图片尺寸">
-                  <select
-                    value={draft.commerceImageSize}
-                    onChange={(event) => updateDraft({ commerceImageSize: event.target.value as CommerceImageSize })}
-                    className={fieldClassName}
-                  >
-                    <option value="1024x1024">1024x1024 方图</option>
-                    <option value="1024x1536">1024x1536 模特竖图</option>
-                    <option value="1536x1024">1536x1024 横图</option>
-                    <option value="2048x2048">2048x2048 高清方图</option>
-                    <option value="2160x3840">2160x3840 详情长图</option>
-                  </select>
-                </Field>
-                <Field label="默认生成质量">
-                  <select
-                    value={draft.commerceImageQuality}
-                    onChange={(event) => updateDraft({ commerceImageQuality: event.target.value as CommerceImageQuality })}
-                    className={fieldClassName}
-                  >
-                    <option value="auto">自动</option>
-                    <option value="low">低</option>
-                    <option value="medium">中</option>
-                    <option value="high">高</option>
-                  </select>
-                </Field>
-                <NumberField
-                  label="图片生成超时 (秒)"
-                  value={draft.commerceImageTimeoutSeconds}
-                  min={60}
-                  max={1200}
-                  onChange={(commerceImageTimeoutSeconds) => updateDraft({ commerceImageTimeoutSeconds })}
-                />
+                <div className="rounded-lg border border-slate-200 bg-white p-4">
+                  <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-950">OpenAI Image 生图</h3>
+                      <p className="mt-1 text-xs leading-5 text-slate-500">基于商品识别结果和片段封面，生成 AI 模特图与淘宝详情页示例图。</p>
+                    </div>
+                    <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">gpt-image-2</span>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Field label="OpenAI Image API Base">
+                      <input
+                        value={draft.commerceImageApiBase}
+                        onChange={(event) => updateDraft({ commerceImageApiBase: event.target.value })}
+                        className={fieldClassName}
+                        placeholder="https://api.openai.com/v1"
+                      />
+                    </Field>
+                    <Field label="图片模型">
+                      <input
+                        value={draft.commerceImageModel}
+                        onChange={(event) => updateDraft({ commerceImageModel: event.target.value })}
+                        className={fieldClassName}
+                        placeholder="gpt-image-2"
+                      />
+                    </Field>
+                    <Field label="OpenAI Image API Key" hint="用于 AI 模特图和详情页示例图" className="md:col-span-2">
+                      <input
+                        type="password"
+                        value={draft.commerceImageApiKey}
+                        onChange={(event) => updateDraft({ commerceImageApiKey: event.target.value })}
+                        className={fieldClassName}
+                      />
+                    </Field>
+                    <Field label="默认图片尺寸">
+                      <select
+                        value={draft.commerceImageSize}
+                        onChange={(event) => updateDraft({ commerceImageSize: event.target.value as CommerceImageSize })}
+                        className={fieldClassName}
+                      >
+                        <option value="1024x1024">1024x1024 方图</option>
+                        <option value="1024x1536">1024x1536 模特竖图</option>
+                        <option value="1536x1024">1536x1024 横图</option>
+                        <option value="2048x2048">2048x2048 高清方图</option>
+                        <option value="2160x3840">2160x3840 详情长图</option>
+                      </select>
+                    </Field>
+                    <Field label="默认生成质量">
+                      <select
+                        value={draft.commerceImageQuality}
+                        onChange={(event) => updateDraft({ commerceImageQuality: event.target.value as CommerceImageQuality })}
+                        className={fieldClassName}
+                      >
+                        <option value="auto">自动</option>
+                        <option value="low">低</option>
+                        <option value="medium">中</option>
+                        <option value="high">高</option>
+                      </select>
+                    </Field>
+                    <NumberField
+                      label="图片生成超时 (秒)"
+                      value={draft.commerceImageTimeoutSeconds}
+                      min={60}
+                      max={1200}
+                      onChange={(commerceImageTimeoutSeconds) => updateDraft({ commerceImageTimeoutSeconds })}
+                    />
+                  </div>
+                </div>
               </div>
           </SettingsCard>
           </>

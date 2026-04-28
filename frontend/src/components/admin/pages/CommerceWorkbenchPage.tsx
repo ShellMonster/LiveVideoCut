@@ -16,7 +16,7 @@ import {
   Wand2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useCommerceAsset } from "@/hooks/useAdminQueries";
+import { useCommerceAction, useCommerceAsset } from "@/hooks/useAdminQueries";
 import { useToastStore } from "@/stores/toastStore";
 import { API_BASE } from "../api";
 import { formatConfidence, formatDuration } from "../format";
@@ -36,6 +36,7 @@ export function CommerceWorkbenchPage() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<WorkbenchTab>("model_images");
   const { data, isLoading, isError } = useCommerceAsset(taskId, segmentId);
+  const commerceAction = useCommerceAction(taskId, segmentId);
   const showToast = useToastStore((state) => state.showToast);
 
   const modelImages = useMemo(
@@ -163,9 +164,13 @@ export function CommerceWorkbenchPage() {
                 </span>
               ))}
             </div>
-            <button className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-              <RefreshCw size={15} />
-              重新识别
+            <button
+              onClick={() => commerceAction.mutate("analyze")}
+              disabled={commerceAction.isPending}
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {commerceAction.isPending ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+              {commerceAction.isPending ? "处理中" : "重新识别"}
             </button>
           </section>
 
@@ -205,13 +210,21 @@ export function CommerceWorkbenchPage() {
               <p className="mt-0.5 text-xs text-slate-500">{data.state.message ?? "素材状态会在这里同步"}</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-                <Wand2 size={15} />
-                生成文案
+              <button
+                onClick={() => commerceAction.mutate("copywriting")}
+                disabled={commerceAction.isPending}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {commerceAction.isPending ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
+                {commerceAction.isPending ? "生成中" : "生成文案"}
               </button>
-              <button className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
-                <Sparkles size={15} />
-                生成图片
+              <button
+                onClick={() => commerceAction.mutate("images")}
+                disabled={commerceAction.isPending}
+                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {commerceAction.isPending ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
+                {commerceAction.isPending ? "生成中" : "生成图片"}
               </button>
             </div>
           </div>
@@ -255,14 +268,18 @@ export function CommerceWorkbenchPage() {
             {tab === "model_images" && (
               <div className="grid gap-4 lg:grid-cols-3">
                 {modelImages.map((item) => (
-                  <ImageResultCard key={item.key} item={item} />
+                  <ImageResultCard key={item.key} item={item} onRegenerate={() => commerceAction.mutate("images")} />
                 ))}
               </div>
             )}
 
             {tab === "detail_page" && (
               <div className="grid gap-5 xl:grid-cols-[minmax(280px,420px)_minmax(0,1fr)]">
-                <ImageResultCard item={detailImage ?? { key: "detail_page", label: "淘宝详情页示例", status: "not_started", url: "" }} tall />
+                <ImageResultCard
+                  item={detailImage ?? { key: "detail_page", label: "淘宝详情页示例", status: "not_started", url: "" }}
+                  tall
+                  onRegenerate={() => commerceAction.mutate("images")}
+                />
                 <div className="rounded-lg border border-slate-200 p-4">
                   <h3 className="text-sm font-semibold text-slate-950">详情页结构</h3>
                   <div className="mt-4 space-y-3">
@@ -438,13 +455,14 @@ function TextBlock({
   );
 }
 
-function ImageResultCard({ item, tall = false }: { item: CommerceImageItem; tall?: boolean }) {
+function ImageResultCard({ item, tall = false, onRegenerate }: { item: CommerceImageItem; tall?: boolean; onRegenerate: () => void }) {
   const completed = item.status === "completed" && item.url;
+  const imageUrl = completed ? `${API_BASE}${item.url}` : "";
   return (
     <article className="overflow-hidden rounded-lg border border-slate-200 bg-white">
       <div className={cn("relative bg-slate-100", tall ? "aspect-[3/5]" : "aspect-[4/5]")}>
         {completed ? (
-          <img src={`${API_BASE}${item.url}`} alt="" className="h-full w-full object-cover" />
+          <img src={imageUrl} alt="" className="h-full w-full object-cover" />
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-slate-400">
             <Image size={34} />
@@ -464,10 +482,17 @@ function ImageResultCard({ item, tall = false }: { item: CommerceImageItem; tall
           <p className="mt-0.5 text-xs text-slate-400">{completed ? "可下载使用" : "尚未生成"}</p>
         </div>
         <div className="flex shrink-0 gap-2">
-          <button className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-50" aria-label="重新生成">
+          <button onClick={onRegenerate} className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-50" aria-label="重新生成">
             <RefreshCw size={15} />
           </button>
-          <button disabled={!completed} className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40" aria-label="下载">
+          <button
+            disabled={!completed}
+            onClick={() => {
+              if (imageUrl) window.open(imageUrl, "_blank", "noopener,noreferrer");
+            }}
+            className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label="下载"
+          >
             <Download size={15} />
           </button>
         </div>

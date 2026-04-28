@@ -18,6 +18,30 @@ def _setup_commerce(tmp_path, monkeypatch):
 
     (clips_dir / "clip_001.mp4").write_bytes(b"video-data")
     (covers_dir / "clip_001.jpg").write_bytes(b"cover-data")
+    (task_dir / "settings.json").write_text(
+        json.dumps(
+            {
+                "commerce_gemini_api_base": "https://gemini.example.com",
+                "commerce_gemini_model": "gemini-test",
+                "commerce_gemini_timeout_seconds": 90,
+                "commerce_image_api_base": "https://openai.example.com/v1",
+                "commerce_image_model": "gpt-image-2",
+                "commerce_image_size": "1024x1536",
+                "commerce_image_quality": "auto",
+                "commerce_image_timeout_seconds": 120,
+            },
+            ensure_ascii=False,
+        )
+    )
+    (task_dir / "secrets.json").write_text(
+        json.dumps(
+            {
+                "commerce_gemini_api_key": "gemini-key",
+                "commerce_image_api_key": "openai-key",
+            },
+            ensure_ascii=False,
+        )
+    )
     (clips_dir / "clip_001_meta.json").write_text(
         json.dumps(
             {
@@ -75,3 +99,83 @@ async def test_get_clip_commerce_asset_returns_not_found(client):
     response = await client.get(f"/api/commerce/clips/{TASK_ID}/clip_999")
 
     assert response.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_analyze_clip_cover_calls_gemini_and_saves_result(client, monkeypatch, tmp_path):
+    class FakeGeminiClient:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def analyze_cover(self, image_path, product_hint):
+            assert image_path == tmp_path / TASK_ID / "covers" / "clip_001.jpg"
+            assert product_hint == "米白针织连衣裙"
+            return {
+                "confidence": 0.93,
+                "product_type": "连衣裙",
+                "visible_attributes": {"color": "米白色"},
+                "selling_points": ["通勤"],
+                "uncertain_fields": ["材质"],
+            }
+
+    monkeypatch.setattr("app.api.commerce.GeminiVisionClient", FakeGeminiClient)
+
+    response = await client.post(f"/api/commerce/clips/{TASK_ID}/clip_001/analyze")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "completed"
+    assert data["product_type"] == "连衣裙"
+    saved = json.loads((tmp_path / TASK_ID / "commerce" / "clip_001" / "product_analysis.json").read_text())
+    assert saved["confidence"] == 0.93
+
+
+@pytest.mark.anyio
+async def test_generate_clip_copywriting_calls_gemini_and_saves_result(client, monkeypatch, tmp_path):
+    class FakeGeminiClient:
+        def __init__(self, **kwargs):
+            pass
+
+        def generate_copywriting(self, analysis, product_hint):
+            assert analysis["product_type"] == "连衣裙"
+            return {
+                "douyin": {"title": "米白连衣裙通勤穿搭", "description": "干净显气质", "hashtags": ["#通勤穿搭"]},
+                "taobao": {"title": "米白针织连衣裙", "selling_points": ["通勤"], "detail_modules": ["效果示意"]},
+            }
+
+    monkeypatch.setattr("app.api.commerce.GeminiVisionClient", FakeGeminiClient)
+
+    response = await client.post(f"/api/commerce/clips/{TASK_ID}/clip_001/copywriting")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["douyin"]["title"] == "米白连衣裙通勤穿搭"
+    saved = json.loads((tmp_path / TASK_ID / "commerce" / "clip_001" / "copywriting.json").read_text())
+    assert saved["taobao"]["selling_points"] == ["通勤"]
+
+
+@pytest.mark.anyio
+async def test_generate_clip_images_calls_openai_and_serves_images(client, monkeypatch, tmp_path):
+    class FakeOpenAIImageClient:
+        def __init__(self, **kwargs):
+            pass
+
+        def generate_with_reference(self, prompt, image_path, *, size, quality):
+            assert image_path == tmp_path / TASK_ID / "covers" / "clip_001.jpg"
+            assert size == "1024x1536"
+            assert quality == "auto"
+            return b"png-data"
+
+    monkeypatch.setattr("app.api.commerce.OpenAIImageClient", FakeOpenAIImageClient)
+
+    response = await client.post(f"/api/commerce/clips/{TASK_ID}/clip_001/images")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "completed"
+    assert len(data["items"]) == 4
+    assert data["items"][0]["url"].endswith("/model_front.png")
+
+    image_response = await client.get(data["items"][0]["url"])
+    assert image_response.status_code == 200
+    assert image_response.content == b"png-data"
