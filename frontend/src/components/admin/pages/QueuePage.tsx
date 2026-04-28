@@ -81,7 +81,7 @@ export function QueuePage() {
           </button>
         }
       />
-      <main className={cn("space-y-5 p-4 transition-[padding] duration-200 sm:p-6", drawerOpen && "2xl:pr-[486px]")}>
+      <main className="space-y-5 p-4 sm:p-6">
         <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px]">
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
             <MetricCard label="等待中" value={String(waiting)} hint="等待 Celery 调度" />
@@ -496,9 +496,9 @@ function QueueDetailDrawer({
   if (!open || !task) return null;
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-40">
-      <button className="pointer-events-auto absolute inset-0 bg-slate-950/20 lg:hidden" onClick={onClose} aria-label="关闭任务详情" />
-      <aside className="pointer-events-auto absolute right-0 top-0 flex h-full w-full max-w-[460px] flex-col border-l border-slate-200 bg-white shadow-2xl">
+    <div className="fixed inset-0 z-40">
+      <button className="absolute inset-0 bg-slate-950/20" onClick={onClose} aria-label="关闭任务详情" />
+      <aside className="absolute right-0 top-0 flex h-full w-full max-w-[460px] flex-col border-l border-slate-200 bg-white shadow-2xl">
         <div className="flex h-16 items-center justify-between border-b border-slate-200 px-5">
           <div className="min-w-0">
             <h2 className="truncate text-base font-semibold text-slate-950">任务详情</h2>
