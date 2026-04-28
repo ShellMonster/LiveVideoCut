@@ -1,13 +1,12 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Activity, FileVideo, Film, Plus, Scissors, Search, SlidersHorizontal, Trash2 } from "lucide-react";
+import { Activity, FileVideo, Film, MoreHorizontal, Plus, Scissors, Search, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ProgressBar } from "@/components/ProgressBar";
 import { useAdminContext } from "@/components/admin/context";
-import { useTaskList, useTaskSummary, useTaskDiagnostics, useDeleteTask } from "@/hooks/useAdminQueries";
+import { useTaskList, useTaskSummary, useTaskDiagnostics, useDeleteTask, useTaskClips } from "@/hooks/useAdminQueries";
 import { useConfirmStore } from "@/stores/confirmStore";
 import {
-  EmptyPreview,
   Header,
   LogLine,
   MetricCard,
@@ -18,10 +17,14 @@ import {
   displayAsrProvider,
   displayTaskName,
   formatDate,
+  formatDuration,
   progressByStatus,
   statusBadgeClass,
   statusLabel,
 } from "../format";
+import type { TaskItem } from "../types";
+
+type DrawerTab = "overview" | "clips" | "logs";
 
 export function ProjectManagementPage() {
   const navigate = useNavigate();
@@ -29,6 +32,9 @@ export function ProjectManagementPage() {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(1);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerTab, setDrawerTab] = useState<DrawerTab>("overview");
+  const [menuTaskId, setMenuTaskId] = useState<string | null>(null);
   const pageSize = 10;
   const { data: taskList, isLoading: loading } = useTaskList({
     page,
@@ -41,6 +47,7 @@ export function ProjectManagementPage() {
   const taskSummary = taskList?.summary;
   const { data: summary } = useTaskSummary(selectedTask?.task_id);
   const { data: diagnostics } = useTaskDiagnostics(selectedTask?.task_id);
+  const { data: clips = [] } = useTaskClips(selectedTask?.task_id, drawerOpen && selectedTask?.status === "COMPLETED");
   const deleteTask = useDeleteTask();
   const confirm = useConfirmStore((state) => state.confirm);
 
@@ -70,6 +77,13 @@ export function ProjectManagementPage() {
         setSelectedTask(null);
       }
     }).catch(() => {});
+  };
+
+  const openDetails = (task: TaskItem) => {
+    setSelectedTask(task);
+    setDrawerTab("overview");
+    setDrawerOpen(true);
+    setMenuTaskId(null);
   };
 
   const openReview = (task: typeof tasks[number]) => {
@@ -110,7 +124,7 @@ export function ProjectManagementPage() {
           <MetricCard label="导出片段" value={String(clipCount)} hint="累计可下载短视频" />
         </section>
 
-        <section className="grid gap-5 min-[1700px]:grid-cols-[minmax(0,1fr)_360px]">
+        <section className="grid gap-5">
           <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
             <div className="border-b border-slate-100 px-4 py-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -178,7 +192,7 @@ export function ProjectManagementPage() {
                 tasks.map((task) => (
                   <article
                     key={task.task_id}
-                    onClick={() => setSelectedTask(task)}
+                    onClick={() => openDetails(task)}
                     className={cn(
                       "space-y-3 p-4",
                       selectedTask?.task_id === task.task_id && "bg-blue-50/50",
@@ -218,7 +232,16 @@ export function ProjectManagementPage() {
                       </div>
                       <span className="w-10 shrink-0 text-right text-xs text-slate-400">{progressByStatus(task)}%</span>
                     </div>
-                    <div className="grid grid-cols-4 gap-2">
+                    <div className="grid grid-cols-5 gap-2">
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openDetails(task);
+                        }}
+                        className="inline-flex min-w-0 items-center justify-center gap-1.5 rounded-lg border border-blue-100 bg-blue-50 px-2 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                      >
+                        详情
+                      </button>
                       <button
                         onClick={(event) => {
                           event.stopPropagation();
@@ -252,12 +275,12 @@ export function ProjectManagementPage() {
                       <button
                         onClick={(event) => {
                           event.stopPropagation();
-                          handleDeleteTask(task.task_id);
+                          void handleDeleteTask(task.task_id);
                         }}
-                        className="inline-flex min-w-0 items-center justify-center gap-1.5 rounded-lg border border-red-100 px-2 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50"
+                        className="inline-flex min-w-0 items-center justify-center rounded-lg border border-slate-200 px-2 py-1.5 text-slate-600 hover:bg-slate-50"
+                        aria-label="更多"
                       >
-                        <Trash2 size={14} />
-                        删除
+                        <MoreHorizontal size={14} />
                       </button>
                     </div>
                   </article>
@@ -298,7 +321,7 @@ export function ProjectManagementPage() {
                           "cursor-pointer hover:bg-slate-50",
                           selectedTask?.task_id === task.task_id && "bg-blue-50/50",
                         )}
-                        onClick={() => setSelectedTask(task)}
+                        onClick={() => openDetails(task)}
                       >
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-3">
@@ -339,14 +362,24 @@ export function ProjectManagementPage() {
                         <td className="px-4 py-3 whitespace-nowrap text-slate-600">{task.clip_count || 0}</td>
                         <td className="px-4 py-3 whitespace-nowrap text-slate-600">{displayAsrProvider(task.asr_provider)}</td>
                         <td className="px-4 py-3 whitespace-nowrap text-slate-500">{formatDate(task.created_at)}</td>
-                        <td className="px-4 py-3">
+                        <td className="relative px-4 py-3">
                           <div className="flex justify-end gap-1.5 whitespace-nowrap">
+                            <button
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openDetails(task);
+                              }}
+                              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                            >
+                              详情
+                            </button>
                             <button
                               onClick={(event) => {
                                 event.stopPropagation();
                                 openReview(task);
                               }}
-                              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                              aria-label="复核"
                             >
                               <Scissors size={14} />
                               复核
@@ -356,7 +389,8 @@ export function ProjectManagementPage() {
                                 event.stopPropagation();
                                 openAssets(task);
                               }}
-                              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                              aria-label="资产"
                             >
                               <FileVideo size={14} />
                               资产
@@ -366,7 +400,8 @@ export function ProjectManagementPage() {
                                 event.stopPropagation();
                                 openDiagnostics(task);
                               }}
-                              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                              aria-label="诊断"
                             >
                               <Activity size={14} />
                               诊断
@@ -374,14 +409,29 @@ export function ProjectManagementPage() {
                             <button
                               onClick={(event) => {
                                 event.stopPropagation();
-                                handleDeleteTask(task.task_id);
+                                setMenuTaskId(menuTaskId === task.task_id ? null : task.task_id);
                               }}
-                              className="shrink-0 rounded-lg p-1.5 text-slate-300 hover:bg-red-50 hover:text-red-500"
-                              aria-label="删除"
+                              className="shrink-0 rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                              aria-label="更多"
                             >
-                              <Trash2 size={15} />
+                              <MoreHorizontal size={15} />
                             </button>
                           </div>
+                          {menuTaskId === task.task_id && (
+                            <div className="absolute right-4 top-10 z-20 w-32 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+                              <button
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setMenuTaskId(null);
+                                  void handleDeleteTask(task.task_id);
+                                }}
+                                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs font-medium text-red-600 hover:bg-red-50"
+                              >
+                                <Trash2 size={14} />
+                                删除项目
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     ))
@@ -396,75 +446,255 @@ export function ProjectManagementPage() {
               onPageChange={setPage}
             />
           </div>
-
-          <aside className="rounded-lg border border-slate-200 bg-white p-4">
-            {selectedTask ? (
-              <div className="space-y-4">
-                <div className="aspect-video overflow-hidden rounded-lg bg-slate-100">
-                  {selectedTask.thumbnail_url ? (
-                    <img src={selectedTask.thumbnail_url} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <div className="flex h-full items-center justify-center text-slate-300">
-                      <Film size={32} />
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <h2 className="text-base font-semibold text-slate-950">{displayTaskName(selectedTask)}</h2>
-                  <p className="mt-1 text-xs text-slate-500">{selectedTask.original_filename || selectedTask.task_id}</p>
-                </div>
-                <ProgressBar currentState={selectedTask.status} errorMessage={selectedTask.message || undefined} />
-                <div className="grid grid-cols-2 gap-2">
-                  <MetricPill label="候选" value={String(summary?.candidates_count ?? "—")} />
-                  <MetricPill label="确认" value={String(summary?.confirmed_count ?? "—")} />
-                  <MetricPill label="导出" value={String(summary?.clips_count ?? selectedTask.clip_count ?? 0)} />
-                  <MetricPill label="未导出" value={String(summary?.empty_screen_dropped_estimate ?? "—")} />
-                </div>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 min-[1700px]:grid-cols-1 min-[1900px]:grid-cols-3">
-                  <button
-                    onClick={() => openReview(selectedTask)}
-                    className="inline-flex min-w-0 items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
-                  >
-                    <Scissors size={15} />
-                    复核
-                  </button>
-                  <button
-                    onClick={() => openAssets(selectedTask)}
-                    className="inline-flex min-w-0 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    <FileVideo size={15} />
-                    资产
-                  </button>
-                  <button
-                    onClick={() => openDiagnostics(selectedTask)}
-                    className="inline-flex min-w-0 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    <Activity size={15} />
-                    诊断
-                  </button>
-                </div>
-                <div className="border-t border-slate-100 pt-3">
-                  <h3 className="text-xs font-semibold text-slate-700">最近诊断事件</h3>
-                  <div className="mt-2 space-y-2 text-xs text-slate-500">
-                    {(diagnostics?.event_log.length ? diagnostics.event_log.slice(-3) : []).map((event) => (
-                      <LogLine
-                        key={`${event.time}-${event.file}`}
-                        time={formatDate(event.time)}
-                        text={`${event.stage}：${event.message}`}
-                      />
-                    ))}
-                    {!diagnostics?.event_log.length && (
-                      <p className="text-xs text-slate-400">暂无诊断事件</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <EmptyPreview />
-            )}
-          </aside>
         </section>
       </main>
+      <ProjectDetailDrawer
+        open={drawerOpen}
+        task={selectedTask}
+        tab={drawerTab}
+        onTabChange={setDrawerTab}
+        summary={summary}
+        diagnostics={diagnostics}
+        clips={clips}
+        onClose={() => setDrawerOpen(false)}
+        onReview={openReview}
+        onAssets={openAssets}
+        onDiagnostics={openDiagnostics}
+        onDelete={(taskId) => void handleDeleteTask(taskId)}
+      />
     </>
+  );
+}
+
+function ProjectDetailDrawer({
+  open,
+  task,
+  tab,
+  onTabChange,
+  summary,
+  diagnostics,
+  clips,
+  onClose,
+  onReview,
+  onAssets,
+  onDiagnostics,
+  onDelete,
+}: {
+  open: boolean;
+  task: TaskItem | null;
+  tab: DrawerTab;
+  onTabChange: (tab: DrawerTab) => void;
+  summary?: ReturnType<typeof useTaskSummary>["data"];
+  diagnostics?: ReturnType<typeof useTaskDiagnostics>["data"];
+  clips: ReturnType<typeof useTaskClips>["data"];
+  onClose: () => void;
+  onReview: (task: TaskItem) => void;
+  onAssets: (task: TaskItem) => void;
+  onDiagnostics: (task: TaskItem) => void;
+  onDelete: (taskId: string) => void;
+}) {
+  if (!open || !task) return null;
+
+  const events = diagnostics?.event_log ?? [];
+  const pipeline = diagnostics?.pipeline ?? [];
+  const previewClips = clips?.slice(0, 4) ?? [];
+  const tabs: { value: DrawerTab; label: string }[] = [
+    { value: "overview", label: "概览" },
+    { value: "clips", label: "片段" },
+    { value: "logs", label: "日志" },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-40">
+      <button className="absolute inset-0 bg-slate-950/20" onClick={onClose} aria-label="关闭项目详情" />
+      <aside className="absolute right-0 top-0 flex h-full w-full max-w-[440px] flex-col border-l border-slate-200 bg-white shadow-2xl">
+        <div className="flex h-16 items-center justify-between border-b border-slate-200 px-5">
+          <h2 className="text-base font-semibold text-slate-950">项目详情</h2>
+          <button onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-50 hover:text-slate-700" aria-label="关闭">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5">
+          <div className="flex gap-3">
+            <div className="h-16 w-24 shrink-0 overflow-hidden rounded-lg bg-slate-100">
+              {task.thumbnail_url ? (
+                <img src={task.thumbnail_url} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-slate-300">
+                  <Film size={24} />
+                </div>
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <h3 className="truncate text-sm font-semibold text-slate-950">{displayTaskName(task)}</h3>
+              <div className="mt-1">
+                <span className={cn("rounded-full px-2 py-1 text-xs font-medium ring-1", statusBadgeClass(task.status))}>
+                  {statusLabel(task.status)}
+                </span>
+              </div>
+              <p className="mt-2 truncate text-xs text-slate-400">任务 ID：{task.task_id}</p>
+            </div>
+          </div>
+
+          <div className="mt-5 flex border-b border-slate-200">
+            {tabs.map((item) => (
+              <button
+                key={item.value}
+                onClick={() => onTabChange(item.value)}
+                className={cn(
+                  "mr-6 border-b-2 px-1 pb-2 text-sm font-medium",
+                  tab === item.value
+                    ? "border-blue-600 text-blue-700"
+                    : "border-transparent text-slate-500 hover:text-slate-800",
+                )}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+
+          {tab === "overview" && (
+            <div className="mt-5 space-y-4">
+              <section className="rounded-lg border border-slate-200 p-4">
+                <h4 className="text-sm font-semibold text-slate-900">基础信息</h4>
+                <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                  <InfoItem label="片段数" value={String(summary?.clips_count ?? task.clip_count ?? 0)} />
+                  <InfoItem label="总时长" value={formatDuration(task.video_duration_s)} />
+                  <InfoItem label="ASR" value={displayAsrProvider(task.asr_provider)} />
+                  <InfoItem label="创建时间" value={formatDate(task.created_at)} />
+                  <InfoItem label="候选数" value={String(summary?.candidates_count ?? "—")} />
+                  <InfoItem label="未导出" value={String(summary?.empty_screen_dropped_estimate ?? "—")} />
+                </div>
+              </section>
+
+              <section className="rounded-lg border border-slate-200 p-4">
+                <h4 className="text-sm font-semibold text-slate-900">处理进度</h4>
+                <div className="mt-4">
+                  <ProgressBar currentState={task.status} errorMessage={task.message || undefined} />
+                </div>
+                <div className="mt-4 grid grid-cols-5 gap-2 text-center text-[11px] text-slate-500">
+                  {["视频接入", "语音识别", "片段切分", "质量检测", "导出完成"].map((label, index) => (
+                    <div key={label}>
+                      <div className={cn("mx-auto mb-1 h-2.5 w-2.5 rounded-full", progressByStatus(task) >= (index + 1) * 20 ? "bg-emerald-500" : "bg-slate-200")} />
+                      {label}
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section className="rounded-lg border border-slate-200 p-4">
+                <h4 className="text-sm font-semibold text-slate-900">推荐下一步操作</h4>
+                <div className="mt-3 space-y-2">
+                  <DrawerAction title="进入复核" hint="人工复核片段质量、标题和封面" onClick={() => onReview(task)} />
+                  <DrawerAction title="查看片段资产" hint="浏览导出片段，下载或分享" onClick={() => onAssets(task)} />
+                  <DrawerAction title="诊断报告" hint="查看处理详情与系统诊断" onClick={() => onDiagnostics(task)} />
+                </div>
+              </section>
+
+              <section className="rounded-lg border border-slate-200 p-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-semibold text-slate-900">诊断摘要</h4>
+                  <button onClick={() => onDiagnostics(task)} className="text-xs font-medium text-blue-600 hover:text-blue-700">查看完整诊断日志</button>
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <MetricPill label="确认" value={String(summary?.confirmed_count ?? "—")} />
+                  <MetricPill label="导出" value={String(summary?.clips_count ?? task.clip_count ?? 0)} />
+                  <MetricPill label="警告" value={String(diagnostics?.warnings.length ?? 0)} />
+                </div>
+              </section>
+            </div>
+          )}
+
+          {tab === "clips" && (
+            <div className="mt-5 space-y-3">
+              {previewClips.length > 0 ? previewClips.map((clip) => (
+                <div key={clip.clip_id} className="flex gap-3 rounded-lg border border-slate-200 p-3">
+                  <div className="h-14 w-24 shrink-0 overflow-hidden rounded-md bg-slate-100">
+                    {clip.has_thumbnail ? (
+                      <img src={clip.thumbnail_url} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-slate-300">
+                        <Film size={18} />
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium text-slate-900">{clip.product_name || "未命名片段"}</div>
+                    <div className="mt-1 text-xs text-slate-400">{formatDuration(clip.duration)}</div>
+                  </div>
+                </div>
+              )) : (
+                <p className="rounded-lg border border-dashed border-slate-200 py-8 text-center text-sm text-slate-400">暂无可预览片段</p>
+              )}
+              <button onClick={() => onAssets(task)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                打开片段资产页
+              </button>
+            </div>
+          )}
+
+          {tab === "logs" && (
+            <div className="mt-5 space-y-4">
+              <section className="rounded-lg border border-slate-200 p-4">
+                <h4 className="text-sm font-semibold text-slate-900">流水线阶段</h4>
+                <div className="mt-3 space-y-2">
+                  {pipeline.length > 0 ? pipeline.map((item) => (
+                    <div key={item.stage} className="flex items-center justify-between rounded-md bg-slate-50 px-3 py-2 text-xs">
+                      <span className="font-medium text-slate-700">{item.stage}</span>
+                      <span className="text-slate-400">{item.status}</span>
+                    </div>
+                  )) : (
+                    <p className="text-sm text-slate-400">暂无流水线数据</p>
+                  )}
+                </div>
+              </section>
+              <section className="rounded-lg border border-slate-200 p-4">
+                <h4 className="text-sm font-semibold text-slate-900">最近事件</h4>
+                <div className="mt-3 space-y-2 text-xs text-slate-500">
+                  {events.length > 0 ? events.slice(-6).map((event) => (
+                    <LogLine
+                      key={`${event.time}-${event.file}`}
+                      time={formatDate(event.time)}
+                      text={`${event.stage}：${event.message}`}
+                    />
+                  )) : (
+                    <p className="text-sm text-slate-400">暂无诊断事件</p>
+                  )}
+                </div>
+              </section>
+            </div>
+          )}
+        </div>
+        <div className="border-t border-slate-200 p-5">
+          <button
+            onClick={() => onDelete(task.task_id)}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+          >
+            <Trash2 size={15} />
+            删除项目
+          </button>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function InfoItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border-b border-slate-100 pb-2">
+      <div className="text-xs text-slate-400">{label}</div>
+      <div className="mt-1 font-medium text-slate-900">{value}</div>
+    </div>
+  );
+}
+
+function DrawerAction({ title, hint, onClick }: { title: string; hint: string; onClick: () => void }) {
+  return (
+    <button onClick={onClick} className="flex w-full items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-left hover:bg-slate-50">
+      <span>
+        <span className="block text-sm font-medium text-slate-900">{title}</span>
+        <span className="mt-0.5 block text-xs text-slate-400">{hint}</span>
+      </span>
+      <span className="text-xs font-medium text-blue-600">进入</span>
+    </button>
   );
 }

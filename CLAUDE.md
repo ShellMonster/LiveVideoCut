@@ -42,10 +42,10 @@
 
 前端为 **React Router 单页应用**，`AdminDashboard.tsx` 是 layout shell，路由页面组件拆分到 `admin/pages/` 目录：
 
-- **projects** — 项目管理（列表、搜索、筛选、详情侧栏、诊断事件）
+- **projects** — 项目管理（列表、搜索、筛选、右侧项目详情抽屉、诊断事件）
 - **create** — 创建任务（上传 + 4 种预设：高质量字幕版/快速低成本版/全量候选调试版/只切不烧字幕版）
 - **queue** — 任务队列（实时状态、Worker 资源 CPU/内存/Redis、重试/删除）
-- **review** — 片段审核（approve/skip/needs_adjustment/reprocess、字幕显示、批量下载）
+- **review** — 片段审核（卡片队列、右侧复核抽屉、approve/skip/needs_adjustment/reprocess、字幕只读预览）
 - **assets** — 跨项目素材资产浏览器（多选、批量下载、文件大小估算）
 - **music** — 音乐库管理（标签编辑、播放/暂停、上传、删除）
 - **diagnostics** — 任务诊断（管线阶段、漏斗图、警告、事件日志、导出报告/artifacts.zip）
@@ -53,7 +53,7 @@
 
 `admin/` 目录结构：`api.ts`（API 调用）、`types.ts`（类型定义）、`format.ts`（格式化工具）、`constants.tsx`（常量）、`shared.tsx`（共享组件）、`pages/`（8 个页面组件）。
 
-列表页约定：不要做无限下滑。项目总览、任务队列、片段资产使用后端 `offset/limit` 分页；剪辑复核片段队列、音乐库、诊断事件日志使用 `Pagination` 组件做页面内分页。
+列表页约定：不要做无限下滑。项目总览、任务队列、片段资产使用后端 `offset/limit` 分页；剪辑复核片段队列、音乐库、诊断事件日志使用 `Pagination` 组件做页面内分页。项目总览和剪辑复核的详情信息优先用右侧抽屉承载，避免列表被详情面板挤压。
 
 ### 1. 前端设置
 
@@ -155,7 +155,8 @@
 - 后端：`GET /api/tasks` 分页接口（offset/limit + q 搜索 + 状态过滤；`status=processing` 聚合处理中状态；返回 summary 状态计数和 clip 总数）
 - 后端：`GET /api/assets/clips` 分页接口（offset/limit + q 搜索 + status 复核状态 + duration 时长过滤；返回筛选后 total 和 summary）
 - 后端：`DELETE /api/tasks/{task_id}` 删除任务
-- 前端：`ProjectManagementPage.tsx` 项目切换中心，支持分页、搜索、状态筛选、复核/资产/诊断快捷入口、删除
+- 前端：`ProjectManagementPage.tsx` 项目切换中心，支持分页、搜索、状态筛选、右侧详情抽屉、复核/资产/诊断快捷入口、删除
+- 前端：`ReviewPage.tsx` 采用方案 C 卡片网格 + 右侧复核抽屉；字幕页签只做只读预览，后续若要编辑字幕，需要保存覆盖文本并触发字幕/单片段重导出闭环。
 - 上传时 `meta.json` 记录 `created_at`（ISO 时间戳）和 `original_filename`
 - 老任务这两个字段为空，前端用"—"显示
 
