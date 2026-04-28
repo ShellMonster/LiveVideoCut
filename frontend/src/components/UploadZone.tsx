@@ -49,6 +49,16 @@ interface UploadSettingsPayload {
   bgm_enabled: boolean;
   bgm_volume: number;
   original_volume: number;
+  commerce_gemini_api_key: string;
+  commerce_gemini_api_base: string;
+  commerce_gemini_model: string;
+  commerce_gemini_timeout_seconds: number;
+  commerce_image_api_key: string;
+  commerce_image_api_base: string;
+  commerce_image_model: string;
+  commerce_image_size: Settings["commerceImageSize"];
+  commerce_image_quality: Settings["commerceImageQuality"];
+  commerce_image_timeout_seconds: number;
 }
 
 interface UploadContext {
@@ -126,6 +136,16 @@ function buildUploadSettingsPayload(settings: Settings): UploadSettingsPayload {
     bgm_enabled: settings.bgmEnabled,
     bgm_volume: settings.bgmVolume,
     original_volume: settings.originalVolume,
+    commerce_gemini_api_key: settings.commerceGeminiApiKey,
+    commerce_gemini_api_base: settings.commerceGeminiApiBase,
+    commerce_gemini_model: settings.commerceGeminiModel,
+    commerce_gemini_timeout_seconds: settings.commerceGeminiTimeoutSeconds,
+    commerce_image_api_key: settings.commerceImageApiKey,
+    commerce_image_api_base: settings.commerceImageApiBase,
+    commerce_image_model: settings.commerceImageModel,
+    commerce_image_size: settings.commerceImageSize,
+    commerce_image_quality: settings.commerceImageQuality,
+    commerce_image_timeout_seconds: settings.commerceImageTimeoutSeconds,
   };
 }
 

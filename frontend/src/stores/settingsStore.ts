@@ -14,6 +14,8 @@ export type VideoSpeed = 0.5 | 0.75 | 1.0 | 1.25 | 1.5 | 1.75 | 2.0 | 3.0;
 export type LlmType = "openai" | "gemini";
 export type ExportResolution = "original" | "1080p" | "4k";
 export type SegmentGranularity = "single_item" | "outfit";
+export type CommerceImageSize = "1024x1024" | "1024x1536" | "1536x1024" | "2048x2048" | "2160x3840";
+export type CommerceImageQuality = "auto" | "low" | "medium" | "high";
 
 export interface Settings {
   enableVlm: boolean;
@@ -59,6 +61,16 @@ export interface Settings {
   bgmEnabled: boolean;
   bgmVolume: number;
   originalVolume: number;
+  commerceGeminiApiKey: string;
+  commerceGeminiApiBase: string;
+  commerceGeminiModel: string;
+  commerceGeminiTimeoutSeconds: number;
+  commerceImageApiKey: string;
+  commerceImageApiBase: string;
+  commerceImageModel: string;
+  commerceImageSize: CommerceImageSize;
+  commerceImageQuality: CommerceImageQuality;
+  commerceImageTimeoutSeconds: number;
 }
 
 const STORAGE_KEY = "clipper-settings";
@@ -117,6 +129,16 @@ const defaultSettings: Settings = {
   bgmEnabled: true,
   bgmVolume: 0.25,
   originalVolume: 1.0,
+  commerceGeminiApiKey: "",
+  commerceGeminiApiBase: "https://generativelanguage.googleapis.com",
+  commerceGeminiModel: "gemini-3-flash-preview",
+  commerceGeminiTimeoutSeconds: 150,
+  commerceImageApiKey: "",
+  commerceImageApiBase: "https://api.openai.com/v1",
+  commerceImageModel: "gpt-image-2",
+  commerceImageSize: "1024x1536",
+  commerceImageQuality: "auto",
+  commerceImageTimeoutSeconds: 500,
 };
 
 function loadSettings(): Settings {

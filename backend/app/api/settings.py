@@ -81,6 +81,21 @@ class SegmentGranularity(str, Enum):
     outfit = "outfit"
 
 
+class CommerceImageSize(str, Enum):
+    square = "1024x1024"
+    portrait = "1024x1536"
+    landscape = "1536x1024"
+    large_square = "2048x2048"
+    detail_long = "2160x3840"
+
+
+class CommerceImageQuality(str, Enum):
+    auto = "auto"
+    low = "low"
+    medium = "medium"
+    high = "high"
+
+
 def _validate_api_base(provider: str, api_base: str) -> str:
     parsed = urlparse(api_base)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -159,6 +174,18 @@ class SettingsRequest(BaseModel):
     bgm_volume: float = Field(default=0.25, ge=0.0, le=1.0)
     original_volume: float = Field(default=1.0, ge=0.0, le=2.0)
 
+    # --- AI 商品素材设置（独立于剪辑流水线 VLM/LLM） ---
+    commerce_gemini_api_key: str = ""
+    commerce_gemini_api_base: str = "https://generativelanguage.googleapis.com"
+    commerce_gemini_model: str = "gemini-3-flash-preview"
+    commerce_gemini_timeout_seconds: int = Field(default=150, ge=30, le=600)
+    commerce_image_api_key: str = ""
+    commerce_image_api_base: str = "https://api.openai.com/v1"
+    commerce_image_model: str = "gpt-image-2"
+    commerce_image_size: CommerceImageSize = CommerceImageSize.portrait
+    commerce_image_quality: CommerceImageQuality = CommerceImageQuality.auto
+    commerce_image_timeout_seconds: int = Field(default=500, ge=60, le=1200)
+
     @model_validator(mode="after")
     def apply_provider_defaults_and_validate(self):
         if not self.enable_vlm and self.export_mode == ExportMode.smart:
@@ -176,7 +203,17 @@ class SettingsRequest(BaseModel):
         return self
 
 
-SENSITIVE_FIELDS = frozenset({"api_key", "asr_api_key", "tos_ak", "tos_sk", "llm_api_key"})
+SENSITIVE_FIELDS = frozenset(
+    {
+        "api_key",
+        "asr_api_key",
+        "tos_ak",
+        "tos_sk",
+        "llm_api_key",
+        "commerce_gemini_api_key",
+        "commerce_image_api_key",
+    }
+)
 
 
 @router.post("/api/settings/validate")

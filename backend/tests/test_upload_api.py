@@ -54,6 +54,11 @@ async def test_upload_persists_resolved_settings_snapshot(
                 json.dumps(
                     {
                         "api_key": "glm-key",
+                        "commerce_gemini_api_key": "gemini-commerce-key",
+                        "commerce_image_api_key": "openai-image-key",
+                        "commerce_gemini_api_base": "https://generativelanguage.googleapis.com",
+                        "commerce_image_api_base": "https://api.openai.com/v1",
+                        "commerce_image_model": "gpt-image-2",
                         "vlm_provider": "glm",
                         "candidate_looseness": "loose",
                         "subtitle_mode": "basic",
@@ -76,8 +81,12 @@ async def test_upload_persists_resolved_settings_snapshot(
     settings_snapshot = json.loads((task_dir / "settings.json").read_text())
     # api_key 等敏感字段已从 settings.json 移到 secrets.json
     assert "api_key" not in settings_snapshot
+    assert "commerce_gemini_api_key" not in settings_snapshot
+    assert "commerce_image_api_key" not in settings_snapshot
     secrets_snapshot = json.loads((task_dir / "secrets.json").read_text())
     assert secrets_snapshot["api_key"] == "glm-key"
+    assert secrets_snapshot["commerce_gemini_api_key"] == "gemini-commerce-key"
+    assert secrets_snapshot["commerce_image_api_key"] == "openai-image-key"
     assert settings_snapshot["enable_vlm"] is True
     assert settings_snapshot["export_mode"] == "smart"
     assert settings_snapshot["vlm_provider"] == "glm"
@@ -86,6 +95,9 @@ async def test_upload_persists_resolved_settings_snapshot(
     assert settings_snapshot["frame_sample_fps"] == 0.5
     assert settings_snapshot["candidate_looseness"] == "loose"
     assert settings_snapshot["subtitle_mode"] == "basic"
+    assert settings_snapshot["commerce_gemini_api_base"] == "https://generativelanguage.googleapis.com"
+    assert settings_snapshot["commerce_image_api_base"] == "https://api.openai.com/v1"
+    assert settings_snapshot["commerce_image_model"] == "gpt-image-2"
     assert queued == [(task_id, str(task_dir / "original.mp4"))]
 
 

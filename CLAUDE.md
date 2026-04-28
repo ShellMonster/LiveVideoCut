@@ -56,6 +56,8 @@
 
 布局约定：`AdminDashboard.tsx` 使用固定视口高度的后台壳，右侧内容区独立滚动；桌面端左侧导航栏保持整屏高度，Worker 资源/服务状态卡固定在侧栏底部。列表页不要做无限下滑。项目总览、任务队列、片段资产使用后端 `offset/limit` 分页；剪辑复核片段队列、音乐库、诊断事件日志使用 `Pagination` 组件做页面内分页。项目总览、任务队列、剪辑复核、片段资产、音乐库、诊断报告的详情信息优先用右侧抽屉承载，避免列表被详情面板挤压；AI 商品素材采用独立工作台页面，不放在片段资产抽屉里。
 
+AI 商品素材设置位于设置页 **AI 服务** 分区内，独立于剪辑流水线 VLM/LLM：`commerce_gemini_api_base/model/api_key/timeout` 用于 Gemini 封面识图，默认 `https://generativelanguage.googleapis.com` + `gemini-3-flash-preview`；`commerce_image_api_base/model/api_key/size/quality/timeout` 用于 OpenAI Image 生图，默认 `https://api.openai.com/v1` + `gpt-image-2`。`commerce_gemini_api_key` 和 `commerce_image_api_key` 是敏感字段，上传时只写入 `secrets.json`。
+
 ### 1. 前端设置
 
 用户先在独立设置页面（不是弹窗）里配置：

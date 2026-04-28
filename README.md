@@ -197,6 +197,7 @@ docker compose up -d
 - `GET /api/tasks?offset=0&limit=20&q=关键词&status=processing` 返回分页任务、总数和全局状态统计；`status=processing` 会聚合所有处理中状态。
 - `GET /api/assets/clips?offset=0&limit=12&q=关键词&status=approved&duration=short` 返回分页片段资产、筛选后的总数和复核状态汇总。
 - `GET /api/commerce/clips/{task_id}/{segment_id}` 返回单个片段的 AI 商品素材状态、商品识别摘要、平台文案和图片结果清单；当前作为工作台只读数据源，生成任务后续接入。
+- 设置页的 **AI 服务 / AI 商品素材** 区块单独保存 Gemini 识图和 OpenAI Image 生图配置：`commerce_gemini_api_base/model/api_key/timeout` 与 `commerce_image_api_base/model/api_key/size/quality/timeout`。两个 API Key 属于敏感字段，上传时写入 `secrets.json`，不会进入 `settings.json`。
 - 前端项目总览、任务队列、片段资产页直接使用后端分页；剪辑复核片段队列、音乐库、诊断事件日志使用固定页大小的前端分页。
 - 项目总览点击行或“详情”打开右侧抽屉，抽屉内聚合概览、片段预览和诊断日志；操作列保留主操作按钮，删除收进“更多”菜单。
 - 任务队列采用队列流式行布局，任务详情、日志和资源监控在右侧抽屉内切换；删除仍走自定义确认弹窗。
