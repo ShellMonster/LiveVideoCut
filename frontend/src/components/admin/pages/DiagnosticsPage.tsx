@@ -1,12 +1,28 @@
-import { Download, FileVideo } from "lucide-react";
+import {
+  AlertTriangle,
+  Bot,
+  CheckCircle2,
+  Clock3,
+  CloudUpload,
+  Download,
+  Eye,
+  FileText,
+  Filter,
+  Image,
+  Info,
+  RefreshCw,
+  X,
+  XCircle,
+} from "lucide-react";
+import type React from "react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useAdminContext } from "@/components/admin/context";
 import { useTaskDiagnostics, useTasks } from "@/hooks/useAdminQueries";
 import { API_BASE } from "../api";
 import { stageLabels } from "../constants";
-import { displayTaskName, formatDate, formatElapsed } from "../format";
-import { Header, MetricCard, Pagination, Warning } from "../shared";
+import { displayTaskName, formatDate } from "../format";
+import { Pagination } from "../shared";
 import type { DiagnosticReport } from "../types";
 
 type DiagnosticEvent = DiagnosticReport["event_log"][number];
@@ -14,7 +30,7 @@ type DiagnosticEvent = DiagnosticReport["event_log"][number];
 export function DiagnosticsPage() {
   const { selectedTask, setSelectedTask } = useAdminContext();
   const { data: tasks = [] } = useTasks();
-  const { data: diagnostics } = useTaskDiagnostics(selectedTask?.task_id);
+  const { data: diagnostics, refetch, isFetching } = useTaskDiagnostics(selectedTask?.task_id);
 
   const summary = diagnostics?.summary;
   const funnel = diagnostics?.funnel ?? [];
@@ -25,45 +41,56 @@ export function DiagnosticsPage() {
   const visibleEvents = eventLog.slice((eventPage - 1) * eventPageSize, eventPage * eventPageSize);
   const maxFunnel = Math.max(...funnel.map((item) => item.count), 1);
   const taskId = selectedTask?.task_id;
+  const pipeline = diagnostics?.pipeline ?? [];
+  const warningItems = diagnostics?.warnings ?? [];
+  const errorCount = eventLog.filter((event) => normalizeLevel(event.level) === "error").length;
+  const warningCount = warningItems.length + eventLog.filter((event) => normalizeLevel(event.level) === "warn").length;
+  const infoCount = eventLog.filter((event) => normalizeLevel(event.level) === "info").length;
+  const dataUpdatedAt = eventLog[0]?.time || selectedTask?.created_at;
+  const funnelStart = funnel[0]?.count || 0;
+  const funnelEnd = funnel[funnel.length - 1]?.count || 0;
+  const overallPassRate = funnelStart > 0 ? (funnelEnd / funnelStart) * 100 : 0;
+  const vlmDropRate = rateBetween(summary?.confirmed_count, summary?.candidates_count, true);
+  const asrPassRate = rateBetween(summary?.enriched_segments_count, summary?.confirmed_count);
+  const exportFailRate = rateBetween(summary?.empty_screen_dropped_estimate, Math.max(summary?.enriched_segments_count ?? 0, 1));
 
   return (
     <>
-      <Header
-        title="任务诊断报告"
-        description="理解片段生成、过滤、失败和耗时原因"
-        action={
-          <>
+      <header className="border-b border-slate-200 bg-white">
+        <div className="flex min-h-16 flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div>
+            <h1 className="text-xl font-semibold text-slate-950">任务诊断报告</h1>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
             <button
               disabled={!taskId}
               onClick={() => taskId && window.open(`${API_BASE}/api/tasks/${taskId}/diagnostics/export`, "_blank")}
               className={cn(
-                "inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50",
+                "inline-flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50",
                 !taskId && "cursor-not-allowed opacity-50",
               )}
             >
-              <Download size={16} />
+              <FileText size={16} />
               导出报告
             </button>
             <button
               disabled={!taskId}
               onClick={() => taskId && window.open(`${API_BASE}/api/tasks/${taskId}/artifacts.zip`, "_blank")}
               className={cn(
-                "inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700",
+                "inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm shadow-blue-600/20 hover:bg-blue-700",
                 !taskId && "cursor-not-allowed opacity-50",
               )}
             >
-              <FileVideo size={16} />
+              <Download size={16} />
               下载诊断包
             </button>
-          </>
-        }
-      />
-      <main className="space-y-5 p-4 sm:p-6">
-        <section className="rounded-lg border border-slate-200 bg-white p-4">
-          <label className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
-            <span className="font-medium text-slate-900">当前项目</span>
+          </div>
+        </div>
+        <div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <label className="flex min-w-0 flex-wrap items-center gap-3 text-slate-500">
+            <span className="font-medium text-slate-700">当前项目</span>
             <select
-              className="min-w-80 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+              className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 sm:min-w-72"
               value={selectedTask?.task_id || ""}
               onChange={(event) => {
                 const next = tasks.find((task) => task.task_id === event.target.value);
@@ -81,70 +108,97 @@ export function DiagnosticsPage() {
                 </option>
               ))}
             </select>
+            {selectedTask && <span className="text-xs text-slate-400">{selectedTask.clip_count} 个片段 · {formatDate(selectedTask.created_at)}</span>}
             {!taskId && <span className="text-xs text-slate-400">选择一个任务后查看耗时、漏斗、事件和诊断包。</span>}
           </label>
-        </section>
-
-        <section className="grid gap-4 lg:grid-cols-5">
-          <MetricCard label="总耗时" value={taskId ? formatElapsed(diagnostics?.total_elapsed_s) : "—"} hint="按产物生成时间推导" />
-          <MetricCard label="候选片段" value={taskId ? String(summary?.candidates_count ?? 0) : "—"} hint="视觉预筛输出" />
-          <MetricCard label="VLM确认" value={taskId ? String(summary?.confirmed_count ?? 0) : "—"} hint="智能模式复核" />
-          <MetricCard label="最终导出" value={taskId ? String(summary?.clips_count ?? selectedTask?.clip_count ?? 0) : "—"} hint="clips 目录统计" />
-          <MetricCard label="未导出" value={taskId ? String(summary?.empty_screen_dropped_estimate ?? 0) : "—"} hint="空镜/时长/导出过滤" />
-        </section>
-
-        <section className="rounded-lg border border-slate-200 bg-white p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold text-slate-900">流水线耗时</h2>
-            <span className="text-xs text-slate-400">{diagnostics?.pipeline.length ?? 0} 个阶段</span>
+          <div className="flex items-center gap-3 text-xs text-slate-500">
+            <button
+              disabled={!taskId}
+              onClick={() => void refetch()}
+              className={cn("inline-flex items-center gap-1.5 font-medium text-slate-600 hover:text-blue-600", !taskId && "cursor-not-allowed opacity-50")}
+            >
+              <RefreshCw size={15} className={cn(isFetching && "animate-spin")} />
+              刷新
+            </button>
+            <span className="hidden h-4 w-px bg-slate-200 sm:block" />
+            <span>数据更新时间：{formatDate(dataUpdatedAt)}</span>
           </div>
-          <div className="mt-5 grid gap-3 md:grid-cols-4 2xl:grid-cols-7">
-            {(diagnostics?.pipeline ?? []).map((item) => (
-              <div key={item.stage} className="relative rounded-lg bg-slate-50 p-3">
-                <div className="flex items-center gap-2">
-                  <span className={cn("h-2.5 w-2.5 rounded-full", item.status === "done" ? "bg-emerald-500" : item.status === "skipped" ? "bg-slate-300" : "bg-amber-500")} />
-                  <span className="truncate text-xs font-medium text-slate-700">{stageLabels[item.stage] || item.stage}</span>
+        </div>
+      </header>
+
+      <main className="space-y-4 p-4 sm:p-5">
+        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <DiagnosticsMetric icon={Clock3} tone="blue" label="总耗时" value={taskId ? formatStopwatch(diagnostics?.total_elapsed_s) : "—"} hint="按产物时间推导" />
+          <DiagnosticsMetric icon={Filter} tone="blue" label="候选片段" value={taskId ? String(summary?.candidates_count ?? 0) : "—"} hint="预筛输出" />
+          <DiagnosticsMetric icon={CheckCircle2} tone="blue" label="VLM确认" value={taskId ? String(summary?.confirmed_count ?? 0) : "—"} hint="通过确认" />
+          <DiagnosticsMetric icon={CloudUpload} tone="emerald" label="最终导出" value={taskId ? String(summary?.clips_count ?? selectedTask?.clip_count ?? 0) : "—"} hint="导出成功" />
+          <DiagnosticsMetric icon={AlertTriangle} tone="amber" label="未导出" value={taskId ? String(summary?.empty_screen_dropped_estimate ?? 0) : "—"} hint="未达到阈值 / 过滤" />
+        </section>
+
+        <section className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_390px]">
+          <div className="space-y-4">
+            <section className="rounded-lg border border-slate-200 bg-white p-4">
+              <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_220px]">
+                <div>
+                  <h2 className="text-base font-semibold text-slate-900">流水线耗时</h2>
+                  <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    {pipeline.length > 0 ? pipeline.map((item, index) => (
+                      <PipelineStep key={item.stage} item={item} index={index} total={pipeline.length} totalSeconds={diagnostics?.total_elapsed_s} />
+                    )) : (
+                      <p className="col-span-full py-8 text-center text-sm text-slate-400">选择项目后查看流水线诊断</p>
+                    )}
+                  </div>
                 </div>
-                <div className="mt-2 truncate text-xs font-mono text-slate-500">{item.artifact}</div>
-                <div className="mt-2 text-xs font-medium text-slate-600">{formatElapsed(item.duration_s)}</div>
+                <div className="border-slate-100 xl:border-l xl:pl-6">
+                  <p className="text-sm font-semibold text-slate-700">流水线总耗时</p>
+                  <p className="mt-3 text-2xl font-semibold text-slate-950">{taskId ? formatStopwatch(diagnostics?.total_elapsed_s) : "—"}</p>
+                  <p className="mt-1 text-xs text-blue-500">{pipeline.length > 0 ? "100%" : "—"}</p>
+                  <dl className="mt-5 space-y-3 text-sm">
+                    <InfoLine label="开始时间" value={formatDate(selectedTask?.created_at)} />
+                    <InfoLine label="结束时间" value={formatDate(eventLog[0]?.time)} />
+                  </dl>
+                </div>
               </div>
-            ))}
-            {!diagnostics?.pipeline.length && (
-              <p className="col-span-full py-6 text-center text-sm text-slate-400">选择项目后查看流水线诊断</p>
-            )}
-          </div>
-        </section>
+            </section>
 
-        <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-          <div className="space-y-5">
             <div className="rounded-lg border border-slate-200 bg-white p-4">
-              <h2 className="text-sm font-semibold text-slate-900">片段漏斗</h2>
-              <div className="mt-4 grid gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
-                <div className="flex h-56 items-center justify-center">
-                  <div className="flex h-full w-full max-w-sm flex-col items-center justify-center gap-1">
+              <h2 className="text-base font-semibold text-slate-900">片段漏斗</h2>
+              <div className="mt-4 grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+                <div className="grid gap-4 lg:grid-cols-[190px_minmax(280px,1fr)_150px]">
+                  <div className="space-y-4 pt-1">
                     {funnel.length > 0 ? funnel.map((item, index) => (
-                      <div
-                        key={item.label}
-                        className={cn("h-9 rounded-sm", index < 2 ? "bg-blue-500" : index === 2 ? "bg-sky-400" : "bg-emerald-500")}
-                        style={{ width: `${Math.max(26, 92 - index * 16)}%`, opacity: 0.9 }}
-                      />
+                      <FunnelLabel key={item.label} item={item} index={index} />
                     )) : (
                       <p className="text-sm text-slate-400">选择项目后查看片段漏斗</p>
                     )}
                   </div>
-                </div>
-                <div className="space-y-3">
-                  {funnel.length > 0 ? funnel.map((item) => (
-                    <div key={item.label} className="grid grid-cols-[100px_minmax(0,1fr)_64px] items-center gap-3 text-sm">
-                      <span className="truncate text-slate-600">{item.label}</span>
-                      <div className="h-2 rounded-full bg-slate-100">
-                        <div className="h-2 rounded-full bg-blue-500" style={{ width: `${Math.round((item.count / maxFunnel) * 100)}%` }} />
+                  <div className="flex min-h-44 flex-col items-center justify-center gap-0.5">
+                    {funnel.length > 0 ? funnel.map((item, index) => (
+                      <div
+                        key={item.label}
+                        className={cn("h-10", index < 2 ? "bg-blue-600" : index === 2 ? "bg-sky-400" : "bg-emerald-500")}
+                        style={{
+                          width: `${Math.max(24, 86 - index * 14)}%`,
+                          clipPath: "polygon(9% 0, 91% 0, 100% 100%, 0% 100%)",
+                          opacity: 0.95,
+                        }}
+                      />
+                    )) : null}
+                  </div>
+                  <div className="space-y-4 pt-1">
+                    {funnel.map((item) => (
+                      <div key={item.label} className="h-9 text-sm font-semibold text-blue-600">
+                        {item.count} <span className="text-xs font-medium">({Math.round((item.count / maxFunnel) * 100)}%)</span>
                       </div>
-                      <span className="text-right font-medium text-slate-900">{item.count}</span>
-                    </div>
-                  )) : (
-                    <p className="py-6 text-center text-sm text-slate-400">选择项目后查看片段漏斗</p>
-                  )}
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-slate-200 text-sm">
+                  <RateRow label="整体通过率" value={`${overallPassRate.toFixed(1)}%`} tone="emerald" />
+                  <RateRow label="VLM过滤率" value={`${vlmDropRate.toFixed(1)}%`} tone={vlmDropRate > 30 ? "amber" : "emerald"} />
+                  <RateRow label="ASR通过率" value={`${asrPassRate.toFixed(1)}%`} tone="emerald" />
+                  <RateRow label="导出失败率" value={`${exportFailRate.toFixed(1)}%`} tone={exportFailRate > 0 ? "amber" : "emerald"} />
+                  <p className="px-3 py-2 text-xs text-slate-400">* 比率根据现有诊断字段推导</p>
                 </div>
               </div>
             </div>
@@ -159,19 +213,16 @@ export function DiagnosticsPage() {
             />
           </div>
 
-          <aside className="space-y-5">
-            <div className="rounded-lg border border-slate-200 bg-white p-4">
-              <h2 className="text-sm font-semibold text-slate-900">异常与建议</h2>
-              <div className="mt-4 space-y-3">
-                {(diagnostics?.warnings ?? []).map((item) => (
-                  <Warning key={item.message} text={item.message} />
-                ))}
-                {!diagnostics?.warnings.length && (
-                  <p className="text-sm text-slate-400">暂无异常建议</p>
-                )}
-              </div>
-            </div>
-            <EventDetailPanel event={selectedEvent} />
+          <aside className="space-y-3 2xl:sticky 2xl:top-4 2xl:self-start">
+            <IssuePanel
+              warnings={warningItems}
+              eventLog={eventLog}
+              errorCount={errorCount}
+              warningCount={warningCount}
+              infoCount={infoCount}
+              onSelectEvent={setSelectedEvent}
+            />
+            <EventDetailPanel event={selectedEvent} onClose={() => setSelectedEvent(null)} />
           </aside>
         </section>
       </main>
@@ -198,20 +249,21 @@ function EventLogTable({
     <section className="rounded-lg border border-slate-200 bg-white">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
         <div>
-          <h2 className="text-sm font-semibold text-slate-900">详细事件日志</h2>
-          <p className="mt-0.5 text-xs text-slate-400">点击事件在右侧查看完整消息。</p>
+          <h2 className="text-base font-semibold text-slate-900">详细事件日志</h2>
         </div>
-        <span className="text-xs text-slate-400">{eventLog.length} 条事件</span>
+        <span className="text-xs text-slate-400">共 {eventLog.length} 条</span>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px] text-left text-sm">
+        <table className="w-full min-w-[940px] text-left text-sm">
           <thead className="bg-slate-50 text-xs text-slate-500">
             <tr>
               <th className="px-4 py-3">时间</th>
               <th className="px-4 py-3">阶段</th>
               <th className="px-4 py-3">级别</th>
+              <th className="px-4 py-3">事件类型</th>
               <th className="px-4 py-3">信息</th>
-              <th className="px-4 py-3">文件</th>
+              <th className="px-4 py-3">关联文件</th>
+              <th className="px-4 py-3 text-center">操作</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -220,16 +272,21 @@ function EventLogTable({
                 <td className="px-4 py-3 font-mono text-xs text-slate-500">{formatDate(event.time)}</td>
                 <td className="px-4 py-3 text-slate-700">{stageLabels[event.stage] || event.stage}</td>
                 <td className="px-4 py-3">
-                  <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", event.level === "WARN" ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700")}>
-                    {event.level}
-                  </span>
+                  <LevelBadge level={event.level} />
                 </td>
+                <td className="max-w-[160px] truncate px-4 py-3 text-slate-700">{eventTitle(event.message)}</td>
                 <td className="max-w-[360px] truncate px-4 py-3 text-slate-600">{event.message}</td>
                 <td className="max-w-[160px] truncate px-4 py-3 font-mono text-xs text-slate-500">{event.file}</td>
+                <td className="px-4 py-3 text-center">
+                  <button className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700">
+                    <Eye size={14} />
+                    查看
+                  </button>
+                </td>
               </tr>
             )) : (
               <tr>
-                <td colSpan={5} className="px-4 py-10 text-center text-sm text-slate-400">
+                <td colSpan={7} className="px-4 py-10 text-center text-sm text-slate-400">
                   选择项目后查看详细事件日志
                 </td>
               </tr>
@@ -242,30 +299,33 @@ function EventLogTable({
   );
 }
 
-function EventDetailPanel({ event }: { event: DiagnosticEvent | null }) {
+function EventDetailPanel({ event, onClose }: { event: DiagnosticEvent | null; onClose: () => void }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">
-      <h2 className="text-sm font-semibold text-slate-900">事件详情</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-base font-semibold text-slate-900">事件详情</h2>
+        {event && (
+          <button onClick={onClose} className="rounded-md p-1 text-slate-400 hover:bg-slate-50 hover:text-slate-700" aria-label="关闭事件详情">
+            <X size={16} />
+          </button>
+        )}
+      </div>
       {!event ? (
         <p className="mt-4 text-sm text-slate-400">选择一条事件后查看完整消息。</p>
       ) : (
         <>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">{stageLabels[event.stage] || event.stage}</span>
-            <span className={cn("rounded-full px-2 py-1 text-xs font-medium", event.level === "WARN" ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700")}>{event.level}</span>
-          </div>
-
-          <section className="mt-5 rounded-lg border border-slate-200 p-4">
-            <h3 className="text-sm font-semibold text-slate-900">消息</h3>
-            <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-slate-600">{event.message}</p>
-          </section>
-
-          <section className="mt-4 space-y-3 rounded-lg border border-slate-200 p-4 text-sm">
+          <section className="mt-4 space-y-3 text-sm">
             <InfoRow label="时间" value={formatDate(event.time)} />
-            <InfoRow label="阶段" value={event.stage} />
-            <InfoRow label="级别" value={event.level} />
-            <InfoRow label="文件" value={event.file} />
+            <InfoRow label="阶段" value={stageLabels[event.stage] || event.stage} />
+            <InfoRow label="级别" value={levelLabel(event.level)} />
+            <InfoRow label="事件类型" value={eventTitle(event.message)} />
+            <InfoRow label="事件描述" value={event.message} />
+            <InfoRow label="关联文件" value={event.file} />
+            <InfoRow label="建议" value={eventSuggestion(event)} />
           </section>
+          <pre className="mt-4 overflow-auto rounded-lg bg-slate-50 p-3 text-xs leading-5 text-slate-600">{`stage: ${event.stage}
+level: ${event.level}
+file: ${event.file || "—"}`}</pre>
         </>
       )}
     </div>
@@ -279,4 +339,244 @@ function InfoRow({ label, value }: { label: string; value: string }) {
       <span className="break-all font-medium text-slate-800">{value || "—"}</span>
     </div>
   );
+}
+
+function DiagnosticsMetric({
+  icon: Icon,
+  tone,
+  label,
+  value,
+  hint,
+  trend,
+}: {
+  icon: React.ElementType;
+  tone: "blue" | "emerald" | "amber";
+  label: string;
+  value: string;
+  hint: string;
+  trend?: "down";
+}) {
+  const toneClass = {
+    blue: "bg-blue-50 text-blue-600 ring-blue-100",
+    emerald: "bg-emerald-50 text-emerald-600 ring-emerald-100",
+    amber: "bg-amber-50 text-amber-600 ring-amber-100",
+  }[tone];
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4">
+      <div className="flex items-center gap-4">
+        <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ring-1", toneClass)}>
+          <Icon size={19} />
+        </div>
+        <div className="min-w-0">
+          <div className="text-xs text-slate-500">{label}</div>
+          <div className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">{value}</div>
+          <div className={cn("mt-1 text-xs", trend === "down" ? "text-emerald-600" : "text-slate-400")}>{hint}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PipelineStep({
+  item,
+  index,
+  total,
+  totalSeconds,
+}: {
+  item: DiagnosticReport["pipeline"][number];
+  index: number;
+  total: number;
+  totalSeconds?: number | null;
+}) {
+  const done = item.status === "done";
+
+  return (
+    <div className="relative">
+      {index < total - 1 && <div className="absolute left-[calc(50%+2.25rem)] top-1/2 hidden h-0.5 w-[calc(100%-4.5rem)] -translate-y-1/2 bg-blue-500 xl:block" />}
+      <div className="relative rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+            {pipelineIcon(item.stage)}
+          </div>
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold text-slate-800">{stageLabels[item.stage] || item.stage}</div>
+            <div className={cn("mt-1 flex items-center gap-1 text-xs", done ? "text-emerald-600" : item.status === "skipped" ? "text-slate-400" : "text-amber-600")}>
+              <CheckCircle2 size={12} />
+              {done ? "完成" : item.status === "skipped" ? "跳过" : "处理中"}
+            </div>
+          </div>
+        </div>
+        <div className="mt-4 text-center text-lg font-semibold text-slate-950">{formatStopwatch(item.duration_s)}</div>
+        <div className="mt-1 text-center text-xs text-slate-400">占比 {totalSeconds && item.duration_s ? `${((item.duration_s / totalSeconds) * 100).toFixed(1)}%` : "—"}</div>
+      </div>
+    </div>
+  );
+}
+
+function FunnelLabel({ item, index }: { item: DiagnosticReport["funnel"][number]; index: number }) {
+  const descriptions = ["视觉候选输出的候选片段", "通过 VLM 语义确认", "成功转写文本", "最终成功导出"];
+  return (
+    <div className="h-9">
+      <div className="text-sm font-semibold text-slate-800">{item.label}</div>
+      <div className="text-xs text-slate-400">{descriptions[index] ?? "阶段输出数量"}</div>
+    </div>
+  );
+}
+
+function RateRow({ label, value, tone }: { label: string; value: string; tone: "emerald" | "amber" }) {
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_80px] border-b border-slate-100 px-4 py-3 last:border-b-0">
+      <span className="text-slate-500">{label}</span>
+      <span className={cn("text-right font-semibold", tone === "emerald" ? "text-emerald-600" : "text-amber-600")}>{value}</span>
+    </div>
+  );
+}
+
+function IssuePanel({
+  warnings,
+  eventLog,
+  errorCount,
+  warningCount,
+  infoCount,
+  onSelectEvent,
+}: {
+  warnings: DiagnosticReport["warnings"];
+  eventLog: DiagnosticEvent[];
+  errorCount: number;
+  warningCount: number;
+  infoCount: number;
+  onSelectEvent: (event: DiagnosticEvent) => void;
+}) {
+  const issues = eventLog.slice(0, 5);
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4">
+      <h2 className="text-base font-semibold text-slate-900">异常与建议</h2>
+      <div className="mt-5 grid grid-cols-3 divide-x divide-slate-100 text-center">
+        <IssueCount icon={XCircle} tone="red" value={errorCount} label="错误" />
+        <IssueCount icon={AlertTriangle} tone="amber" value={warningCount} label="告警" />
+        <IssueCount icon={Info} tone="blue" value={infoCount} label="提示" />
+      </div>
+      <div className="mt-5 space-y-2">
+        {issues.length > 0 ? issues.map((event) => (
+          <button
+            key={`${event.time}-${event.file}-${event.message}`}
+            onClick={() => onSelectEvent(event)}
+            className="flex w-full items-start gap-3 rounded-lg border border-slate-200 p-3 text-left hover:bg-slate-50"
+          >
+            <LevelIcon level={event.level} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium text-slate-800">{eventTitle(event.message)}</span>
+              <span className="mt-0.5 block truncate text-xs text-slate-500">{event.message}</span>
+            </span>
+            <span className="shrink-0 text-xs text-slate-400">{formatDate(event.time)}</span>
+          </button>
+        )) : warnings.length > 0 ? warnings.map((item) => (
+          <div key={item.message} className="rounded-lg border border-amber-100 bg-amber-50 p-3 text-sm text-amber-700">{item.message}</div>
+        )) : (
+          <p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-400">暂无异常建议</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function IssueCount({ icon: Icon, tone, value, label }: { icon: React.ElementType; tone: "red" | "amber" | "blue"; value: number; label: string }) {
+  const className = {
+    red: "text-red-600",
+    amber: "text-amber-600",
+    blue: "text-blue-600",
+  }[tone];
+  return (
+    <div className="flex items-center justify-center gap-2">
+      <Icon size={18} className={className} />
+      <div className="text-left">
+        <div className="text-sm font-semibold text-slate-950">{value}</div>
+        <div className="text-xs text-slate-500">{label}</div>
+      </div>
+    </div>
+  );
+}
+
+function InfoLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <dt className="text-slate-400">{label}</dt>
+      <dd className="text-right font-medium text-slate-600">{value}</dd>
+    </div>
+  );
+}
+
+function LevelBadge({ level }: { level: string }) {
+  const normalized = normalizeLevel(level);
+  return (
+    <span className={cn(
+      "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
+      normalized === "error" && "bg-red-50 text-red-700",
+      normalized === "warn" && "bg-amber-50 text-amber-700",
+      normalized === "info" && "bg-blue-50 text-blue-700",
+      normalized === "ok" && "bg-emerald-50 text-emerald-700",
+    )}>
+      {levelLabel(level)}
+    </span>
+  );
+}
+
+function LevelIcon({ level }: { level: string }) {
+  const normalized = normalizeLevel(level);
+  if (normalized === "error") return <XCircle size={18} className="mt-0.5 shrink-0 text-red-600" />;
+  if (normalized === "warn") return <AlertTriangle size={18} className="mt-0.5 shrink-0 text-amber-600" />;
+  return <Info size={18} className="mt-0.5 shrink-0 text-blue-600" />;
+}
+
+function pipelineIcon(stage: string) {
+  if (stage.includes("VISUAL") || stage.includes("SCENE")) return <Image size={18} />;
+  if (stage.includes("VLM")) return <Bot size={18} />;
+  if (stage.includes("TRANSCRIB")) return <FileText size={18} />;
+  if (stage.includes("PROCESS") || stage.includes("EXPORT") || stage.includes("COMPLETED")) return <Download size={18} />;
+  return <CheckCircle2 size={18} />;
+}
+
+function normalizeLevel(level: string): "error" | "warn" | "info" | "ok" {
+  const value = level.toLowerCase();
+  if (value.includes("error") || value.includes("fail")) return "error";
+  if (value.includes("warn")) return "warn";
+  if (value.includes("info")) return "info";
+  return "ok";
+}
+
+function levelLabel(level: string): string {
+  const normalized = normalizeLevel(level);
+  if (normalized === "error") return "错误";
+  if (normalized === "warn") return "告警";
+  if (normalized === "info") return "提示";
+  return "正常";
+}
+
+function eventTitle(message: string): string {
+  if (!message) return "事件";
+  return message.split(/[，,。:：]/)[0] || message;
+}
+
+function eventSuggestion(event: DiagnosticEvent): string {
+  const normalized = normalizeLevel(event.level);
+  if (normalized === "error") return "检查对应产物文件、后端错误日志和任务重试记录。";
+  if (normalized === "warn") return "关注阈值配置、输入质量和该阶段耗时是否异常。";
+  return "作为诊断参考，无需立即处理。";
+}
+
+function formatStopwatch(seconds?: number | null): string {
+  if (seconds == null || seconds < 0) return "—";
+  const total = Math.round(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function rateBetween(current?: number, base?: number, inverse = false): number {
+  if (!base || base <= 0 || current == null) return 0;
+  const ratio = current / base;
+  return Math.max(0, Math.min(100, (inverse ? 1 - ratio : ratio) * 100));
 }
