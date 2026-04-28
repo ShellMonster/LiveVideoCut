@@ -88,7 +88,7 @@ export function AdminMusicPage() {
   const filteredTracks = tracks.filter((track) => {
     if (sourceFilter !== "all" && track.source !== sourceFilter) return false;
     if (!query.trim()) return true;
-    const text = `${track.title} ${track.mood.join(" ")} ${track.categories.join(" ")} ${track.genre}`.toLowerCase();
+    const text = `${track.title} ${track.mood.join(" ")} ${track.mood.map(moodLabel).join(" ")} ${track.categories.join(" ")} ${track.categories.map(categoryLabel).join(" ")} ${track.genre} ${genreLabel(track.genre)}`.toLowerCase();
     return text.includes(query.trim().toLowerCase());
   });
   const visibleTracks = filteredTracks.slice((page - 1) * pageSize, page * pageSize);
@@ -246,13 +246,13 @@ export function AdminMusicPage() {
             <select className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
               <option>商品分类 全部</option>
               {editableCategoryOptions.map((item) => (
-                <option key={item}>{item}</option>
+                <option key={item}>{categoryLabel(item)}</option>
               ))}
             </select>
             <select className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
               <option>Mood 全部</option>
               {editableMoodOptions.map((item) => (
-                <option key={item}>{item}</option>
+                <option key={item}>{moodLabel(item)}</option>
               ))}
             </select>
           </div>
@@ -332,7 +332,7 @@ function TrackRow({
         </button>
         <button onClick={onSelect} className="min-w-0 text-left">
           <div className="truncate text-sm font-semibold text-slate-900">{track.title}</div>
-          <div className="mt-1 text-xs text-slate-400">{track.genre || "未设置风格"} · {formatDuration(track.duration_s)}</div>
+          <div className="mt-1 text-xs text-slate-400">{genreLabel(track.genre)} · {formatDuration(track.duration_s)}</div>
         </button>
       </div>
       <Waveform active={playing} seed={track.id} />
@@ -344,12 +344,12 @@ function TrackRow({
       <div className="text-xs text-slate-500">{formatDuration(track.duration_s)}</div>
       <div className="flex min-w-0 flex-wrap gap-1.5">
         {(track.mood.length ? track.mood.slice(0, 3) : ["—"]).map((item) => (
-          <span key={item} className="rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">{item}</span>
+          <span key={item} className="rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">{moodLabel(item)}</span>
         ))}
       </div>
       <div className="flex min-w-0 flex-wrap gap-1.5">
         {(track.categories.length ? track.categories.slice(0, 2) : ["default"]).map((item) => (
-          <span key={item} className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">{item}</span>
+          <span key={item} className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">{categoryLabel(item)}</span>
         ))}
       </div>
       <div className="flex justify-end">
@@ -416,15 +416,15 @@ function TrackEditorDrawer({
           {track.source !== "user" ? (
             <div className="space-y-4">
               <Field label="标题" value={track.title} />
-              <TagGroup label="Mood" values={track.mood.length ? track.mood : ["—"]} />
-              <TagGroup label="商品分类" values={track.categories.length ? track.categories : ["default"]} />
+              <TagGroup label="Mood" values={track.mood.length ? track.mood.map(moodLabel) : ["—"]} />
+              <TagGroup label="商品分类" values={track.categories.length ? track.categories.map(categoryLabel) : ["通用"]} />
               <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">内置曲目只读；上传到我的音乐后可编辑标签。</div>
             </div>
           ) : (
             <div className="space-y-4">
               <InputField label="标题" value={draft.title} onChange={(title) => onDraftChange({ ...draft, title })} />
-              <MultiSelectField label="Mood" options={editableMoodOptions} values={draft.mood} onChange={(mood) => onDraftChange({ ...draft, mood })} />
-              <MultiSelectField label="商品分类" options={editableCategoryOptions} values={draft.categories} onChange={(categories) => onDraftChange({ ...draft, categories })} />
+              <MultiSelectField label="Mood" options={editableMoodOptions} values={draft.mood} formatOption={moodLabel} onChange={(mood) => onDraftChange({ ...draft, mood })} />
+              <MultiSelectField label="商品分类" options={editableCategoryOptions} values={draft.categories} formatOption={categoryLabel} onChange={(categories) => onDraftChange({ ...draft, categories })} />
               <div>
                 <div className="mb-2 text-xs font-medium text-slate-500">节奏</div>
                 <div className="grid grid-cols-4 gap-2">
@@ -508,7 +508,7 @@ function MusicPlayerBar({
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-slate-900">{track.title}</div>
             <div className="mt-1 flex items-center gap-2">
-              <span className="truncate text-xs text-slate-500">{track.genre || "未设置风格"}</span>
+              <span className="truncate text-xs text-slate-500">{genreLabel(track.genre)}</span>
               <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", track.source === "user" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600")}>
                 {track.source === "user" ? "我的音乐" : "内置曲目"}
               </span>
@@ -585,6 +585,62 @@ function tempoLabel(tempo: string): string {
     very_fast: "极快",
   };
   return labels[tempo] ?? tempo;
+}
+
+function moodLabel(mood: string): string {
+  const labels: Record<string, string> = {
+    bright: "明亮",
+    casual: "轻松",
+    warm: "温暖",
+    luxury: "高级",
+    energetic: "活力",
+    soft: "柔和",
+    clean: "清新",
+    elegant: "优雅",
+    healing: "治愈",
+    romantic: "浪漫",
+    relaxed: "放松",
+    upbeat: "轻快",
+    happy: "欢乐",
+  };
+  return labels[mood] ?? mood;
+}
+
+function categoryLabel(category: string): string {
+  const labels: Record<string, string> = {
+    default: "通用",
+    dress: "连衣裙",
+    coat: "外套",
+    pants: "裤装",
+    skirt: "半身裙",
+    shoes: "鞋履",
+    bag: "包袋",
+    accessory: "配饰",
+    beauty: "美妆",
+    home: "家居",
+    top: "上衣",
+    tshirt: "T恤",
+    t_shirt: "T恤",
+    shorts: "短裤",
+    sports: "运动",
+    sleepwear: "睡衣",
+  };
+  return labels[category] ?? category;
+}
+
+function genreLabel(genre?: string): string {
+  if (!genre) return "未设置风格";
+  const labels: Record<string, string> = {
+    pop: "流行",
+    electronic: "电子",
+    acoustic: "原声",
+    piano: "钢琴",
+    jazz: "爵士",
+    ambient: "氛围",
+    fashion: "时尚",
+    light: "轻音乐",
+  };
+  return labels[genre] ?? genre;
 }
 
 function energyIndex(energy: string): number {

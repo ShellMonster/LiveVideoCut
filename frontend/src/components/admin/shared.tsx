@@ -405,11 +405,13 @@ export function MultiSelectField({
   options,
   values,
   onChange,
+  formatOption,
 }: {
   label: string;
   options: string[];
   values: string[];
   onChange: (values: string[]) => void;
+  formatOption?: (option: string) => string;
 }) {
   const toggle = (option: string) => {
     if (values.includes(option)) {
@@ -437,7 +439,7 @@ export function MultiSelectField({
                   : "bg-white text-slate-500 ring-slate-200 hover:bg-slate-50",
               )}
             >
-              {option}
+              {formatOption ? formatOption(option) : option}
             </button>
           );
         })}
