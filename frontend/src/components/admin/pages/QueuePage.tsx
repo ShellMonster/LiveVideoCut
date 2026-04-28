@@ -266,6 +266,7 @@ function QueueTaskRow({
   onToggleMenu: () => void;
 }) {
   const progress = progressByStatus(task);
+  const currentStage = displayQueueStage(task);
   return (
     <article className={cn("min-w-[1120px] border-b border-slate-100 px-4 py-3 last:border-b-0", active && "bg-blue-50/40")}>
       <div className="grid grid-cols-[minmax(280px,1.4fr)_90px_160px_120px_80px_80px_110px_100px] items-center gap-4">
@@ -300,7 +301,7 @@ function QueueTaskRow({
           </div>
         </button>
         <div className="text-xs text-slate-500">
-          <div>{task.stage || task.status}</div>
+          <div>{currentStage}</div>
         </div>
         <div className="text-xs text-slate-500">{formatDuration(task.video_duration_s)}</div>
         <div className="text-xs text-slate-500">{workerText}</div>
@@ -308,7 +309,7 @@ function QueueTaskRow({
           {formatDate(task.created_at)}
         </div>
         <div className="relative flex justify-end gap-2">
-          <QueueAction icon={Eye} label="查看" onClick={onView} />
+          <QueueIconAction icon={Eye} label="查看" onClick={onView} />
           <button
             onClick={onToggleMenu}
             className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
@@ -368,6 +369,7 @@ function QueueMobileTaskCard({
   onToggleMenu: () => void;
 }) {
   const progress = progressByStatus(task);
+  const currentStage = displayQueueStage(task);
   return (
     <article className={cn("px-4 py-4", active && "bg-blue-50/40")}>
       <button onClick={onOpen} className="flex w-full min-w-0 gap-3 text-left">
@@ -393,7 +395,7 @@ function QueueMobileTaskCard({
       </button>
       <button onClick={onOpen} className="mt-3 w-full text-left">
         <div className="flex items-center justify-between text-xs text-slate-500">
-          <span>{task.stage || task.status}</span>
+          <span>{currentStage}</span>
           <span>{progress}%</span>
         </div>
         <div className="mt-2 h-2 rounded-full bg-slate-100">
@@ -403,7 +405,7 @@ function QueueMobileTaskCard({
       <div className="mt-3 flex items-center justify-between gap-3">
         <span className="truncate text-xs text-slate-400">{resourcesText} · {formatDate(task.created_at)}</span>
         <div className="relative flex shrink-0 gap-2">
-          <QueueAction icon={Eye} label="查看" onClick={onView} />
+          <QueueIconAction icon={Eye} label="查看" onClick={onView} />
           <button
             onClick={onToggleMenu}
             className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
@@ -437,37 +439,53 @@ function QueueMobileTaskCard({
   );
 }
 
-function QueueAction({
+function QueueIconAction({
   icon: Icon,
   label,
   onClick,
-  disabled,
-  danger,
 }: {
   icon: typeof Eye;
   label: string;
   onClick: () => void;
-  disabled?: boolean;
-  danger?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
-      disabled={disabled}
       aria-label={label}
       title={label}
-      className={cn(
-        "inline-flex min-w-0 items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs font-medium",
-        danger
-          ? "border-red-100 text-red-600 hover:bg-red-50"
-          : "border-slate-200 text-slate-700 hover:bg-slate-50",
-        disabled && "cursor-not-allowed opacity-40 hover:bg-white",
-      )}
+      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900"
     >
       <Icon size={14} />
-      <span className="hidden sm:inline">{label}</span>
     </button>
   );
+}
+
+function displayQueueStage(task: TaskItem): string {
+  const rawStage = task.stage || task.status;
+  const normalized = rawStage.trim();
+  const upper = normalized.toUpperCase();
+  const lower = normalized.toLowerCase();
+  const queueStageLabels: Record<string, string> = {
+    completed: "已完成",
+    complete: "已完成",
+    failed: "失败",
+    error: "失败",
+    uploaded: "排队中",
+    pending: "排队中",
+    queued: "排队中",
+    processing: "处理中",
+    running: "处理中",
+    extracting_frames: "抽帧中",
+    scene_detecting: "场景切分",
+    visual_screening: "视觉预筛",
+    vlm_confirming: "片段筛选",
+    transcribing: "字幕转写",
+    llm_analyzing: "内容理解",
+    exporting: "导出中",
+    processing_clips: "片段生成",
+  };
+
+  return stageLabels[normalized] || stageLabels[upper] || queueStageLabels[lower] || statusLabel(task.status);
 }
 
 function QueueDetailDrawer({
