@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Activity, Cpu, Ellipsis, Eye, Film, HardDrive, RefreshCw, Search, Server, Trash2, Upload, X } from "lucide-react";
+import { Activity, Calendar, Cpu, Ellipsis, Eye, Film, HardDrive, RefreshCw, Search, Server, Trash2, Upload, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAdminContext } from "@/components/admin/context";
 import { useTaskList, useSystemResources, useTaskEvents, useDeleteTask, useRetryTask } from "@/hooks/useAdminQueries";
@@ -42,7 +42,6 @@ export function QueuePage() {
   const processing = resources?.queue.active ?? taskList?.summary?.processing ?? 0;
   const completed = resources?.queue.completed ?? taskList?.summary?.completed ?? 0;
   const failed = resources?.queue.failed ?? taskList?.summary?.failed ?? 0;
-  const detailTask = selectedTask ?? tasks[0] ?? null;
 
   const openTask = (task: TaskItem, tab: QueueDrawerTab = "overview") => {
     setSelectedTask(task);
@@ -82,8 +81,7 @@ export function QueuePage() {
           </button>
         }
       />
-      <main className="grid gap-5 p-4 sm:p-6 2xl:grid-cols-[minmax(0,1fr)_430px]">
-        <div className="min-w-0 space-y-5">
+      <main className={cn("space-y-5 p-4 transition-[padding] duration-200 sm:p-6", drawerOpen && "2xl:pr-[486px]")}>
         <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px]">
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
             <MetricCard label="等待中" value={String(waiting)} hint="等待 Celery 调度" />
@@ -143,14 +141,30 @@ export function QueuePage() {
               <option value="failed">失败</option>
               <option value="uploaded">等待中</option>
             </select>
+            <select className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+              <option>全部优先级</option>
+              <option>高优先级</option>
+              <option>普通优先级</option>
+            </select>
+            <select className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+              <option>全部项目</option>
+            </select>
+            <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-500 hover:bg-slate-50">
+              <Calendar size={15} />
+              开始日期
+              <span className="text-slate-300">→</span>
+              结束日期
+            </button>
           </div>
 
           <div className="hidden overflow-x-auto lg:block">
-            <div className="grid min-w-[1040px] grid-cols-[minmax(280px,1.4fr)_120px_minmax(180px,1fr)_120px_120px_150px] gap-4 border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-medium text-slate-500">
+            <div className="grid min-w-[1120px] grid-cols-[minmax(280px,1.4fr)_90px_160px_120px_80px_80px_110px_100px] gap-4 border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-medium text-slate-500">
               <div>任务信息</div>
               <div>状态</div>
               <div>进度</div>
               <div>当前阶段</div>
+              <div>时长</div>
+              <div>Worker</div>
               <div>创建时间</div>
               <div className="text-right">操作</div>
             </div>
@@ -162,10 +176,10 @@ export function QueuePage() {
                   key={task.task_id}
                   task={task}
                   active={selectedTask?.task_id === task.task_id && drawerOpen}
-                  resourcesText={resources ? `${resources.clip_workers} workers` : "等待资源"}
+                  workerText={resources ? String(resources.clip_workers) : "—"}
                   onOpen={() => openTask(task)}
-                  onView={() => {
-                    setSelectedTask(task);
+                  onView={() => openTask(task)}
+                  onOpenResult={() => {
                     if (task.status === "COMPLETED") navigate("/assets");
                     else navigate("/review");
                   }}
@@ -189,8 +203,8 @@ export function QueuePage() {
                   active={selectedTask?.task_id === task.task_id && drawerOpen}
                   resourcesText={resources ? `${resources.clip_workers} workers` : "等待资源"}
                   onOpen={() => openTask(task)}
-                  onView={() => {
-                    setSelectedTask(task);
+                  onView={() => openTask(task)}
+                  onOpenResult={() => {
                     if (task.status === "COMPLETED") navigate("/assets");
                     else navigate("/review");
                   }}
@@ -205,22 +219,6 @@ export function QueuePage() {
           </div>
           <Pagination page={page} pageSize={pageSize} total={taskList?.total ?? 0} onPageChange={setPage} />
         </section>
-        </div>
-
-        <QueueDetailPanel
-          task={detailTask}
-          tab={drawerTab}
-          onTabChange={setDrawerTab}
-          events={detailTask?.task_id === selectedTask?.task_id ? events : []}
-          resources={resources}
-          onRetry={(task) => void retryTask.mutateAsync(task.task_id)}
-          onDelete={(task) => void handleDeleteTask(task)}
-          onOpenResult={(task) => {
-            setSelectedTask(task);
-            if (task.status === "COMPLETED") navigate("/assets");
-            else navigate("/review");
-          }}
-        />
       </main>
 
       <QueueDetailDrawer
@@ -245,9 +243,10 @@ export function QueuePage() {
 function QueueTaskRow({
   task,
   active,
-  resourcesText,
+  workerText,
   onOpen,
   onView,
+  onOpenResult,
   onLogs,
   onRetry,
   onDelete,
@@ -256,9 +255,10 @@ function QueueTaskRow({
 }: {
   task: TaskItem;
   active: boolean;
-  resourcesText: string;
+  workerText: string;
   onOpen: () => void;
   onView: () => void;
+  onOpenResult: () => void;
   onLogs: () => void;
   onRetry: () => void;
   onDelete: () => void;
@@ -267,8 +267,8 @@ function QueueTaskRow({
 }) {
   const progress = progressByStatus(task);
   return (
-    <article className={cn("min-w-[1040px] border-b border-slate-100 px-4 py-3 last:border-b-0", active && "bg-blue-50/40")}>
-      <div className="grid grid-cols-[minmax(280px,1.4fr)_120px_minmax(180px,1fr)_120px_120px_150px] gap-4 items-center">
+    <article className={cn("min-w-[1120px] border-b border-slate-100 px-4 py-3 last:border-b-0", active && "bg-blue-50/40")}>
+      <div className="grid grid-cols-[minmax(280px,1.4fr)_90px_160px_120px_80px_80px_110px_100px] items-center gap-4">
         <button onClick={onOpen} className="min-w-0 text-left">
           <div className="flex min-w-0 items-center gap-3">
             <div className="h-12 w-16 shrink-0 overflow-hidden rounded-lg bg-slate-100">
@@ -293,7 +293,6 @@ function QueueTaskRow({
         </div>
         <button onClick={onOpen} className="text-left">
           <div className="flex items-center justify-between gap-3">
-            <span className="text-xs text-slate-500">{resourcesText}</span>
             <span className="text-xs text-slate-400">{progress}%</span>
           </div>
           <div className="mt-2 h-2 rounded-full bg-slate-100">
@@ -302,8 +301,9 @@ function QueueTaskRow({
         </button>
         <div className="text-xs text-slate-500">
           <div>{task.stage || task.status}</div>
-          <div className="mt-1">{formatDuration(task.video_duration_s)}</div>
         </div>
+        <div className="text-xs text-slate-500">{formatDuration(task.video_duration_s)}</div>
+        <div className="text-xs text-slate-500">{workerText}</div>
         <div className="text-xs text-slate-500">
           {formatDate(task.created_at)}
         </div>
@@ -320,6 +320,9 @@ function QueueTaskRow({
             <div className="absolute right-0 top-9 z-20 w-32 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 text-sm shadow-lg">
               <button onClick={onLogs} className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-700 hover:bg-slate-50">
                 <Activity size={14} /> 日志
+              </button>
+              <button onClick={onOpenResult} className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-700 hover:bg-slate-50">
+                <Eye size={14} /> 结果
               </button>
               <button
                 onClick={onRetry}
@@ -339,56 +342,13 @@ function QueueTaskRow({
   );
 }
 
-function QueueDetailPanel({
-  task,
-  tab,
-  onTabChange,
-  events,
-  resources,
-  onRetry,
-  onDelete,
-  onOpenResult,
-}: {
-  task: TaskItem | null;
-  tab: QueueDrawerTab;
-  onTabChange: (tab: QueueDrawerTab) => void;
-  events: { time: string; stage: string; level: string; message: string; file: string }[];
-  resources?: ReturnType<typeof useSystemResources>["data"];
-  onRetry: (task: TaskItem) => void;
-  onDelete: (task: TaskItem) => void;
-  onOpenResult: (task: TaskItem) => void;
-}) {
-  if (!task) {
-    return (
-      <aside className="hidden rounded-lg border border-slate-200 bg-white p-5 2xl:block">
-        <h2 className="text-base font-semibold text-slate-950">任务详情</h2>
-        <p className="mt-2 text-sm text-slate-400">选择左侧任务后查看进度、日志和资源占用。</p>
-      </aside>
-    );
-  }
-
-  return (
-    <aside className="sticky top-6 hidden max-h-[calc(100vh-3rem)] overflow-y-auto rounded-lg border border-slate-200 bg-white p-5 shadow-sm 2xl:block">
-      <QueueDetailContent
-        task={task}
-        tab={tab}
-        onTabChange={onTabChange}
-        events={events}
-        resources={resources}
-        onRetry={onRetry}
-        onDelete={onDelete}
-        onOpenResult={onOpenResult}
-      />
-    </aside>
-  );
-}
-
 function QueueMobileTaskCard({
   task,
   active,
   resourcesText,
   onOpen,
   onView,
+  onOpenResult,
   onLogs,
   onRetry,
   onDelete,
@@ -400,6 +360,7 @@ function QueueMobileTaskCard({
   resourcesText: string;
   onOpen: () => void;
   onView: () => void;
+  onOpenResult: () => void;
   onLogs: () => void;
   onRetry: () => void;
   onDelete: () => void;
@@ -455,6 +416,9 @@ function QueueMobileTaskCard({
               <button onClick={onLogs} className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-700 hover:bg-slate-50">
                 <Activity size={14} /> 日志
               </button>
+              <button onClick={onOpenResult} className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-700 hover:bg-slate-50">
+                <Eye size={14} /> 结果
+              </button>
               <button
                 onClick={onRetry}
                 disabled={task.status !== "ERROR"}
@@ -490,6 +454,8 @@ function QueueAction({
     <button
       onClick={onClick}
       disabled={disabled}
+      aria-label={label}
+      title={label}
       className={cn(
         "inline-flex min-w-0 items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs font-medium",
         danger
@@ -530,9 +496,9 @@ function QueueDetailDrawer({
   if (!open || !task) return null;
 
   return (
-    <div className="fixed inset-0 z-40">
-      <button className="absolute inset-0 bg-slate-950/20" onClick={onClose} aria-label="关闭任务详情" />
-      <aside className="absolute right-0 top-0 flex h-full w-full max-w-[460px] flex-col border-l border-slate-200 bg-white shadow-2xl">
+    <div className="pointer-events-none fixed inset-0 z-40">
+      <button className="pointer-events-auto absolute inset-0 bg-slate-950/20 lg:hidden" onClick={onClose} aria-label="关闭任务详情" />
+      <aside className="pointer-events-auto absolute right-0 top-0 flex h-full w-full max-w-[460px] flex-col border-l border-slate-200 bg-white shadow-2xl">
         <div className="flex h-16 items-center justify-between border-b border-slate-200 px-5">
           <div className="min-w-0">
             <h2 className="truncate text-base font-semibold text-slate-950">任务详情</h2>
@@ -564,51 +530,6 @@ function QueueDetailDrawer({
         </div>
       </aside>
     </div>
-  );
-}
-
-function QueueDetailContent({
-  task,
-  tab,
-  onTabChange,
-  events,
-  resources,
-  onRetry,
-  onDelete,
-  onOpenResult,
-}: {
-  task: TaskItem;
-  tab: QueueDrawerTab;
-  onTabChange: (tab: QueueDrawerTab) => void;
-  events: { time: string; stage: string; level: string; message: string; file: string }[];
-  resources?: ReturnType<typeof useSystemResources>["data"];
-  onRetry: (task: TaskItem) => void;
-  onDelete: (task: TaskItem) => void;
-  onOpenResult: (task: TaskItem) => void;
-}) {
-  return (
-    <>
-      <div className="mb-5 flex items-center justify-between">
-        <h2 className="text-base font-semibold text-slate-950">任务详情</h2>
-        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-500">实时</span>
-      </div>
-      <QueueDetailBody task={task} tab={tab} onTabChange={onTabChange} events={events} resources={resources} />
-      <div className="mt-5 grid grid-cols-3 gap-2">
-        <button onClick={() => onOpenResult(task)} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
-          查看
-        </button>
-        <button
-          onClick={() => onRetry(task)}
-          disabled={task.status !== "ERROR"}
-          className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          重试
-        </button>
-        <button onClick={() => onDelete(task)} className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50">
-          删除
-        </button>
-      </div>
-    </>
   );
 }
 
