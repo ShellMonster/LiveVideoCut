@@ -188,6 +188,20 @@ export interface CommerceAssetResponse {
   };
 }
 
+export interface CommerceBatchResponse {
+  accepted: {
+    task_id: string;
+    segment_id: string;
+    status: "queued";
+    job?: CommerceAssetResponse["job"];
+  }[];
+  rejected: {
+    clip_id: string;
+    detail: string;
+  }[];
+  total: number;
+}
+
 export interface SystemResources {
   cpu_cores: number;
   memory_gb: number;

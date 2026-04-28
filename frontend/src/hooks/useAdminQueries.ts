@@ -4,6 +4,7 @@ import { useToastStore } from "@/stores/toastStore";
 import type {
   ClipAssetsResponse,
   CommerceAssetResponse,
+  CommerceBatchResponse,
   ClipListResponse,
   ClipReprocessJob,
   DiagnosticReport,
@@ -222,6 +223,15 @@ async function postCommerceAction(taskId: string, segmentId: string, action: "an
   return resp.json();
 }
 
+async function postCommerceImageItem(taskId: string, segmentId: string, itemKey: string) {
+  const resp = await fetch(`${API_BASE}/api/commerce/clips/${taskId}/${segmentId}/images/${itemKey}`, { method: "POST" });
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => null);
+    throw new Error(typeof body?.detail === "string" ? body.detail : "单图生成请求失败");
+  }
+  return resp.json();
+}
+
 export function useCommerceAction(taskId: string | undefined, segmentId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -247,6 +257,26 @@ export function useCommerceAction(taskId: string | undefined, segmentId: string 
   });
 }
 
+export function useCommerceImageAction(taskId: string | undefined, segmentId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (itemKey: string) => {
+      if (!taskId || !segmentId) throw new Error("缺少片段信息");
+      return postCommerceImageItem(taskId, segmentId, itemKey);
+    },
+    onSuccess: () => {
+      useToastStore.getState().showToast("单张商品素材图任务已排队", "success");
+      if (taskId && segmentId) {
+        void queryClient.invalidateQueries({ queryKey: adminKeys.commerceAsset(taskId, segmentId) });
+      }
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : "单图生成失败";
+      useToastStore.getState().showToast(message, "error");
+    },
+  });
+}
+
 export function useCommerceBatchAction() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -260,7 +290,7 @@ export function useCommerceBatchAction() {
         const body = await resp.json().catch(() => null);
         throw new Error(typeof body?.detail === "string" ? body.detail : "批量生成失败");
       }
-      return resp.json() as Promise<{ accepted: unknown[]; rejected: unknown[]; total: number }>;
+      return resp.json() as Promise<CommerceBatchResponse>;
     },
     onSuccess: (data) => {
       useToastStore.getState().showToast(`已提交 ${data.accepted.length} 个 AI 素材任务`, "success");

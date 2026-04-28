@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { Check, Download, Eye, Film, MoreHorizontal, Search, Sparkles, X } from "lucide-react";
+import { Check, Download, Eye, Film, ListChecks, MoreHorizontal, Search, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useClipAssets, useCommerceBatchAction } from "@/hooks/useAdminQueries";
 import { API_BASE } from "../api";
 import { formatBytes, formatConfidence, formatDate, formatDuration, reviewStatusLabel } from "../format";
 import { Header, MetricCard, MetricPill, Pagination } from "../shared";
-import type { ClipAsset } from "../types";
+import type { ClipAsset, CommerceBatchResponse } from "../types";
 
 type AssetDrawerTab = "preview" | "metadata" | "actions";
 
@@ -24,6 +24,8 @@ export function AssetsPage() {
   const [page, setPage] = useState(1);
   const [activeClip, setActiveClip] = useState<ClipAsset | null>(null);
   const [drawerTab, setDrawerTab] = useState<AssetDrawerTab>("preview");
+  const [batchDrawerOpen, setBatchDrawerOpen] = useState(false);
+  const [batchResult, setBatchResult] = useState<CommerceBatchResponse | null>(null);
   const pageSize = 12;
 
   const { data: { items: assets = [], summary = null, total = 0 } = {} } = useClipAssets({
@@ -257,14 +259,119 @@ export function AssetsPage() {
         selected={activeClip ? selectedClips.has(activeClip.clip_id) : false}
         onToggleSelected={() => activeClip && toggleClip(activeClip.clip_id)}
       />
+      <BatchCommerceDrawer
+        open={batchDrawerOpen}
+        result={batchResult}
+        onClose={() => setBatchDrawerOpen(false)}
+      />
       <SelectionBar
         clips={selectedAssets}
         batchDownloadUrl={batchDownloadUrl}
         commercePending={commerceBatch.isPending}
-        onCommerceBatch={(actions) => commerceBatch.mutate({ clipIds: selectedClipIds, actions })}
+        onCommerceBatch={(actions) => commerceBatch.mutate(
+          { clipIds: selectedClipIds, actions },
+          {
+            onSuccess: (data) => {
+              setBatchResult(data);
+              setBatchDrawerOpen(true);
+            },
+          },
+        )}
         onClear={clearSelection}
       />
     </>
+  );
+}
+
+function BatchCommerceDrawer({
+  open,
+  result,
+  onClose,
+}: {
+  open: boolean;
+  result: CommerceBatchResponse | null;
+  onClose: () => void;
+}) {
+  if (!open) return null;
+
+  const accepted = result?.accepted ?? [];
+  const rejected = result?.rejected ?? [];
+
+  return (
+    <div className="fixed inset-0 z-40">
+      <button className="absolute inset-0 bg-slate-950/20" onClick={onClose} aria-label="关闭批量队列" />
+      <aside className="absolute right-0 top-0 flex h-full w-full max-w-[440px] flex-col border-l border-slate-200 bg-white shadow-2xl">
+        <div className="flex h-16 items-center justify-between border-b border-slate-200 px-5">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <ListChecks size={18} className="text-blue-600" />
+              <h2 className="truncate text-base font-semibold text-slate-950">AI 素材批量队列</h2>
+            </div>
+            <p className="mt-0.5 text-xs text-slate-400">
+              已提交 {accepted.length} 个，失败 {rejected.length} 个
+            </p>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-50 hover:text-slate-700" aria-label="关闭">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="flex-1 space-y-5 overflow-y-auto p-5">
+          <section>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-slate-900">已排队</h3>
+              <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">{accepted.length}</span>
+            </div>
+            <div className="space-y-2">
+              {accepted.length > 0 ? (
+                accepted.map((item) => (
+                  <div key={`${item.task_id}/${item.segment_id}`} className="rounded-lg border border-slate-200 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-slate-900">{item.segment_id}</div>
+                        <div className="mt-0.5 truncate text-xs text-slate-400">项目 {item.task_id.slice(0, 8)}</div>
+                      </div>
+                      <span className="shrink-0 rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">排队中</span>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {(item.job?.actions ?? []).map((action) => (
+                        <span key={action} className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+                          {commerceActionLabel(action)}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="mt-2 truncate text-xs text-slate-400">Celery {item.job?.celery_id || "—"}</div>
+                  </div>
+                ))
+              ) : (
+                <p className="rounded-lg border border-dashed border-slate-200 py-8 text-center text-sm text-slate-400">暂无成功排队任务</p>
+              )}
+            </div>
+          </section>
+
+          {rejected.length > 0 && (
+            <section>
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-slate-900">未提交成功</h3>
+                <span className="rounded-full bg-red-50 px-2 py-1 text-xs font-medium text-red-700">{rejected.length}</span>
+              </div>
+              <div className="space-y-2">
+                {rejected.map((item) => (
+                  <div key={item.clip_id} className="rounded-lg border border-red-100 bg-red-50 p-3">
+                    <div className="break-all text-sm font-medium text-red-800">{item.clip_id}</div>
+                    <div className="mt-1 text-xs text-red-600">{item.detail}</div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <section className="rounded-lg bg-slate-50 p-3 text-xs leading-5 text-slate-500">
+            批量任务会继续在后台执行。单个片段的实时进度和生成结果可进入 AI 商品素材工作台查看。
+          </section>
+        </div>
+      </aside>
+    </div>
   );
 }
 
@@ -584,4 +691,11 @@ function commerceStatusClass(status?: ClipAsset["commerce_status"]) {
   if (status === "failed") return "bg-red-50 text-red-700";
   if (status === "partial") return "bg-amber-50 text-amber-700";
   return "bg-white/95 text-slate-600";
+}
+
+function commerceActionLabel(action: string) {
+  if (action === "analyze") return "商品识别";
+  if (action === "copywriting") return "平台文案";
+  if (action === "images") return "商品生图";
+  return action;
 }

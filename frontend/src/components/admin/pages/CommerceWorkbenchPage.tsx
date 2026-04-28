@@ -16,7 +16,7 @@ import {
   Wand2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useCommerceAction, useCommerceAsset } from "@/hooks/useAdminQueries";
+import { useCommerceAction, useCommerceAsset, useCommerceImageAction } from "@/hooks/useAdminQueries";
 import { useToastStore } from "@/stores/toastStore";
 import { API_BASE } from "../api";
 import { formatConfidence, formatDuration } from "../format";
@@ -37,6 +37,7 @@ export function CommerceWorkbenchPage() {
   const [tab, setTab] = useState<WorkbenchTab>("model_images");
   const { data, isLoading, isError } = useCommerceAsset(taskId, segmentId);
   const commerceAction = useCommerceAction(taskId, segmentId);
+  const commerceImageAction = useCommerceImageAction(taskId, segmentId);
   const showToast = useToastStore((state) => state.showToast);
 
   const modelImages = useMemo(
@@ -285,7 +286,12 @@ export function CommerceWorkbenchPage() {
             {tab === "model_images" && (
               <div className="grid gap-4 lg:grid-cols-3">
                 {modelImages.map((item) => (
-                  <ImageResultCard key={item.key} item={item} onRegenerate={() => commerceAction.mutate("images")} />
+                  <ImageResultCard
+                    key={item.key}
+                    item={item}
+                    pending={commerceImageAction.isPending}
+                    onRegenerate={() => commerceImageAction.mutate(item.key)}
+                  />
                 ))}
               </div>
             )}
@@ -295,7 +301,8 @@ export function CommerceWorkbenchPage() {
                 <ImageResultCard
                   item={detailImage ?? { key: "detail_page", label: "淘宝详情页示例", status: "not_started", url: "" }}
                   tall
-                  onRegenerate={() => commerceAction.mutate("images")}
+                  pending={commerceImageAction.isPending}
+                  onRegenerate={() => commerceImageAction.mutate("detail_page")}
                 />
                 <div className="rounded-lg border border-slate-200 p-4">
                   <h3 className="text-sm font-semibold text-slate-950">详情页结构</h3>
@@ -474,7 +481,17 @@ function TextBlock({
   );
 }
 
-function ImageResultCard({ item, tall = false, onRegenerate }: { item: CommerceImageItem; tall?: boolean; onRegenerate: () => void }) {
+function ImageResultCard({
+  item,
+  tall = false,
+  pending = false,
+  onRegenerate,
+}: {
+  item: CommerceImageItem;
+  tall?: boolean;
+  pending?: boolean;
+  onRegenerate: () => void;
+}) {
   const completed = item.status === "completed" && item.url;
   const imageUrl = completed ? `${API_BASE}${item.url}` : "";
   return (
@@ -501,8 +518,13 @@ function ImageResultCard({ item, tall = false, onRegenerate }: { item: CommerceI
           <p className="mt-0.5 text-xs text-slate-400">{completed ? "可下载使用" : "尚未生成"}</p>
         </div>
         <div className="flex shrink-0 gap-2">
-          <button onClick={onRegenerate} className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-50" aria-label="重新生成">
-            <RefreshCw size={15} />
+          <button
+            onClick={onRegenerate}
+            disabled={pending}
+            className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            aria-label="重新生成"
+          >
+            {pending ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
           </button>
           <button
             disabled={!completed}

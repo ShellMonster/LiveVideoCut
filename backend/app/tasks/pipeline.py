@@ -216,11 +216,18 @@ def _write_clip_job(task_path: Path, segment_id: str, payload: dict[str, Any]) -
 
 
 @celery_app.task(bind=True, max_retries=1)
-def process_commerce_assets(self, task_id: str, task_dir: str, segment_id: str, actions: list[str]) -> dict[str, Any]:
+def process_commerce_assets(
+    self,
+    task_id: str,
+    task_dir: str,
+    segment_id: str,
+    actions: list[str],
+    image_keys: list[str] | None = None,
+) -> dict[str, Any]:
     try:
         from app.api.commerce import run_commerce_actions
 
-        return run_commerce_actions(task_id, segment_id, actions)
+        return run_commerce_actions(task_id, segment_id, actions, image_keys=image_keys)
     except Exception as exc:
         commerce_dir = Path(task_dir) / "commerce" / segment_id
         commerce_dir.mkdir(parents=True, exist_ok=True)

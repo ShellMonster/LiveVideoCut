@@ -199,3 +199,47 @@ async def test_generate_clip_images_calls_openai_and_serves_images(client, monke
     image_response = await client.get(data["items"][0]["url"])
     assert image_response.status_code == 200
     assert image_response.content == b"png-data"
+
+
+@pytest.mark.anyio
+async def test_generate_single_clip_image_preserves_other_items(client, monkeypatch, tmp_path):
+    class FakeOpenAIImageClient:
+        def __init__(self, **kwargs):
+            pass
+
+        def generate_with_reference(self, prompt, image_path, *, size, quality):
+            assert "侧面" in prompt
+            return b"side-png-data"
+
+    images_path = tmp_path / TASK_ID / "commerce" / "clip_001" / "images.json"
+    images_path.write_text(
+        json.dumps(
+            {
+                "status": "completed",
+                "items": [
+                    {"key": "model_front", "label": "正面穿搭", "status": "completed", "url": "/front.png"},
+                    {"key": "model_side", "label": "侧面角度", "status": "failed", "url": ""},
+                    {"key": "model_back", "label": "背面/细节", "status": "not_started", "url": ""},
+                    {"key": "detail_page", "label": "淘宝详情页示例", "status": "not_started", "url": ""},
+                ],
+                "updated_at": "2026-04-28T00:00:00",
+            },
+            ensure_ascii=False,
+        )
+    )
+    monkeypatch.setattr("app.api.commerce.OpenAIImageClient", FakeOpenAIImageClient)
+    monkeypatch.setattr("app.tasks.pipeline.process_commerce_assets.delay", lambda *args: type("Result", (), {"id": "celery-4"})())
+
+    response = await client.post(f"/api/commerce/clips/{TASK_ID}/clip_001/images/model_side")
+    assert response.status_code == 200
+    assert response.json()["job"]["image_keys"] == ["model_side"]
+
+    from app.api.commerce import run_commerce_actions
+
+    run_commerce_actions(TASK_ID, "clip_001", ["images"], image_keys=["model_side"])
+    saved = json.loads(images_path.read_text())
+    by_key = {item["key"]: item for item in saved["items"]}
+    assert by_key["model_front"]["url"] == "/front.png"
+    assert by_key["model_side"]["status"] == "completed"
+    assert by_key["model_side"]["url"].endswith("/model_side.png")
+    assert (tmp_path / TASK_ID / "commerce" / "clip_001" / "images" / "model_side.png").read_bytes() == b"side-png-data"

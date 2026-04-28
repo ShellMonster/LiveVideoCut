@@ -16,6 +16,7 @@ UPLOAD_DIR = Path("uploads")
 _TASK_ID_RE = re.compile(r"^[a-f0-9\-]{36}$", re.IGNORECASE)
 _SEGMENT_ID_RE = re.compile(r"^clip_\d{3,}$")
 _IMAGE_NAME_RE = re.compile(r"^[a-z0-9_]+\.png$")
+_IMAGE_KEYS = {"model_front", "model_side", "model_back", "detail_page"}
 
 router = APIRouter()
 
@@ -224,7 +225,17 @@ def _build_image_prompts(analysis: dict[str, Any]) -> list[dict[str, str]]:
     ]
 
 
-def run_commerce_actions(task_id: str, segment_id: str, actions: list[str]) -> dict[str, Any]:
+def _merge_image_items(existing: Any, default_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not isinstance(existing, dict) or not isinstance(existing.get("items"), list):
+        return default_items
+    by_key = {str(item.get("key")): item for item in default_items if isinstance(item, dict)}
+    for item in existing["items"]:
+        if isinstance(item, dict) and item.get("key") in by_key:
+            by_key[str(item["key"])] = item
+    return [by_key[item["key"]] for item in default_items]
+
+
+def run_commerce_actions(task_id: str, segment_id: str, actions: list[str], image_keys: list[str] | None = None) -> dict[str, Any]:
     meta = _clip_meta(task_id, segment_id)
     if meta is None:
         raise FileNotFoundError("Clip not found")
@@ -233,6 +244,7 @@ def run_commerce_actions(task_id: str, segment_id: str, actions: list[str]) -> d
     commerce_dir = _commerce_dir(task_id, segment_id)
     settings = _task_settings(task_id)
     normalized_actions = [action for action in actions if action in {"analyze", "copywriting", "images"}]
+    normalized_image_keys = [key for key in (image_keys or []) if key in _IMAGE_KEYS]
     if not normalized_actions:
         raise ValueError("No valid commerce actions")
 
@@ -242,6 +254,7 @@ def run_commerce_actions(task_id: str, segment_id: str, actions: list[str]) -> d
         {
             "status": "running",
             "actions": normalized_actions,
+            "image_keys": normalized_image_keys,
             "message": "正在生成 AI 商品素材",
             "started_at": _now_iso(),
             "error": "",
@@ -308,9 +321,13 @@ def run_commerce_actions(task_id: str, segment_id: str, actions: list[str]) -> d
         )
         image_dir = commerce_dir / "images"
         image_dir.mkdir(parents=True, exist_ok=True)
-        items = _default_images()["items"]
-        completed_items = []
-        for image_prompt in _build_image_prompts(analysis):
+        existing_images = _read_json(commerce_dir / "images.json", _default_images())
+        default_items = _default_images()["items"]
+        items = _merge_image_items(existing_images, default_items)
+        prompts = _build_image_prompts(analysis)
+        if normalized_image_keys:
+            prompts = [prompt for prompt in prompts if prompt["key"] in normalized_image_keys]
+        for image_prompt in prompts:
             _write_commerce_job(task_id, segment_id, {"message": f"正在生成{image_prompt['label']}", "current_action": "images", "current_item": image_prompt["key"]})
             filename = f"{image_prompt['key']}.png"
             image_bytes = client.generate_with_reference(
@@ -326,10 +343,9 @@ def run_commerce_actions(task_id: str, segment_id: str, actions: list[str]) -> d
                 "status": "completed",
                 "url": _commerce_image_url(task_id, segment_id, filename),
             }
-            completed_items.append(completed_item)
             items = [completed_item if item["key"] == completed_item["key"] else item for item in items]
             _write_json(commerce_dir / "images.json", {"status": "running", "items": items, "updated_at": _now_iso()})
-        _write_json(commerce_dir / "images.json", {"status": "completed", "items": completed_items, "updated_at": _now_iso()})
+        _write_json(commerce_dir / "images.json", {"status": "completed", "items": items, "updated_at": _now_iso()})
 
     result = commerce_status_for_clip(task_id, segment_id)
     _write_commerce_job(
@@ -415,7 +431,18 @@ def generate_clip_images(task_id: str, segment_id: str):
     return _queue_commerce_task(task_id, segment_id, ["images"])
 
 
-def _queue_commerce_task(task_id: str, segment_id: str, actions: list[str]):
+@router.post("/api/commerce/clips/{task_id}/{segment_id}/images/{item_key}")
+def generate_clip_image_item(task_id: str, segment_id: str, item_key: str):
+    invalid = _validate_ids(task_id, segment_id)
+    if invalid:
+        return invalid
+    if item_key not in _IMAGE_KEYS:
+        return JSONResponse(status_code=400, content={"detail": "Invalid image item key"})
+
+    return _queue_commerce_task(task_id, segment_id, ["images"], image_keys=[item_key])
+
+
+def _queue_commerce_task(task_id: str, segment_id: str, actions: list[str], image_keys: list[str] | None = None):
     meta = _clip_meta(task_id, segment_id)
     if meta is None:
         return JSONResponse(status_code=404, content={"detail": "Clip not found"})
@@ -427,12 +454,13 @@ def _queue_commerce_task(task_id: str, segment_id: str, actions: list[str]):
         {
             "status": "queued",
             "actions": actions,
+            "image_keys": image_keys or [],
             "message": "AI 商品素材任务已排队",
             "queued_at": _now_iso(),
             "error": "",
         },
     )
-    result = process_commerce_assets.delay(task_id, str(UPLOAD_DIR / task_id), segment_id, actions)
+    result = process_commerce_assets.delay(task_id, str(UPLOAD_DIR / task_id), segment_id, actions, image_keys)
     job = _write_commerce_job(task_id, segment_id, {"celery_id": result.id})
     return {"task_id": task_id, "segment_id": segment_id, "status": "queued", "job": job}
 

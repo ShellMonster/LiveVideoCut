@@ -376,8 +376,6 @@ function ReviewInspectorDrawer({
   onPatch: (segmentId: string, patch: Partial<ReviewSegment>) => void;
   onReprocess: (segmentId: string) => void;
 }) {
-  if (!open) return null;
-
   const tabs: { value: DrawerTab; label: string }[] = [
     { value: "details", label: "详情" },
     { value: "subtitles", label: "字幕草稿" },
@@ -397,6 +395,8 @@ function ReviewInspectorDrawer({
       text: line.text ?? "",
     })));
   }, [segment?.segment_id, segment?.subtitle_overrides, transcriptLines]);
+
+  if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-40">
@@ -535,13 +535,48 @@ function ReviewInspectorDrawer({
                 {subtitleDraft.length > 0 ? (
                   subtitleDraft.map((line, index) => (
                     <div key={`${line.start_time}-${line.end_time}-${index}`} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <span className="font-medium text-slate-500">
-                          {formatDuration(line.start_time)} - {formatDuration(line.end_time)}
-                        </span>
+                      <div className="mb-2 flex items-start justify-between gap-2">
+                        <div className="grid flex-1 grid-cols-2 gap-2">
+                          <label className="block">
+                            <span className="mb-1 block text-[11px] font-medium text-slate-400">开始秒</span>
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              value={formatTimeInput(line.start_time)}
+                              onChange={(event) => {
+                                const start_time = Number(event.target.value);
+                                if (!Number.isFinite(start_time)) return;
+                                setSubtitleDraft((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, start_time } : item));
+                              }}
+                              className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 outline-none focus:border-blue-400"
+                            />
+                          </label>
+                          <label className="block">
+                            <span className="mb-1 block text-[11px] font-medium text-slate-400">结束秒</span>
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              value={formatTimeInput(line.end_time)}
+                              onChange={(event) => {
+                                const end_time = Number(event.target.value);
+                                if (!Number.isFinite(end_time)) return;
+                                setSubtitleDraft((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, end_time } : item));
+                              }}
+                              className={cn(
+                                "w-full rounded-lg border bg-white px-2 py-1.5 text-xs font-medium text-slate-700 outline-none focus:border-blue-400",
+                                line.end_time <= line.start_time ? "border-red-300" : "border-slate-200",
+                              )}
+                            />
+                          </label>
+                          <span className="col-span-2 text-[11px] text-slate-400">
+                            {formatDuration(line.start_time)} - {formatDuration(line.end_time)}
+                          </span>
+                        </div>
                         <button
                           onClick={() => setSubtitleDraft((current) => current.filter((_, itemIndex) => itemIndex !== index))}
-                          className="text-xs font-medium text-red-600 hover:text-red-700"
+                          className="mt-5 shrink-0 text-xs font-medium text-red-600 hover:text-red-700"
                         >
                           删除
                         </button>
@@ -576,7 +611,16 @@ function ReviewInspectorDrawer({
                     还原原字幕
                   </button>
                   <button
-                    onClick={() => onPatch(segment.segment_id, { subtitle_overrides: subtitleDraft.filter((line) => line.text.trim()) })}
+                    onClick={() => {
+                      const normalized = subtitleDraft
+                        .filter((line) => line.text.trim() && line.end_time > line.start_time)
+                        .map((line) => ({
+                          start_time: roundTime(line.start_time),
+                          end_time: roundTime(line.end_time),
+                          text: line.text.trim(),
+                        }));
+                      onPatch(segment.segment_id, { subtitle_overrides: normalized });
+                    }}
                     disabled={patchPending}
                     className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                   >
@@ -624,4 +668,13 @@ function ReviewInspectorDrawer({
       </aside>
     </div>
   );
+}
+
+function formatTimeInput(value: number) {
+  if (!Number.isFinite(value)) return "0.00";
+  return value.toFixed(2);
+}
+
+function roundTime(value: number) {
+  return Math.round(value * 100) / 100;
 }
