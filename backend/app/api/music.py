@@ -13,10 +13,12 @@ from mutagen.mp3 import HeaderNotFoundError, MP3
 from pydantic import BaseModel
 
 from app.services.bgm_selector import DEFAULT_SELECTOR
+from app.services.memory_cache import FingerprintMemoryCache, path_fingerprint
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+_music_library_cache = FingerprintMemoryCache(max_size=4)
 
 USER_BGM_DIR = Path("/app/uploads/bgm_library")
 USER_LIBRARY_PATH = USER_BGM_DIR / "library.json"
@@ -64,6 +66,7 @@ def _write_user_library(tracks: list[dict]) -> None:
         with os.fdopen(tmp_fd, "w") as f:
             json.dump(tracks, f, ensure_ascii=False, indent=2)
         os.replace(tmp_path, str(USER_LIBRARY_PATH))
+        _music_library_cache.clear()
     except BaseException:
         Path(tmp_path).unlink(missing_ok=True)
         raise
@@ -86,7 +89,13 @@ def _merged_library() -> list[dict]:
 
 @router.get("/api/music/library")
 def get_music_library():
-    return _merged_library()
+    fingerprint = path_fingerprint([USER_LIBRARY_PATH])
+    cached = _music_library_cache.get("library", fingerprint)
+    if cached is not None:
+        return cached
+    library = _merged_library()
+    _music_library_cache.set("library", fingerprint, library)
+    return library
 
 
 @router.post("/api/music/upload")

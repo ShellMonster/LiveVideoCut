@@ -6,12 +6,15 @@ from typing import Any
 from fastapi import APIRouter
 from redis import Redis, RedisError
 
+from app.services.memory_cache import TTLMemoryCache
 from app.services.resource_detector import calculate_parallelism
 
 UPLOAD_DIR = Path("uploads")
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+RESOURCE_CACHE_TTL_SECONDS = 3.0
 
 router = APIRouter()
+_resources_cache = TTLMemoryCache(max_size=8)
 
 
 def _read_json(path: Path, fallback: Any) -> Any:
@@ -39,6 +42,11 @@ def _redis_status() -> str:
 
 @router.get("/api/system/resources")
 async def get_system_resources():
+    cache_key = f"{UPLOAD_DIR.resolve()}:{REDIS_URL}"
+    cached = _resources_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     resources = calculate_parallelism()
     queue = {
         "waiting": 0,
@@ -62,7 +70,7 @@ async def get_system_resources():
             elif raw_state:
                 queue["active"] += 1
 
-    return {
+    payload = {
         "cpu_cores": resources["cpu_cores"],
         "memory_gb": resources["memory_gb"],
         "clip_workers": resources["clip_workers"],
@@ -70,3 +78,5 @@ async def get_system_resources():
         "queue": queue,
         "redis": _redis_status(),
     }
+    _resources_cache.set(cache_key, payload, RESOURCE_CACHE_TTL_SECONDS)
+    return payload

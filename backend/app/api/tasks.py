@@ -15,6 +15,7 @@ from pydantic import BaseModel, field_validator, model_validator
 from starlette.responses import JSONResponse, StreamingResponse
 
 from app.api.settings import SENSITIVE_FIELDS
+from app.services.memory_cache import FingerprintMemoryCache, path_fingerprint
 from app.services.subtitle_overrides import (
     MAX_SUBTITLE_OVERRIDE_LINES,
     MAX_SUBTITLE_OVERRIDE_TEXT_CHARS,
@@ -35,6 +36,10 @@ _SAFE_TASK_DIR_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 _SEGMENT_ID_RE = re.compile(r"^clip_\d{3,}$")
 
 router = APIRouter()
+_task_summary_cache = FingerprintMemoryCache(max_size=128)
+_task_diagnostics_cache = FingerprintMemoryCache(max_size=64)
+_task_events_cache = FingerprintMemoryCache(max_size=128)
+_task_review_cache = FingerprintMemoryCache(max_size=64)
 
 
 class SubtitleOverridePatch(BaseModel):
@@ -214,6 +219,50 @@ def _summary_from_task_dir(task_dir: Path) -> dict[str, Any]:
         "person_presence_frames": len(person_presence) if isinstance(person_presence, list) else 0,
         "artifact_status": _collect_artifact_status(task_dir),
     }
+
+
+def _summary_fingerprint(task_dir: Path) -> tuple[Any, ...]:
+    return path_fingerprint([
+        task_dir / "candidates.json",
+        task_dir / "vlm" / "confirmed_segments.json",
+        task_dir / "transcript.json",
+        task_dir / "text_boundaries.json",
+        task_dir / "fused_candidates.json",
+        task_dir / "enriched_segments.json",
+        task_dir / "scenes" / "person_presence.json",
+        task_dir / "clips",
+        task_dir / "settings.json",
+        task_dir / "review.json",
+        task_dir / "state.json",
+    ])
+
+
+def _diagnostics_fingerprint(task_dir: Path) -> tuple[Any, ...]:
+    return path_fingerprint([
+        task_dir / "state.json",
+        task_dir / "meta.json",
+        task_dir / "settings.json",
+        task_dir / "frames" / "frames.json",
+        task_dir / "candidates.json",
+        task_dir / "scenes",
+        task_dir / "vlm",
+        task_dir / "transcript.json",
+        task_dir / "text_boundaries.json",
+        task_dir / "fused_candidates.json",
+        task_dir / "enriched_segments.json",
+        task_dir / "review.json",
+        task_dir / "clips",
+    ])
+
+
+def _review_fingerprint(task_dir: Path) -> tuple[Any, ...]:
+    return path_fingerprint([
+        task_dir / "enriched_segments.json",
+        task_dir / "transcript.json",
+        task_dir / "settings.json",
+        task_dir / "review.json",
+        task_dir / "clips",
+    ])
 
 
 def _diagnostic_event_log(task_dir: Path) -> list[dict[str, str]]:
@@ -486,7 +535,14 @@ async def get_task_summary(task_id: str):
     task_dir = _task_dir_or_404(task_id)
     if isinstance(task_dir, JSONResponse):
         return task_dir
-    return _summary_from_task_dir(task_dir)
+    fingerprint = _summary_fingerprint(task_dir)
+    cache_key = f"summary:{task_dir.resolve()}"
+    cached = _task_summary_cache.get(cache_key, fingerprint)
+    if cached is not None:
+        return cached
+    payload = _summary_from_task_dir(task_dir)
+    _task_summary_cache.set(cache_key, fingerprint, payload)
+    return payload
 
 
 @router.get("/api/tasks/{task_id}/diagnostics")
@@ -494,6 +550,11 @@ async def get_task_diagnostics(task_id: str):
     task_dir = _task_dir_or_404(task_id)
     if isinstance(task_dir, JSONResponse):
         return task_dir
+    fingerprint = _diagnostics_fingerprint(task_dir)
+    cache_key = f"diagnostics:{task_dir.resolve()}"
+    cached = _task_diagnostics_cache.get(cache_key, fingerprint)
+    if cached is not None:
+        return cached
 
     summary = _summary_from_task_dir(task_dir)
     state = _read_json(task_dir / "state.json", {"state": "UPLOADED"})
@@ -538,7 +599,7 @@ async def get_task_diagnostics(task_id: str):
             "message": state.get("message", "任务执行失败"),
         })
 
-    return {
+    payload = {
         "task_id": task_id,
         "state": state,
         "summary": summary,
@@ -548,6 +609,8 @@ async def get_task_diagnostics(task_id: str):
         "warnings": warnings,
         "event_log": _diagnostic_event_log(task_dir),
     }
+    _task_diagnostics_cache.set(cache_key, fingerprint, payload)
+    return payload
 
 
 @router.get("/api/tasks/{task_id}/events")
@@ -555,7 +618,14 @@ async def get_task_events(task_id: str):
     task_dir = _task_dir_or_404(task_id)
     if isinstance(task_dir, JSONResponse):
         return task_dir
-    return {"task_id": task_id, "events": _diagnostic_event_log(task_dir)}
+    fingerprint = _diagnostics_fingerprint(task_dir)
+    cache_key = f"events:{task_dir.resolve()}"
+    cached = _task_events_cache.get(cache_key, fingerprint)
+    if cached is not None:
+        return cached
+    payload = {"task_id": task_id, "events": _diagnostic_event_log(task_dir)}
+    _task_events_cache.set(cache_key, fingerprint, payload)
+    return payload
 
 
 @router.get("/api/tasks/{task_id}/diagnostics/export")
@@ -625,6 +695,11 @@ async def get_task_review(task_id: str):
     task_dir = _task_dir_or_404(task_id)
     if isinstance(task_dir, JSONResponse):
         return task_dir
+    fingerprint = _review_fingerprint(task_dir)
+    cache_key = f"review:{task_dir.resolve()}"
+    cached = _task_review_cache.get(cache_key, fingerprint)
+    if cached is not None:
+        return cached
 
     enriched = _read_json(task_dir / "enriched_segments.json", [])
     transcript = _read_json(task_dir / "transcript.json", [])
@@ -664,7 +739,7 @@ async def get_task_review(task_id: str):
             meta["review_status"] = segment_reviews.get(stem, {}).get("status", "pending") if isinstance(segment_reviews.get(stem), dict) else "pending"
             clips.append(meta)
 
-    return {
+    payload = {
         "task_id": task_id,
         "segments": segments,
         "clips": clips,
@@ -672,6 +747,8 @@ async def get_task_review(task_id: str):
         "settings": settings if isinstance(settings, dict) else {},
         "review_status": review,
     }
+    _task_review_cache.set(cache_key, fingerprint, payload)
+    return payload
 
 
 @router.patch("/api/tasks/{task_id}/review/segments/{segment_id}")

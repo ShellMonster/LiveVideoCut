@@ -138,6 +138,7 @@ graph TD
 - **后台布局** -- 桌面端左侧导航栏固定为视口高度，右侧页面内容独立滚动；Worker 资源/服务状态卡固定在侧栏底部，不随长页面滚出视口
 - **后台分页** -- 项目总览、任务队列、片段资产使用服务端分页；剪辑复核、音乐库、诊断日志使用页面内分页，避免无限下滑
 - **列表索引缓存** -- `GET /api/tasks` 和 `GET /api/assets/clips` 优先读取 `uploads/index.sqlite3` 的 SQLite 列表索引，开启 WAL + `synchronous=NORMAL`；JSON 文件仍是真源，索引缺失/版本变化可自动重建，异常时回退文件扫描
+- **进程内读缓存** -- 不引入 Redis 缓存；`/api/system/resources` 使用 3 秒 TTL，任务 summary/diagnostics/events/review、`/api/tasks/{id}/clips` 和 `/api/music/library` 使用 mtime 指纹内存缓存，文件变化后自动失效
 - **前端性能** -- 项目总览、任务队列、片段资产和音乐库搜索输入使用 300ms debounce；任务列表轮询会根据是否存在处理中/等待中任务在 5s 与 30s 间切换；复核、音乐库、片段资产、诊断页的大列表派生数据使用 memo 化减少重复计算
 - **语气词过滤** -- 三级词表（38词），支持仅过滤字幕或同时裁剪视频片段，默认关闭
 - **智能封面** -- content_first（商品优先）/ person_first（主播优先），最多 30 帧评分选最佳；优先复用 visual_prescreen 已抽帧，不足时再用 FFmpeg 补足候选，COCO YOLO 遮挡检测自动排除手机等遮挡帧
@@ -221,6 +222,13 @@ docker compose up -d
 - 连接初始化使用 `PRAGMA journal_mode=WAL;`、`PRAGMA synchronous=NORMAL;`、`PRAGMA busy_timeout=5000;` 和 `PRAGMA foreign_keys=ON;`，降低列表查询与任务写入互相阻塞的概率。
 - `/api/tasks` 与 `/api/assets/clips` 会先确保索引可用；首次访问、schema 版本变化或索引缺失时从 `uploads` 目录重建。若 SQLite 查询失败，会记录日志并回退到原文件扫描逻辑。
 - 上传、任务状态变化、复核状态修改、删除任务、单片段重导出和 AI 商品素材 job 写入都会刷新单个 task 的索引记录。
+
+### 进程内读缓存
+
+- 后端只使用 API 进程内存缓存，不使用 Redis 做接口缓存。
+- `/api/system/resources` 使用 3 秒 TTL，减少 cgroup 检测、Redis ping 和任务状态统计的轮询开销。
+- `/api/tasks/{task_id}/summary`、`/diagnostics`、`/events`、`/review`、`/api/tasks/{task_id}/clips` 和 `/api/music/library` 使用文件 mtime/size 指纹缓存；相关 JSON、clips、covers 或音乐库文件变化后自动失效。
+- 缓存只保存接口组装结果，不改变 JSON 文件作为真源的架构。
 
 ## 配置说明
 

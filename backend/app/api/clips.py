@@ -7,12 +7,15 @@ from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
+from app.services.memory_cache import FingerprintMemoryCache, path_fingerprint
+
 UPLOAD_DIR = Path("uploads")
 
 _TASK_ID_RE = re.compile(r"^[a-f0-9\-]{36}$", re.IGNORECASE)
 _CLIP_NAME_RE = re.compile(r"^clip_\d{3,}$")
 
 router = APIRouter()
+_task_clips_cache = FingerprintMemoryCache(max_size=128)
 
 
 def _clips_dir(task_id: str) -> Path:
@@ -57,8 +60,17 @@ async def list_clips(task_id: str):
             status_code=404, content={"detail": "No clips found for task"}
         )
 
+    task_dir = clips_dir.parent
+    fingerprint = path_fingerprint([clips_dir, task_dir / "covers"])
+    cache_key = f"clips:{task_dir.resolve()}"
+    cached = _task_clips_cache.get(cache_key, fingerprint)
+    if cached is not None:
+        return cached
+
     clips = _collect_clips(clips_dir)
-    return {"task_id": task_id, "clips": clips, "total": len(clips)}
+    payload = {"task_id": task_id, "clips": clips, "total": len(clips)}
+    _task_clips_cache.set(cache_key, fingerprint, payload)
+    return payload
 
 
 @router.get("/api/clips/{task_id}/{clip_name}/download")
