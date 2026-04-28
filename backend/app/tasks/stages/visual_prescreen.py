@@ -1,9 +1,10 @@
-import json
 import subprocess
 import time
 import logging
 from pathlib import Path
 from typing import Any
+
+from app.utils.json_io import write_json
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +61,7 @@ def run_visual_prescreen(task_id: str, video_path: str, task_dir: str) -> dict[s
                 "scene_idx": 0,
             }
         )
-    (task_path / "frames" / "frames.json").write_text(
-        json.dumps(frames, ensure_ascii=False, indent=2)
-    )
+    write_json(task_path / "frames" / "frames.json", frames)
     logger.info("Extracted %d frames at %.2f fps", len(frames), sample_fps)
     _log_elapsed("visual_prescreen.extract_frames", stage_started_at)
 
@@ -89,12 +88,10 @@ def run_visual_prescreen(task_id: str, video_path: str, task_dir: str) -> dict[s
     )
     scenes_dir = task_path / "scenes"
     scenes_dir.mkdir(parents=True, exist_ok=True)
-    (scenes_dir / "scenes.json").write_text(
-        json.dumps(scenes, ensure_ascii=False, indent=2),
-    )
+    write_json(scenes_dir / "scenes.json", scenes)
 
     candidates_file = task_path / "candidates.json"
-    candidates_file.write_text(json.dumps(candidates, ensure_ascii=False, indent=2))
+    write_json(candidates_file, candidates)
 
     return {
         "candidates_count": len(candidates),

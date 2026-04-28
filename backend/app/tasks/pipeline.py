@@ -1,6 +1,5 @@
 # pyright: reportImplicitRelativeImport=false, reportAttributeAccessIssue=false
 
-import json
 import logging
 import os
 import subprocess
@@ -46,6 +45,7 @@ from app.tasks.shared import (
     _get_video_duration,
     _read_json_file,
 )
+from app.utils.json_io import write_json
 
 # Stage implementations
 from app.tasks.stages.visual_prescreen import run_visual_prescreen
@@ -75,6 +75,10 @@ celery_app.conf.update(
     task_time_limit=3600,
     worker_disable_rate_limits=True,
 )
+
+
+def _handle_stage_error(task_dir: str, code: str, current_state: str, exc: Exception) -> None:
+    PipelineErrorHandler(task_dir=Path(task_dir)).handle_error(code, str(exc), current_state=current_state)
 
 
 @celery_app.task(bind=True, max_retries=3, autoretry_for=(Exception,))
@@ -122,7 +126,7 @@ def visual_prescreen(
         return run_visual_prescreen(task_id, video_path, task_dir)
     except Exception as exc:
         if self.request.retries >= self.max_retries:
-            PipelineErrorHandler(task_dir=Path(task_dir)).handle_error("VISUAL_FAILED", str(exc), current_state="UPLOADED")
+            _handle_stage_error(task_dir, "VISUAL_FAILED", "UPLOADED", exc)
         raise self.retry(exc=exc, countdown=2**self.request.retries)
 
 
@@ -195,7 +199,7 @@ def vlm_confirm(
         )
     except Exception as exc:
         if self.request.retries >= self.max_retries:
-            PipelineErrorHandler(task_dir=Path(task_dir)).handle_error("VLM_FAILED", str(exc), current_state="VISUAL_SCREENING")
+            _handle_stage_error(task_dir, "VLM_FAILED", "VISUAL_SCREENING", exc)
         raise self.retry(exc=exc, countdown=2**self.request.retries)
 
 
@@ -216,7 +220,7 @@ def enrich_segments(
         return run_enrich_segments(task_id, task_dir)
     except Exception as exc:
         if self.request.retries >= self.max_retries:
-            PipelineErrorHandler(task_dir=Path(task_dir)).handle_error("ASR_FAILED", str(exc), current_state="VLM_CONFIRMING")
+            _handle_stage_error(task_dir, "ASR_FAILED", "VLM_CONFIRMING", exc)
         raise self.retry(exc=exc, countdown=2**self.request.retries)
 
 
@@ -233,7 +237,7 @@ def process_clips(self, task_id: str, task_dir: str) -> dict[str, Any]:
         return run_process_clips(task_id, task_dir)
     except Exception as exc:
         if self.request.retries >= self.max_retries:
-            PipelineErrorHandler(task_dir=Path(task_dir)).handle_error("EXPORT_FAILED", str(exc), current_state="PROCESSING")
+            _handle_stage_error(task_dir, "EXPORT_FAILED", "PROCESSING", exc)
         raise self.retry(exc=exc, countdown=2**self.request.retries)
 
 
@@ -248,7 +252,7 @@ def _write_clip_job(task_path: Path, segment_id: str, payload: dict[str, Any]) -
     current.update(payload)
     current["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     jobs[segment_id] = current
-    jobs_path.write_text(json.dumps(jobs, ensure_ascii=False, indent=2))
+    write_json(jobs_path, jobs)
     try:
         from app.services.list_index import refresh_task_index
 
@@ -280,10 +284,8 @@ def process_commerce_assets(
             "finished_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         }
-        (commerce_dir / "job.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2))
-        (commerce_dir / "state.json").write_text(
-            json.dumps({"status": "failed", "message": payload["message"]}, ensure_ascii=False, indent=2)
-        )
+        write_json(commerce_dir / "job.json", payload)
+        write_json(commerce_dir / "state.json", {"status": "failed", "message": payload["message"]})
         try:
             from app.services.list_index import refresh_task_index
 

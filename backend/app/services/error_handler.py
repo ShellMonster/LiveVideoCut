@@ -1,8 +1,8 @@
-import json
 import logging
 from pathlib import Path
 
 from app.services.state_machine import TaskStateMachine
+from app.utils.json_io import read_json, write_json
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ class PipelineErrorHandler:
             "error_message": error_message,
             "previous_state": state,
         }
-        error_file.write_text(json.dumps(error_data, ensure_ascii=False, indent=2))
+        write_json(error_file, error_data)
 
     def should_retry(self, error_type: str, attempt: int, max_retries: int = 3) -> bool:
         """Determine if task should be retried based on error type and attempt count."""
@@ -64,4 +64,5 @@ class PipelineErrorHandler:
         error_file = self.task_dir / "error.json"
         if not error_file.exists():
             return None
-        return json.loads(error_file.read_text())
+        data = read_json(error_file, None)
+        return data if isinstance(data, dict) else None

@@ -1,11 +1,17 @@
 """Shared configuration constants — safe to import from any layer (API, services, tasks)."""
 
 from enum import Enum
+import os
+from pathlib import Path
 
 
 class VLMProvider(str, Enum):
     qwen = "qwen"
     glm = "glm"
+
+
+UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
+USER_BGM_DIR = UPLOAD_DIR / "bgm_library"
 
 
 QWEN_API_BASE = "https://dashscope.aliyuncs.com/compatible-mode/v1"

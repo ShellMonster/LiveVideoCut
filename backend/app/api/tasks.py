@@ -4,7 +4,6 @@ import io
 import json
 import logging
 import os
-import re
 import shutil
 import zipfile
 from pathlib import Path
@@ -14,6 +13,8 @@ from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconn
 from pydantic import BaseModel, field_validator, model_validator
 from starlette.responses import JSONResponse, StreamingResponse
 
+from app.api.validation import is_safe_task_dir, is_segment_id, is_task_id
+from app.config import UPLOAD_DIR
 from app.api.settings import SENSITIVE_FIELDS
 from app.services.memory_cache import FingerprintMemoryCache, path_fingerprint
 from app.services.subtitle_overrides import (
@@ -26,14 +27,9 @@ from app.services.subtitle_overrides import (
 from app.services.state_machine import TaskStateMachine
 from app.services.list_index import delete_task_index, query_tasks, refresh_task_index
 from app.tasks.pipeline import reprocess_clip, start_pipeline
-
-UPLOAD_DIR = Path("uploads")
+from app.utils.json_io import read_json, write_json
 
 logger = logging.getLogger(__name__)
-
-_TASK_ID_RE = re.compile(r"^[a-f0-9\-]{36}$", re.IGNORECASE)
-_SAFE_TASK_DIR_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
-_SEGMENT_ID_RE = re.compile(r"^clip_\d{3,}$")
 
 router = APIRouter()
 _task_summary_cache = FingerprintMemoryCache(max_size=128)
@@ -99,16 +95,11 @@ class ReviewSegmentPatch(BaseModel):
 
 
 def _read_json(path: Path, fallback: Any) -> Any:
-    if not path.exists():
-        return fallback
-    try:
-        return json.loads(path.read_text())
-    except (json.JSONDecodeError, OSError):
-        return fallback
+    return read_json(path, fallback, log_errors=False)
 
 
 def _task_dir_or_404(task_id: str) -> Path | JSONResponse:
-    if not _TASK_ID_RE.match(task_id):
+    if not is_task_id(task_id):
         return JSONResponse(status_code=400, content={"detail": "Invalid task_id format"})
     task_dir = UPLOAD_DIR / task_id
     if not task_dir.exists():
@@ -117,7 +108,7 @@ def _task_dir_or_404(task_id: str) -> Path | JSONResponse:
 
 
 def _deletable_task_dir_or_404(task_id: str) -> Path | JSONResponse:
-    if not _SAFE_TASK_DIR_RE.match(task_id):
+    if not is_safe_task_dir(task_id):
         return JSONResponse(status_code=400, content={"detail": "Invalid task_id format"})
     task_dir = (UPLOAD_DIR / task_id).resolve()
     upload_root = UPLOAD_DIR.resolve()
@@ -160,9 +151,7 @@ def _load_review_state(task_dir: Path) -> dict[str, Any]:
 
 def _write_review_state(task_dir: Path, review: dict[str, Any]) -> None:
     review["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    (task_dir / "review.json").write_text(
-        json.dumps(review, ensure_ascii=False, indent=2)
-    )
+    write_json(task_dir / "review.json", review)
 
 
 def _write_clip_job_api(task_dir: Path, segment_id: str, payload: dict[str, Any]) -> None:
@@ -176,7 +165,7 @@ def _write_clip_job_api(task_dir: Path, segment_id: str, payload: dict[str, Any]
     current.update(payload)
     current["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     jobs[segment_id] = current
-    jobs_path.write_text(json.dumps(jobs, ensure_ascii=False, indent=2))
+    write_json(jobs_path, jobs)
 
 
 def _segment_id(index: int) -> str:
@@ -386,8 +375,10 @@ async def list_tasks(
             continue
 
         try:
-            state_data = json.loads(Path(state_path).read_text())
-        except (json.JSONDecodeError, OSError):
+            state_data = read_json(Path(state_path), None, log_errors=False)
+            if not isinstance(state_data, dict):
+                continue
+        except OSError:
             continue
 
         task_state = state_data.get("state", "UPLOADED")
@@ -398,8 +389,10 @@ async def list_tasks(
         meta: dict = {}
         if os.path.exists(meta_path):
             try:
-                meta = json.loads(Path(meta_path).read_text())
-            except (json.JSONDecodeError, OSError):
+                loaded_meta = read_json(Path(meta_path), {}, log_errors=False)
+                if isinstance(loaded_meta, dict):
+                    meta = loaded_meta
+            except OSError:
                 pass
 
         created_at = meta.get("created_at", "")
@@ -430,9 +423,9 @@ async def list_tasks(
             first_product = ""
             for mf in sorted(Path(clips_dir).glob("*_meta.json")):
                 try:
-                    pm = json.loads(mf.read_text())
-                    first_product = pm.get("product_name", "")
-                except (json.JSONDecodeError, OSError):
+                    pm = read_json(mf, {}, log_errors=False)
+                    first_product = pm.get("product_name", "") if isinstance(pm, dict) else ""
+                except OSError:
                     pass
                 break
             if first_product and first_product != "未命名商品":
@@ -513,7 +506,7 @@ async def delete_task(task_id: str):
 
 @router.get("/api/tasks/{task_id}")
 async def get_task_status(task_id: str):
-    if not _TASK_ID_RE.match(task_id):
+    if not is_task_id(task_id):
         return JSONResponse(status_code=400, content={"detail": "Invalid task_id format"})
     task_dir = UPLOAD_DIR / task_id
     if not task_dir.exists():
@@ -525,7 +518,7 @@ async def get_task_status(task_id: str):
     meta_file = task_dir / "meta.json"
     metadata = {}
     if meta_file.exists():
-        metadata = json.loads(meta_file.read_text())
+        metadata = read_json(meta_file, {})
 
     return {"task_id": task_id, **state, "metadata": metadata}
 
@@ -757,7 +750,7 @@ async def patch_review_segment(task_id: str, segment_id: str, patch: ReviewSegme
     if isinstance(task_dir, JSONResponse):
         return task_dir
 
-    if not _SEGMENT_ID_RE.match(segment_id):
+    if not is_segment_id(segment_id):
         return JSONResponse(status_code=400, content={"detail": "Invalid segment id"})
 
     review = _load_review_state(task_dir)
@@ -797,12 +790,9 @@ async def retry_task(task_id: str):
     if not original.exists():
         return JSONResponse(status_code=409, content={"detail": "original.mp4 not found"})
 
-    (task_dir / "state.json").write_text(
-        json.dumps(
-            {"state": "UPLOADED", "message": "Retry requested", "step": "uploaded"},
-            ensure_ascii=False,
-            indent=2,
-        )
+    write_json(
+        task_dir / "state.json",
+        {"state": "UPLOADED", "message": "Retry requested", "step": "uploaded"},
     )
     refresh_task_index(UPLOAD_DIR, task_id)
     start_pipeline.delay(task_id, str(original))
@@ -819,7 +809,7 @@ async def reprocess_task_clip(task_id: str, segment_id: str):
     if not isinstance(enriched, list):
         return JSONResponse(status_code=409, content={"detail": "No enriched segments found"})
 
-    if not _SEGMENT_ID_RE.match(segment_id):
+    if not is_segment_id(segment_id):
         return JSONResponse(status_code=400, content={"detail": "Invalid segment id"})
     try:
         idx = int(segment_id.replace("clip_", ""))
@@ -855,7 +845,7 @@ async def get_reprocess_task_clip(task_id: str, segment_id: str):
 
 @router.websocket("/ws/tasks/{task_id}")
 async def ws_task_progress(websocket: WebSocket, task_id: str):
-    if not _TASK_ID_RE.match(task_id):
+    if not is_task_id(task_id):
         await websocket.close(code=4000, reason="Invalid task_id format")
         return
     task_dir = UPLOAD_DIR / task_id

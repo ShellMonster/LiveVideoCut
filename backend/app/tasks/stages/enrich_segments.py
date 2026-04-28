@@ -1,10 +1,11 @@
-import json
 import os
 import time
 import logging
 from pathlib import Path
 from typing import Any
 from collections.abc import Sequence
+
+from app.utils.json_io import write_json
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,7 @@ def _do_transcribe(
             raise
 
     transcript_file = task_path / "transcript.json"
-    transcript_file.write_text(json.dumps(transcript, ensure_ascii=False, indent=2))
+    write_json(transcript_file, transcript)
     return transcript
 
 
@@ -136,9 +137,7 @@ def run_enrich_segments(
             _build_export_segments_from_candidates(candidates), transcript
         )
         output_file = task_path / "enriched_segments.json"
-        output_file.write_text(
-            json.dumps(export_segments, ensure_ascii=False, indent=2)
-        )
+        write_json(output_file, export_segments)
         sm.transition("TRANSCRIBING", "PROCESSING", step="processing")
         return {
             "segments_count": len(export_segments),
@@ -165,9 +164,7 @@ def run_enrich_segments(
             _build_export_segments_from_scenes(scenes), transcript
         )
         output_file = task_path / "enriched_segments.json"
-        output_file.write_text(
-            json.dumps(export_segments, ensure_ascii=False, indent=2)
-        )
+        write_json(output_file, export_segments)
         sm.transition("TRANSCRIBING", "PROCESSING", step="processing")
         return {
             "segments_count": len(export_segments),
@@ -215,9 +212,7 @@ def run_enrich_segments(
                 logger.info("LLM text analysis found %d boundaries", len(text_boundaries))
 
                 text_boundaries_file = task_path / "text_boundaries.json"
-                text_boundaries_file.write_text(
-                    json.dumps(text_boundaries, ensure_ascii=False, indent=2)
-                )
+                write_json(text_boundaries_file, text_boundaries)
 
                 candidates_file = task_path / "candidates.json"
                 visual_candidates = _read_json_file(candidates_file, []) if candidates_file.exists() else []
@@ -227,7 +222,7 @@ def run_enrich_segments(
 
                 fused = fuse_candidates(visual_candidates, text_boundaries, video_duration, segment_granularity=granularity)
                 fused_file = task_path / "fused_candidates.json"
-                fused_file.write_text(json.dumps(fused, ensure_ascii=False, indent=2))
+                write_json(fused_file, fused)
 
                 logger.info("Fused %d visual + %d text → %d candidates", len(visual_candidates), len(text_boundaries), len(fused))
 
@@ -279,7 +274,7 @@ def run_enrich_segments(
     validated = validator.validate(enriched, video_duration)
 
     output_file = task_path / "enriched_segments.json"
-    output_file.write_text(json.dumps(validated, ensure_ascii=False, indent=2))
+    write_json(output_file, validated)
     _log_elapsed("enrich_segments.postprocess", enrich_post_started_at)
 
     sm.transition("TRANSCRIBING", "PROCESSING", step="processing")

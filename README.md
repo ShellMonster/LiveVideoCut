@@ -140,6 +140,7 @@ graph TD
 - **后台分页** -- 项目总览、任务队列、片段资产使用服务端分页；剪辑复核、音乐库、诊断日志使用页面内分页，避免无限下滑
 - **列表索引缓存** -- `GET /api/tasks` 和 `GET /api/assets/clips` 优先读取 `uploads/index.sqlite3` 的 SQLite 列表索引，开启 WAL + `synchronous=NORMAL`；JSON 文件仍是真源，索引缺失/版本变化可自动重建，异常时回退文件扫描
 - **进程内读缓存** -- 不引入 Redis 缓存；`/api/system/resources` 使用 3 秒 TTL，任务 summary/diagnostics/events/review、`/api/tasks/{id}/clips` 和 `/api/music/library` 使用 mtime 指纹内存缓存，文件变化后自动失效
+- **通用后端工具** -- 任务目录 JSON 读写统一走 `app.utils.json_io.read_json/write_json`；任务 ID、片段 ID 和安全目录名校验统一走 `app.api.validation`；`UPLOAD_DIR` 与用户 BGM 目录统一从 `app.config` 获取
 - **前端性能** -- 项目总览、任务队列、片段资产和音乐库搜索输入使用 300ms debounce；任务列表轮询会根据是否存在处理中/等待中任务在 5s 与 30s 间切换；复核、音乐库、片段资产、诊断页的大列表派生数据使用 memo 化减少重复计算
 - **语气词过滤** -- 三级词表（38词），支持仅过滤字幕或同时裁剪视频片段，默认关闭
 - **智能封面** -- content_first（商品优先）/ person_first（主播优先），最多 30 帧评分选最佳；优先复用 visual_prescreen 已抽帧，不足时再用 FFmpeg 补足候选，COCO YOLO 遮挡检测自动排除手机等遮挡帧；封面检测模型单例使用线程锁保护并发初始化
@@ -230,6 +231,12 @@ docker compose up -d
 - `/api/system/resources` 使用 3 秒 TTL，减少 cgroup 检测、Redis ping 和任务状态统计的轮询开销。
 - `/api/tasks/{task_id}/summary`、`/diagnostics`、`/events`、`/review`、`/api/tasks/{task_id}/clips` 和 `/api/music/library` 使用文件 mtime/size 指纹缓存；相关 JSON、clips、covers 或音乐库文件变化后自动失效。
 - 缓存只保存接口组装结果，不改变 JSON 文件作为真源的架构。
+
+### 后端通用工具约定
+
+- 任务目录、索引和商品素材相关 JSON 文件读写统一使用 `app.utils.json_io.read_json()` / `write_json()`，避免各接口重复裸写 `json.loads(path.read_text())` 和 `write_text(json.dumps(...))`。
+- 任务 ID、片段 ID、图片文件名和安全任务目录名的正则校验集中在 `app.api.validation`；新增 API 路由不要再单独定义 `_TASK_ID_RE` / `_SEGMENT_ID_RE`。
+- 上传根目录使用 `app.config.UPLOAD_DIR`，用户 BGM 目录使用 `app.config.USER_BGM_DIR`；不要在 API 或 service 中硬编码 `/app/uploads`。
 
 ## 配置说明
 
@@ -346,7 +353,9 @@ ASR 的 Provider 选择和 API Key 在 **前端设置页面** 中配置，保存
 │   │   │   ├── segment_fusion.py               # 两层树信号融合
 │   │   │   ├── boundary_snapper.py             # 句边界对齐
 │   │   │   └── boundary_refiner.py             # LLM 边界精修
-│   │   ├── config.py               # VLM 共享常量（Provider、默认 API 地址等）
+│   │   ├── config.py               # 共享配置常量（上传目录、用户 BGM 目录、VLM Provider、默认 API 地址等）
+│   │   ├── utils/
+│   │   │   └── json_io.py          # 统一 JSON 文件读写工具
 │   │   └── tasks/
 │   │       ├── pipeline.py        # 薄编排器（~310 行）+ Celery task 定义
 │   │       ├── shared.py          # 跨 stage 共享工具

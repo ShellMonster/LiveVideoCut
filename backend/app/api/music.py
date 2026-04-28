@@ -1,5 +1,4 @@
 import fcntl
-import json
 import logging
 import os
 import tempfile
@@ -12,15 +11,15 @@ from fastapi.responses import FileResponse
 from mutagen.mp3 import HeaderNotFoundError, MP3
 from pydantic import BaseModel
 
+from app.config import USER_BGM_DIR
 from app.services.bgm_selector import DEFAULT_SELECTOR
 from app.services.memory_cache import FingerprintMemoryCache, path_fingerprint
+from app.utils.json_io import read_json
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 _music_library_cache = FingerprintMemoryCache(max_size=4)
-
-USER_BGM_DIR = Path("/app/uploads/bgm_library")
 USER_LIBRARY_PATH = USER_BGM_DIR / "library.json"
 LOCK_PATH = USER_BGM_DIR / "library.json.lock"
 
@@ -51,12 +50,11 @@ def _library_lock():
 def _read_user_library() -> list[dict]:
     if not USER_LIBRARY_PATH.exists():
         return []
-    raw = USER_LIBRARY_PATH.read_text()
-    try:
-        return json.loads(raw)
-    except (json.JSONDecodeError, ValueError):
-        logger.exception("Corrupted user BGM library: %s", USER_LIBRARY_PATH)
+    data = read_json(USER_LIBRARY_PATH, None, log_errors=False)
+    if not isinstance(data, list):
+        logger.error("Corrupted user BGM library: %s", USER_LIBRARY_PATH)
         raise RuntimeError("User BGM library is corrupted, aborting write to prevent data loss")
+    return data
 
 
 def _write_user_library(tracks: list[dict]) -> None:
@@ -64,6 +62,8 @@ def _write_user_library(tracks: list[dict]) -> None:
     tmp_fd, tmp_path = tempfile.mkstemp(dir=USER_BGM_DIR, suffix=".json")
     try:
         with os.fdopen(tmp_fd, "w") as f:
+            import json
+
             json.dump(tracks, f, ensure_ascii=False, indent=2)
         os.replace(tmp_path, str(USER_LIBRARY_PATH))
         _music_library_cache.clear()

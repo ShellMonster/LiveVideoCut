@@ -7,6 +7,7 @@ import {
   Cpu,
   Film,
   HardDrive,
+  Loader2,
   Scissors,
   Server,
 } from "lucide-react";
@@ -136,6 +137,71 @@ export function Header({
         {action}
       </div>
     </header>
+  );
+}
+
+export function Card({
+  children,
+  className,
+  padding = "md",
+}: {
+  children: React.ReactNode;
+  className?: string;
+  padding?: "none" | "sm" | "md" | "lg";
+}) {
+  const paddingClass = {
+    none: "",
+    sm: "p-3",
+    md: "p-4",
+    lg: "p-5",
+  }[padding];
+  return (
+    <section className={cn("rounded-lg border border-slate-200 bg-white", paddingClass, className)}>
+      {children}
+    </section>
+  );
+}
+
+export function Button({
+  children,
+  icon: Icon,
+  loading,
+  variant = "secondary",
+  size = "md",
+  className,
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  icon?: React.ElementType;
+  loading?: boolean;
+  variant?: "primary" | "secondary" | "ghost" | "danger";
+  size?: "sm" | "md" | "icon";
+}) {
+  const variantClass = {
+    primary: "bg-blue-600 text-white hover:bg-blue-700 border-transparent",
+    secondary: "border-slate-200 text-slate-700 hover:bg-slate-50",
+    ghost: "border-transparent text-slate-600 hover:bg-slate-50 hover:text-slate-950",
+    danger: "border-red-200 text-red-600 hover:bg-red-50",
+  }[variant];
+  const sizeClass = {
+    sm: "gap-1.5 rounded-lg px-2.5 py-1.5 text-xs",
+    md: "gap-2 rounded-lg px-3 py-2 text-sm",
+    icon: "h-9 w-9 justify-center rounded-lg p-0",
+  }[size];
+  const DisabledIcon = loading ? Loader2 : Icon;
+  return (
+    <button
+      {...props}
+      disabled={props.disabled || loading}
+      className={cn(
+        "inline-flex items-center justify-center border font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+        sizeClass,
+        variantClass,
+        className,
+      )}
+    >
+      {DisabledIcon && <DisabledIcon size={15} className={loading ? "animate-spin" : undefined} />}
+      {children}
+    </button>
   );
 }
 

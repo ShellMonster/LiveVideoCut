@@ -1,18 +1,14 @@
 import io
-import json
-import re
 import zipfile
 from pathlib import Path
 
 from fastapi import APIRouter
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
+from app.api.validation import is_segment_id, is_task_id
+from app.config import UPLOAD_DIR
 from app.services.memory_cache import FingerprintMemoryCache, path_fingerprint
-
-UPLOAD_DIR = Path("uploads")
-
-_TASK_ID_RE = re.compile(r"^[a-f0-9\-]{36}$", re.IGNORECASE)
-_CLIP_NAME_RE = re.compile(r"^clip_\d{3,}$")
+from app.utils.json_io import read_json
 
 router = APIRouter()
 _task_clips_cache = FingerprintMemoryCache(max_size=128)
@@ -26,7 +22,9 @@ def _collect_clips(clips_dir: Path) -> list[dict]:
     """Scan clips directory and build metadata list."""
     clips = []
     for meta_file in sorted(clips_dir.glob("clip_*_meta.json")):
-        meta = json.loads(meta_file.read_text())
+        meta = read_json(meta_file, {})
+        if not isinstance(meta, dict):
+            continue
         stem = meta_file.stem.replace("_meta", "")
         clip_id = f"{clips_dir.parent.name}/{stem}"
         video_path = clips_dir / f"{stem}.mp4"
@@ -52,7 +50,7 @@ def _collect_clips(clips_dir: Path) -> list[dict]:
 
 @router.get("/api/tasks/{task_id}/clips")
 async def list_clips(task_id: str):
-    if not _TASK_ID_RE.match(task_id):
+    if not is_task_id(task_id):
         return JSONResponse(status_code=400, content={"detail": "Invalid task_id format"})
     clips_dir = _clips_dir(task_id)
     if not clips_dir.exists():
@@ -75,7 +73,7 @@ async def list_clips(task_id: str):
 
 @router.get("/api/clips/{task_id}/{clip_name}/download")
 async def download_clip(task_id: str, clip_name: str):
-    if not _TASK_ID_RE.match(task_id) or not _CLIP_NAME_RE.match(clip_name):
+    if not is_task_id(task_id) or not is_segment_id(clip_name):
         return JSONResponse(status_code=400, content={"detail": "Invalid task_id or clip_name format"})
     video_path = _clips_dir(task_id) / f"{clip_name}.mp4"
     if not video_path.exists():
@@ -90,7 +88,7 @@ async def download_clip(task_id: str, clip_name: str):
 
 @router.get("/api/clips/{task_id}/{clip_name}/preview")
 async def preview_clip(task_id: str, clip_name: str):
-    if not _TASK_ID_RE.match(task_id) or not _CLIP_NAME_RE.match(clip_name):
+    if not is_task_id(task_id) or not is_segment_id(clip_name):
         return JSONResponse(status_code=400, content={"detail": "Invalid task_id or clip_name format"})
     video_path = _clips_dir(task_id) / f"{clip_name}.mp4"
     if not video_path.exists():
@@ -105,7 +103,7 @@ async def preview_clip(task_id: str, clip_name: str):
 
 @router.get("/api/clips/{task_id}/{clip_name}/thumbnail")
 async def get_thumbnail(task_id: str, clip_name: str):
-    if not _TASK_ID_RE.match(task_id) or not _CLIP_NAME_RE.match(clip_name):
+    if not is_task_id(task_id) or not is_segment_id(clip_name):
         return JSONResponse(status_code=400, content={"detail": "Invalid task_id or clip_name format"})
     thumb_path = UPLOAD_DIR / task_id / "covers" / f"{clip_name}.jpg"
     if not thumb_path.exists():
@@ -140,7 +138,7 @@ async def batch_download(ids: str = ""):
                 if len(parts) != 2:
                     continue
                 tid, cname = parts
-                if not _TASK_ID_RE.match(tid) or not _CLIP_NAME_RE.match(cname):
+                if not is_task_id(tid) or not is_segment_id(cname):
                     continue
                 video_path = _clips_dir(tid) / f"{cname}.mp4"
                 if video_path.exists():

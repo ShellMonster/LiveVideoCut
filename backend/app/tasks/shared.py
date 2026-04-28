@@ -9,6 +9,7 @@ from app.api.settings import SettingsRequest
 from app.services.dashscope_asr_client import DashScopeASRClient
 from app.services.volcengine_asr_client import VolcengineASRClient
 from app.services.volcengine_vc_client import VolcengineVCClient
+from app.utils.json_io import read_json
 
 logger = logging.getLogger(__name__)
 
@@ -18,13 +19,7 @@ def _log_elapsed(label: str, started_at: float) -> None:
 
 
 def _read_json_file(path: Path, fallback):
-    if not path.exists():
-        return fallback
-    try:
-        return json.loads(path.read_text())
-    except (json.JSONDecodeError, OSError):
-        logger.warning("Failed to read JSON file %s, using fallback", path, exc_info=True)
-        return fallback
+    return read_json(path, fallback)
 
 
 def _need_asr(settings: SettingsRequest) -> bool:
@@ -77,22 +72,14 @@ def _load_task_settings(task_dir: str | Path) -> SettingsRequest:
 
     payload: dict[str, object] = {}
 
-    if settings_path.exists():
-        try:
-            raw = json.loads(settings_path.read_text())
-            if isinstance(raw, dict):
-                payload = raw
-        except (json.JSONDecodeError, OSError):
-            pass
+    raw_settings = read_json(settings_path, {}, log_errors=False)
+    if isinstance(raw_settings, dict):
+        payload = raw_settings
 
     secrets_path = task_path / "secrets.json"
-    if secrets_path.exists():
-        try:
-            raw = json.loads(secrets_path.read_text())
-            if isinstance(raw, dict):
-                payload.update(raw)
-        except (json.JSONDecodeError, OSError):
-            pass
+    raw_secrets = read_json(secrets_path, {}, log_errors=False)
+    if isinstance(raw_secrets, dict):
+        payload.update(raw_secrets)
 
     env_api_key = os.getenv("VLM_API_KEY", "").strip()
     if not str(payload.get("api_key", "")).strip() and env_api_key:

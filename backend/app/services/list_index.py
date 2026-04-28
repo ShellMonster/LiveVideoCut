@@ -1,9 +1,10 @@
 import datetime
-import json
 import logging
 import sqlite3
 from pathlib import Path
 from typing import Any
+
+from app.utils.json_io import read_json
 
 logger = logging.getLogger(__name__)
 
@@ -95,12 +96,7 @@ def _init_schema(conn: sqlite3.Connection) -> None:
 
 
 def _read_json(path: Path, fallback: Any) -> Any:
-    if not path.exists():
-        return fallback
-    try:
-        return json.loads(path.read_text())
-    except (json.JSONDecodeError, OSError):
-        return fallback
+    return read_json(path, fallback, log_errors=False)
 
 
 def _now_iso() -> str:

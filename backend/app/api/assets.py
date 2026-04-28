@@ -1,4 +1,3 @@
-import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -6,9 +5,9 @@ from typing import Any
 from fastapi import APIRouter, Query
 
 from app.api.commerce import commerce_status_for_clip
+from app.config import UPLOAD_DIR
 from app.services.list_index import query_clip_assets
-
-UPLOAD_DIR = Path("uploads")
+from app.utils.json_io import read_json
 
 logger = logging.getLogger(__name__)
 
@@ -16,12 +15,7 @@ router = APIRouter()
 
 
 def _read_json(path: Path, fallback: Any) -> Any:
-    if not path.exists():
-        return fallback
-    try:
-        return json.loads(path.read_text())
-    except (json.JSONDecodeError, OSError):
-        return fallback
+    return read_json(path, fallback, log_errors=False)
 
 
 def _review_status(task_dir: Path, segment_id: str) -> str:

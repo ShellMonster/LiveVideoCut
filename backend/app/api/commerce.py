@@ -1,5 +1,3 @@
-import json
-import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -8,15 +6,13 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from fastapi.responses import FileResponse, JSONResponse
 
+from app.api.validation import IMAGE_NAME_RE, is_segment_id, is_task_id
+from app.config import UPLOAD_DIR
 from app.services.gemini_vision_client import GeminiVisionClient
 from app.services.list_index import refresh_task_index
 from app.services.openai_image_client import OpenAIImageClient
+from app.utils.json_io import read_json, write_json
 
-UPLOAD_DIR = Path("uploads")
-
-_TASK_ID_RE = re.compile(r"^[a-f0-9\-]{36}$", re.IGNORECASE)
-_SEGMENT_ID_RE = re.compile(r"^clip_\d{3,}$")
-_IMAGE_NAME_RE = re.compile(r"^[a-z0-9_]+\.png$")
 _IMAGE_KEYS = {"model_front", "model_side", "model_back", "detail_page"}
 
 router = APIRouter()
@@ -28,17 +24,11 @@ class CommerceBatchRequest(BaseModel):
 
 
 def _read_json(path: Path, fallback: Any) -> Any:
-    if not path.exists():
-        return fallback
-    try:
-        return json.loads(path.read_text())
-    except (json.JSONDecodeError, OSError):
-        return fallback
+    return read_json(path, fallback, log_errors=False)
 
 
 def _write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
+    write_json(path, payload)
 
 
 def _now_iso() -> str:
@@ -79,7 +69,7 @@ def _get_setting(settings: dict[str, Any], key: str, default: Any) -> Any:
 
 
 def _validate_ids(task_id: str, segment_id: str) -> JSONResponse | None:
-    if not _TASK_ID_RE.match(task_id) or not _SEGMENT_ID_RE.match(segment_id):
+    if not is_task_id(task_id) or not is_segment_id(segment_id):
         return JSONResponse(status_code=400, content={"detail": "任务或片段 ID 格式无效"})
     return None
 
@@ -498,7 +488,7 @@ def get_commerce_image(task_id: str, segment_id: str, filename: str):
     invalid = _validate_ids(task_id, segment_id)
     if invalid:
         return invalid
-    if not _IMAGE_NAME_RE.match(filename):
+    if not IMAGE_NAME_RE.match(filename):
         return JSONResponse(status_code=400, content={"detail": "Invalid image filename"})
     image_path = _commerce_dir(task_id, segment_id) / "images" / filename
     if not image_path.exists():

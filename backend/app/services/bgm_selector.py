@@ -1,12 +1,13 @@
-import json
 import logging
 from pathlib import Path
+
+from app.config import USER_BGM_DIR
+from app.utils.json_io import read_json
 
 logger = logging.getLogger(__name__)
 
 ASSETS_DIR = Path(__file__).resolve().parent.parent.parent / "assets"
 DEFAULT_BGM = str(ASSETS_DIR / "default_bgm.mp3")
-USER_BGM_DIR = Path("/app/uploads/bgm_library")
 USER_LIBRARY_PATH = USER_BGM_DIR / "library.json"
 
 
@@ -25,7 +26,7 @@ class BGMSelector:
         selector._user_dir = USER_BGM_DIR
         if USER_LIBRARY_PATH.exists():
             try:
-                user_data = json.loads(USER_LIBRARY_PATH.read_text())
+                user_data = read_json(USER_LIBRARY_PATH, [])
                 user_tracks = user_data if isinstance(user_data, list) else user_data.get("tracks", [])
                 selector._tracks = user_tracks + selector._tracks
             except Exception:
@@ -37,7 +38,9 @@ class BGMSelector:
             logger.warning("BGM library not found: %s", self._library_path)
             return
         try:
-            data = json.loads(self._library_path.read_text())
+            data = read_json(self._library_path, {})
+            if not isinstance(data, dict):
+                data = {}
             self._tracks = data.get("tracks", [])
             self._category_defaults = data.get("category_defaults", {})
         except Exception:

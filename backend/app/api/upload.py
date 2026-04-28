@@ -4,17 +4,16 @@ import json
 import os
 import uuid
 from datetime import UTC, datetime
-from pathlib import Path
 
 from fastapi import APIRouter, Form, HTTPException, UploadFile
 from pydantic import ValidationError as PydanticValidationError
 
 from app.api.settings import SENSITIVE_FIELDS, SettingsRequest
+from app.config import UPLOAD_DIR
 from app.services.list_index import refresh_task_index
 from app.services.validator import MAX_FILE_SIZE, ValidationError, VideoValidator
 from app.tasks.pipeline import start_pipeline
-
-UPLOAD_DIR = Path("uploads")
+from app.utils.json_io import write_json
 
 router = APIRouter()
 validator = VideoValidator()
@@ -119,22 +118,18 @@ async def upload_file(file: UploadFile, settings_json: str | None = Form(None)):
     metadata["created_at"] = datetime.now(UTC).isoformat()
     metadata["original_filename"] = file.filename or "unknown.mp4"
     meta_path = task_dir / "meta.json"
-    meta_path.write_text(json.dumps(metadata, indent=2))
+    write_json(meta_path, metadata)
 
     settings_path = task_dir / "settings.json"
     full_payload = resolved_settings.model_dump(mode="json")
 
     safe_payload = {k: v for k, v in full_payload.items() if k not in SENSITIVE_FIELDS}
-    settings_path.write_text(
-        json.dumps(safe_payload, ensure_ascii=False, indent=2)
-    )
+    write_json(settings_path, safe_payload)
 
     secrets_payload = {k: v for k, v in full_payload.items() if k in SENSITIVE_FIELDS and v}
     if secrets_payload:
         secrets_path = task_dir / "secrets.json"
-        secrets_path.write_text(
-            json.dumps(secrets_payload, ensure_ascii=False, indent=2)
-        )
+        write_json(secrets_path, secrets_payload)
         secrets_path.chmod(0o600)
 
     # 7. Dispatch Celery task

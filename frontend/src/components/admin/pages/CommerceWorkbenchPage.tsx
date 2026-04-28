@@ -19,6 +19,7 @@ import { useCommerceAction, useCommerceAsset, useCommerceImageAction } from "@/h
 import { useToastStore } from "@/stores/toastStore";
 import { API_BASE } from "../api";
 import { formatConfidence, formatDuration, userFacingMessage } from "../format";
+import { Button, Card } from "../shared";
 import type { CommerceImageItem } from "../types";
 
 type WorkbenchTab = "copywriting" | "model_images" | "detail_page";
@@ -119,7 +120,7 @@ export function CommerceWorkbenchPage() {
 
       <main className="grid gap-5 p-4 sm:p-6 xl:grid-cols-[360px_minmax(0,1fr)]">
         <aside className="space-y-4">
-          <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+          <Card padding="none" className="overflow-hidden">
             <div className="relative aspect-video bg-slate-950">
               {clip.has_video ? (
                 <video
@@ -149,9 +150,9 @@ export function CommerceWorkbenchPage() {
                 <MiniMetric label="结束" value={formatDuration(clip.end_time)} />
               </div>
             </div>
-          </section>
+          </Card>
 
-          <section className="rounded-lg border border-slate-200 bg-white p-4">
+          <Card>
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-sm font-semibold text-slate-950">商品识别摘要</h2>
               <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
@@ -171,17 +172,17 @@ export function CommerceWorkbenchPage() {
                 </span>
               ))}
             </div>
-            <button
+            <Button
               onClick={() => commerceAction.mutate("analyze")}
-              disabled={commerceAction.isPending}
-              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              loading={commerceAction.isPending}
+              icon={RefreshCw}
+              className="mt-4 w-full"
             >
-              {commerceAction.isPending ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
               {commerceAction.isPending ? "处理中" : "重新识别"}
-            </button>
-          </section>
+            </Button>
+          </Card>
 
-          <section className="rounded-lg border border-slate-200 bg-white p-4">
+          <Card>
             <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
               <AlertTriangle size={16} className="text-amber-500" />
               平台规则提醒
@@ -194,9 +195,9 @@ export function CommerceWorkbenchPage() {
                 </div>
               ))}
             </div>
-          </section>
+          </Card>
 
-          <section className="rounded-lg border border-slate-200 bg-white p-4">
+          <Card>
             <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
               <Settings2 size={16} />
               生成参数
@@ -207,9 +208,9 @@ export function CommerceWorkbenchPage() {
               <ParameterChip label="尺寸" value="默认 2K" />
               <ParameterChip label="模型" value="gpt-image-2" />
             </div>
-          </section>
+          </Card>
 
-          <section className="rounded-lg border border-slate-200 bg-white p-4">
+          <Card>
             <div className="flex items-center justify-between gap-3">
               <div className="text-sm font-semibold text-slate-950">生成任务</div>
               <StatusPill label="Job" status={data.job?.status ?? data.state.status} />
@@ -219,7 +220,7 @@ export function CommerceWorkbenchPage() {
               <MetadataLine label="当前图片" value={data.job?.current_item || "—"} />
               <MetadataLine label="任务 ID" value={data.job?.celery_id || "—"} />
             </div>
-          </section>
+          </Card>
         </aside>
 
         <section className="min-w-0 rounded-lg border border-slate-200 bg-white">
@@ -233,22 +234,21 @@ export function CommerceWorkbenchPage() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button
+              <Button
                 onClick={() => commerceAction.mutate("copywriting")}
-                disabled={commerceAction.isPending}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                loading={commerceAction.isPending}
+                icon={Wand2}
               >
-                {commerceAction.isPending ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
                 {commerceAction.isPending ? "生成中" : "生成文案"}
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={() => commerceAction.mutate("images")}
-                disabled={commerceAction.isPending}
-                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                loading={commerceAction.isPending}
+                icon={Sparkles}
+                variant="primary"
               >
-                {commerceAction.isPending ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
                 {commerceAction.isPending ? "生成中" : "生成图片"}
-              </button>
+              </Button>
             </div>
           </div>
 

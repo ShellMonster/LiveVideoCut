@@ -1,5 +1,6 @@
-import json
 from pathlib import Path
+
+from app.utils.json_io import read_json, write_json
 
 VALID_TRANSITIONS: dict[str, list[str]] = {
     "UPLOADED": ["EXTRACTING_FRAMES"],
@@ -46,7 +47,7 @@ class TaskStateMachine:
         if not state_file.exists():
             return {"state": "UPLOADED"}
 
-        return json.loads(state_file.read_text())
+        return read_json(state_file, {"state": "UPLOADED"})
 
     def get_states(self) -> list[str]:
         return list(VALID_TRANSITIONS.keys()) + ["COMPLETED"]
@@ -62,7 +63,7 @@ class TaskStateMachine:
         if step:
             data["step"] = step
 
-        state_file.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+        write_json(state_file, data)
         try:
             from app.services.list_index import refresh_task_index
 

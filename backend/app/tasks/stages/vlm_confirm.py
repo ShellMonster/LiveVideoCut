@@ -1,8 +1,9 @@
-import json
 import time
 import logging
 from pathlib import Path
 from typing import Any
+
+from app.utils.json_io import read_json, write_json
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ def _write_confirmed_segments(
     vlm_dir = task_path / "vlm"
     vlm_dir.mkdir(parents=True, exist_ok=True)
     output_file = vlm_dir / "confirmed_segments.json"
-    output_file.write_text(json.dumps(confirmed_segments, ensure_ascii=False, indent=2))
+    write_json(output_file, confirmed_segments)
 
 
 def run_vlm_confirm(
@@ -83,7 +84,9 @@ def run_vlm_confirm(
     if not candidates_file.exists():
         return {"confirmed_count": 0, "total_candidates": 0}
 
-    candidates = json.loads(candidates_file.read_text())
+    candidates = read_json(candidates_file, [])
+    if not isinstance(candidates, list):
+        candidates = []
     frames_dir = str(task_path / "frames")
 
     if export_mode == "smart" and not enable_vlm:

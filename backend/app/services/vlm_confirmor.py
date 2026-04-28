@@ -1,13 +1,13 @@
 # pyright: reportImplicitRelativeImport=false, reportExplicitAny=false
 """VLM confirmation orchestrator — confirms candidate segments via Qwen-VL-Plus."""
 
-import json
 import logging
 from pathlib import Path
 from typing import Any
 
 from app.services.vlm_client import VLMClient
 from app.services.vlm_parser import VLMResponseParser
+from app.utils.json_io import read_json, write_json
 
 logger = logging.getLogger(__name__)
 
@@ -204,7 +204,7 @@ class VLMConfirmor:
         frames_path = Path(frames_dir)
         frames_json = frames_path / "frames.json"
         if frames_json.exists():
-            records = json.loads(frames_json.read_text())
+            records = read_json(frames_json, [])
             return sorted(records, key=lambda frame: float(frame.get("timestamp", 0.0)))
 
         all_frames: list[dict[str, Any]] = []
@@ -233,5 +233,5 @@ class VLMConfirmor:
         vlm_dir.mkdir(parents=True, exist_ok=True)
 
         output_file = vlm_dir / "confirmed_segments.json"
-        output_file.write_text(json.dumps(confirmed, ensure_ascii=False, indent=2))
+        write_json(output_file, confirmed)
         logger.info("Saved %d confirmed segments to %s", len(confirmed), output_file)
