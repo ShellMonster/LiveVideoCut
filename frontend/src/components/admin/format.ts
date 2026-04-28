@@ -111,3 +111,45 @@ export function clipJobStatusLabel(status: NonNullable<ClipReprocessJob["status"
   };
   return labels[status] ?? status;
 }
+
+export function userFacingMessage(message?: string | null): string {
+  if (!message) return "";
+  const text = message.trim();
+  const lower = text.toLowerCase();
+
+  const replacements: Array<[RegExp, string]> = [
+    [/openai image api key is not configured/i, "OpenAI Image API Key 未配置，请先在系统设置的 AI 商品素材中填写生图 Key"],
+    [/gemini api key is not configured/i, "Gemini API Key 未配置，请先在系统设置的 AI 商品素材中填写识图 Key"],
+    [/api key is not configured/i, "API Key 未配置，请先检查系统设置"],
+    [/clip cover not found/i, "片段封面不存在，请先重新生成片段封面"],
+    [/clip not found/i, "未找到该片段"],
+    [/no valid commerce actions/i, "没有可执行的商品素材生成动作"],
+    [/invalid image item key/i, "图片类型无效"],
+    [/invalid task_id or segment_id format/i, "任务或片段 ID 格式无效"],
+    [/invalid task_id or clip_name format/i, "任务或片段 ID 格式无效"],
+    [/queue failed/i, "任务排队失败"],
+    [/retry failed/i, "任务重试失败"],
+    [/reprocess failed/i, "单片段重导出失败"],
+    [/patch failed/i, "复核状态更新失败"],
+    [/upload failed/i, "上传失败"],
+    [/delete failed/i, "删除失败"],
+    [/save failed/i, "保存失败"],
+    [/network error/i, "网络错误，请检查连接"],
+  ];
+
+  for (const [pattern, replacement] of replacements) {
+    if (pattern.test(text)) return replacement;
+  }
+
+  if (lower.includes("ai 商品素材生成失败")) {
+    const detail = text.replace(/^AI 商品素材生成失败[:：]\s*/i, "");
+    const translated = userFacingMessage(detail);
+    return translated ? `AI 商品素材生成失败：${translated}` : "AI 商品素材生成失败，请检查配置后重试";
+  }
+
+  if (/^[\x00-\x7F]+$/.test(text)) {
+    return "操作失败，请检查配置或稍后重试";
+  }
+
+  return text;
+}

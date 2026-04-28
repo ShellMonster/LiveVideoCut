@@ -79,7 +79,7 @@ def _get_setting(settings: dict[str, Any], key: str, default: Any) -> Any:
 
 def _validate_ids(task_id: str, segment_id: str) -> JSONResponse | None:
     if not _TASK_ID_RE.match(task_id) or not _SEGMENT_ID_RE.match(segment_id):
-        return JSONResponse(status_code=400, content={"detail": "Invalid task_id or segment_id format"})
+        return JSONResponse(status_code=400, content={"detail": "任务或片段 ID 格式无效"})
     return None
 
 
@@ -238,7 +238,7 @@ def _merge_image_items(existing: Any, default_items: list[dict[str, Any]]) -> li
 def run_commerce_actions(task_id: str, segment_id: str, actions: list[str], image_keys: list[str] | None = None) -> dict[str, Any]:
     meta = _clip_meta(task_id, segment_id)
     if meta is None:
-        raise FileNotFoundError("Clip not found")
+        raise FileNotFoundError("未找到该片段")
 
     cover = _cover_path(task_id, segment_id)
     commerce_dir = _commerce_dir(task_id, segment_id)
@@ -246,7 +246,7 @@ def run_commerce_actions(task_id: str, segment_id: str, actions: list[str], imag
     normalized_actions = [action for action in actions if action in {"analyze", "copywriting", "images"}]
     normalized_image_keys = [key for key in (image_keys or []) if key in _IMAGE_KEYS]
     if not normalized_actions:
-        raise ValueError("No valid commerce actions")
+        raise ValueError("没有可执行的商品素材生成动作")
 
     _write_commerce_job(
         task_id,
@@ -263,10 +263,10 @@ def run_commerce_actions(task_id: str, segment_id: str, actions: list[str], imag
 
     if "analyze" in normalized_actions:
         if not cover.exists():
-            raise FileNotFoundError("Clip cover not found")
+            raise FileNotFoundError("片段封面不存在")
         api_key = str(_get_setting(settings, "commerce_gemini_api_key", "")).strip()
         if not api_key:
-            raise ValueError("Gemini API Key is not configured for this task")
+            raise ValueError("Gemini API Key 未配置，请先在系统设置中填写")
         _write_commerce_job(task_id, segment_id, {"message": "正在调用 Gemini 识别商品封面", "current_action": "analyze"})
         client = GeminiVisionClient(
             api_key=api_key,
@@ -293,7 +293,7 @@ def run_commerce_actions(task_id: str, segment_id: str, actions: list[str], imag
             raise ValueError("请先完成 Gemini 商品识别")
         api_key = str(_get_setting(settings, "commerce_gemini_api_key", "")).strip()
         if not api_key:
-            raise ValueError("Gemini API Key is not configured for this task")
+            raise ValueError("Gemini API Key 未配置，请先在系统设置中填写")
         _write_commerce_job(task_id, segment_id, {"message": "正在生成抖音和淘宝文案", "current_action": "copywriting"})
         client = GeminiVisionClient(
             api_key=api_key,
@@ -306,13 +306,13 @@ def run_commerce_actions(task_id: str, segment_id: str, actions: list[str], imag
 
     if "images" in normalized_actions:
         if not cover.exists():
-            raise FileNotFoundError("Clip cover not found")
+            raise FileNotFoundError("片段封面不存在")
         analysis = _read_json(commerce_dir / "product_analysis.json", _default_analysis(str(meta.get("product_name") or ""), float(meta.get("confidence") or 0)))
         if not isinstance(analysis, dict):
             analysis = _default_analysis(str(meta.get("product_name") or ""), float(meta.get("confidence") or 0))
         api_key = str(_get_setting(settings, "commerce_image_api_key", "")).strip()
         if not api_key:
-            raise ValueError("OpenAI Image API Key is not configured for this task")
+            raise ValueError("OpenAI Image API Key 未配置，请先在系统设置中填写")
         client = OpenAIImageClient(
             api_key=api_key,
             api_base=str(_get_setting(settings, "commerce_image_api_base", "https://api.openai.com/v1")),
@@ -371,7 +371,7 @@ async def get_clip_commerce_asset(task_id: str, segment_id: str):
 
     meta = _clip_meta(task_id, segment_id)
     if meta is None:
-        return JSONResponse(status_code=404, content={"detail": "Clip not found"})
+        return JSONResponse(status_code=404, content={"detail": "未找到该片段"})
 
     commerce_dir = _commerce_dir(task_id, segment_id)
     product_name = str(meta.get("product_name") or "未知商品")
@@ -438,7 +438,7 @@ def generate_clip_image_item(task_id: str, segment_id: str, item_key: str):
     if invalid:
         return invalid
     if item_key not in _IMAGE_KEYS:
-        return JSONResponse(status_code=400, content={"detail": "Invalid image item key"})
+        return JSONResponse(status_code=400, content={"detail": "图片类型无效"})
 
     return _queue_commerce_task(task_id, segment_id, ["images"], image_keys=[item_key])
 
@@ -446,7 +446,7 @@ def generate_clip_image_item(task_id: str, segment_id: str, item_key: str):
 def _queue_commerce_task(task_id: str, segment_id: str, actions: list[str], image_keys: list[str] | None = None):
     meta = _clip_meta(task_id, segment_id)
     if meta is None:
-        return JSONResponse(status_code=404, content={"detail": "Clip not found"})
+        return JSONResponse(status_code=404, content={"detail": "未找到该片段"})
     from app.tasks.pipeline import process_commerce_assets
 
     job = _write_commerce_job(
@@ -472,20 +472,20 @@ def queue_commerce_batch(request: CommerceBatchRequest):
     rejected: list[dict[str, str]] = []
     for clip_id in request.clip_ids:
         if "/" not in clip_id:
-            rejected.append({"clip_id": clip_id, "detail": "Invalid clip_id"})
+            rejected.append({"clip_id": clip_id, "detail": "片段 ID 格式无效"})
             continue
         task_id, segment_id = clip_id.split("/", 1)
         invalid = _validate_ids(task_id, segment_id)
         if invalid:
-            rejected.append({"clip_id": clip_id, "detail": "Invalid task_id or segment_id"})
+            rejected.append({"clip_id": clip_id, "detail": "任务或片段 ID 格式无效"})
             continue
         meta = _clip_meta(task_id, segment_id)
         if meta is None:
-            rejected.append({"clip_id": clip_id, "detail": "Clip not found"})
+            rejected.append({"clip_id": clip_id, "detail": "未找到该片段"})
             continue
         response = _queue_commerce_task(task_id, segment_id, request.actions)
         if isinstance(response, JSONResponse):
-            rejected.append({"clip_id": clip_id, "detail": "Queue failed"})
+            rejected.append({"clip_id": clip_id, "detail": "任务排队失败"})
         else:
             accepted.append(response)
     return {"accepted": accepted, "rejected": rejected, "total": len(request.clip_ids)}
@@ -500,5 +500,5 @@ def get_commerce_image(task_id: str, segment_id: str, filename: str):
         return JSONResponse(status_code=400, content={"detail": "Invalid image filename"})
     image_path = _commerce_dir(task_id, segment_id) / "images" / filename
     if not image_path.exists():
-        return JSONResponse(status_code=404, content={"detail": "Image not found"})
+        return JSONResponse(status_code=404, content={"detail": "图片不存在"})
     return FileResponse(image_path, media_type="image/png")

@@ -1,5 +1,6 @@
 import { Check, Loader2, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { userFacingMessage } from "@/components/admin/format";
 
 const STEPS = [
   { key: "UPLOADED", label: "上传完成" },
@@ -61,7 +62,7 @@ export function ProgressBar({ currentState, errorMessage }: ProgressBarProps) {
       </div>
 
       {isError && errorMessage && (
-        <p className="text-sm text-red-600">{errorMessage}</p>
+        <p className="text-sm text-red-600">{userFacingMessage(errorMessage) || "处理失败，请检查配置后重试"}</p>
       )}
     </div>
   );

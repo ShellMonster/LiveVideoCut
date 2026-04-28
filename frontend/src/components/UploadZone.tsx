@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState, type RefObject } from "react";
 import { Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { userFacingMessage } from "@/components/admin/format";
 import { useSettingsStore, type Settings } from "@/stores/settingsStore";
 import { useTaskStore } from "@/stores/taskStore";
 
@@ -230,7 +231,8 @@ export function UploadZone({
         const result = await done;
         setTask(result.task_id, result.metadata);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "上传失败");
+        const message = err instanceof Error ? err.message : "上传失败";
+        setError(userFacingMessage(message) || "上传失败");
       }
     },
     [settingsOverride, reset, setTask, setStatus, setError, setProgress],

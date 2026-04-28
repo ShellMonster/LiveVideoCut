@@ -1,5 +1,6 @@
 import { AlertCircle, RefreshCw, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { userFacingMessage } from "@/components/admin/format";
 
 const ERROR_LABELS: Record<string, string> = {
   UPLOAD_FAILED: "上传失败",
@@ -38,7 +39,7 @@ export function ErrorCard({
 
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold text-red-800">{label}</h3>
-          <p className="mt-1 text-sm text-red-600 break-words">{errorMessage}</p>
+          <p className="mt-1 text-sm text-red-600 break-words">{userFacingMessage(errorMessage) || "处理失败，请检查配置后重试"}</p>
         </div>
 
         {onDismiss && (

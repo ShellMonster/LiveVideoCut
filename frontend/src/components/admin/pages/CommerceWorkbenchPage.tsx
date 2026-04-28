@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   AlertTriangle,
@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 import { useCommerceAction, useCommerceAsset, useCommerceImageAction } from "@/hooks/useAdminQueries";
 import { useToastStore } from "@/stores/toastStore";
 import { API_BASE } from "../api";
-import { formatConfidence, formatDuration } from "../format";
+import { formatConfidence, formatDuration, userFacingMessage } from "../format";
 import type { CommerceImageItem } from "../types";
 
 type WorkbenchTab = "copywriting" | "model_images" | "detail_page";
@@ -38,12 +38,20 @@ export function CommerceWorkbenchPage() {
   const commerceAction = useCommerceAction(taskId, segmentId);
   const commerceImageAction = useCommerceImageAction(taskId, segmentId);
   const showToast = useToastStore((state) => state.showToast);
+  const lastErrorToastRef = useRef("");
 
   const modelImages = useMemo(
     () => data?.images.items.filter((item) => item.key !== "detail_page") ?? [],
     [data?.images.items],
   );
   const detailImage = data?.images.items.find((item) => item.key === "detail_page");
+
+  useEffect(() => {
+    const rawError = data?.job?.error;
+    if (!rawError || rawError === lastErrorToastRef.current) return;
+    lastErrorToastRef.current = rawError;
+    showToast(userFacingMessage(rawError) || "AI 商品素材生成失败", "error");
+  }, [data?.job?.error, showToast]);
 
   const copyText = async (text: string, label: string) => {
     if (!text.trim()) {
@@ -211,11 +219,6 @@ export function CommerceWorkbenchPage() {
               <MetadataLine label="当前图片" value={data.job?.current_item || "—"} />
               <MetadataLine label="任务 ID" value={data.job?.celery_id || "—"} />
             </div>
-            {data.job?.error && (
-              <div className="mt-3 rounded-lg bg-red-50 p-3 text-xs leading-5 text-red-700">
-                {data.job.error}
-              </div>
-            )}
           </section>
         </aside>
 
@@ -223,7 +226,11 @@ export function CommerceWorkbenchPage() {
           <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h2 className="text-base font-semibold text-slate-950">生成结果</h2>
-              <p className="mt-0.5 text-xs text-slate-500">{data.state.message ?? "素材状态会在这里同步，长耗时生成会自动轮询更新。"}</p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                {data.state.status === "failed"
+                  ? "上次生成失败，错误原因已通过提示展示。请检查配置后重试。"
+                  : userFacingMessage(data.state.message) || "素材状态会在这里同步，长耗时生成会自动轮询更新。"}
+              </p>
             </div>
             <div className="flex flex-wrap gap-2">
               <button

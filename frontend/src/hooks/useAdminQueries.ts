@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { API_BASE, fetchJson } from "@/components/admin/api";
+import { userFacingMessage } from "@/components/admin/format";
 import { useToastStore } from "@/stores/toastStore";
 import type {
   ClipAssetsResponse,
@@ -252,7 +253,7 @@ export function useCommerceAction(taskId: string | undefined, segmentId: string 
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : "生成失败";
-      useToastStore.getState().showToast(message, "error");
+      useToastStore.getState().showToast(userFacingMessage(message) || "生成失败", "error");
     },
   });
 }
@@ -272,7 +273,7 @@ export function useCommerceImageAction(taskId: string | undefined, segmentId: st
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : "单图生成失败";
-      useToastStore.getState().showToast(message, "error");
+      useToastStore.getState().showToast(userFacingMessage(message) || "单图生成失败", "error");
     },
   });
 }
@@ -298,7 +299,7 @@ export function useCommerceBatchAction() {
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : "批量生成失败";
-      useToastStore.getState().showToast(message, "error");
+      useToastStore.getState().showToast(userFacingMessage(message) || "批量生成失败", "error");
     },
   });
 }
@@ -310,7 +311,7 @@ export function useDeleteTask() {
       const resp = await fetch(`${API_BASE}/api/tasks/${taskId}`, { method: "DELETE" });
       if (!resp.ok) {
         const body = await resp.json().catch(() => null);
-        throw new Error(typeof body?.detail === "string" ? body.detail : "Delete failed");
+        throw new Error(typeof body?.detail === "string" ? body.detail : "删除失败");
       }
       return taskId;
     },
@@ -325,7 +326,7 @@ export function useDeleteTask() {
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : "删除任务失败";
-      useToastStore.getState().showToast(`删除任务失败：${message}`, "error");
+      useToastStore.getState().showToast(`删除任务失败：${userFacingMessage(message) || message}`, "error");
     },
   });
 }
@@ -335,7 +336,7 @@ export function useRetryTask() {
   return useMutation({
     mutationFn: async (taskId: string) => {
       const resp = await fetch(`${API_BASE}/api/tasks/${taskId}/retry`, { method: "POST" });
-      if (!resp.ok) throw new Error("Retry failed");
+      if (!resp.ok) throw new Error("任务重试失败");
       return taskId;
     },
     onSuccess: () => {
@@ -362,7 +363,7 @@ export function usePatchReviewSegment(taskId: string | undefined) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (!resp.ok) throw new Error("Patch failed");
+      if (!resp.ok) throw new Error("复核状态更新失败");
     },
     onSuccess: () => {
       useToastStore.getState().showToast("复核状态已更新", "success");
@@ -383,7 +384,7 @@ export function useReprocessSegment(taskId: string | undefined) {
       const resp = await fetch(`${API_BASE}/api/tasks/${taskId}/clips/${segmentId}/reprocess`, {
         method: "POST",
       });
-      if (!resp.ok) throw new Error("Reprocess failed");
+      if (!resp.ok) throw new Error("单片段重导出失败");
       return (await resp.json()) as { status?: ClipReprocessJob["status"]; celery_id?: string };
     },
     onSuccess: () => {
@@ -424,7 +425,7 @@ export function useUploadTrack() {
       const form = new FormData();
       form.append("file", file);
       const resp = await fetch(`${API_BASE}/api/music/upload`, { method: "POST", body: form });
-      if (!resp.ok) throw new Error("Upload failed");
+      if (!resp.ok) throw new Error("音乐上传失败");
       return (await resp.json()) as MusicTrack;
     },
     onSuccess: () => {
@@ -442,7 +443,7 @@ export function useDeleteTrack() {
   return useMutation({
     mutationFn: async (trackId: string) => {
       const resp = await fetch(`${API_BASE}/api/music/${trackId}`, { method: "DELETE" });
-      if (!resp.ok) throw new Error("Delete failed");
+      if (!resp.ok) throw new Error("删除失败");
       return trackId;
     },
     onSuccess: () => {
@@ -477,7 +478,7 @@ export function useSaveTrackTags() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(tags),
       });
-      if (!resp.ok) throw new Error("Save failed");
+      if (!resp.ok) throw new Error("保存失败");
       return (await resp.json()) as MusicTrack;
     },
     onSuccess: () => {

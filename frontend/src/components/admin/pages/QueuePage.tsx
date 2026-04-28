@@ -14,6 +14,7 @@ import {
   resourcePercent,
   statusBadgeClass,
   statusLabel,
+  userFacingMessage,
 } from "../format";
 import { Header, LogLine, MetricCard, Pagination, ResourceLine } from "../shared";
 import type { TaskItem } from "../types";
@@ -643,7 +644,9 @@ function QueueDetailBody({
               <div>
                 <div className="text-xs font-medium text-slate-400">当前阶段</div>
                 <div className="mt-1 text-sm font-semibold text-slate-900">{currentStage}</div>
-                <p className="mt-1 line-clamp-2 text-xs text-slate-500">{task.message || "任务状态正常，等待下一步处理结果。"}</p>
+                <p className="mt-1 line-clamp-2 text-xs text-slate-500">
+                  {userFacingMessage(task.message) || "任务状态正常，等待下一步处理结果。"}
+                </p>
               </div>
               <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">{Math.min(activeStepIndex + 1, queueStageSteps.length)} / {queueStageSteps.length}</span>
             </div>

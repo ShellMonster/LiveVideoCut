@@ -17,6 +17,7 @@ import {
   formatConfidence,
   formatDuration,
   reviewStatusLabel,
+  userFacingMessage,
 } from "../format";
 import {
   Chip,
@@ -512,7 +513,7 @@ function ReviewInspectorDrawer({
                       )}
                     >
                       单片段重导出：{clipJobStatusLabel(currentJob.status)}
-                      {currentJob.error ? `，${currentJob.error}` : ""}
+                      {currentJob.error ? `，${userFacingMessage(currentJob.error) || "请检查配置后重试"}` : ""}
                     </div>
                   )}
                 </section>

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { userFacingMessage } from "@/components/admin/format";
 import { useTaskStore } from "@/stores/taskStore";
 
 function resolveWebSocketBase(): string {
@@ -56,7 +57,7 @@ export function useTaskProgress(taskId: string | null) {
           }
         } else if (data.state === "ERROR") {
           lastStatusRef.current = "error";
-          setError(data.message || "处理失败");
+          setError(userFacingMessage(data.message) || "处理失败");
         } else {
           if (lastStatusRef.current !== "processing") {
             lastStatusRef.current = "processing";
