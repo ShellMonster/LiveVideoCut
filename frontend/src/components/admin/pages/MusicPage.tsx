@@ -200,7 +200,7 @@ export function AdminMusicPage() {
           <MusicMetricCard icon={Volume2} tone="violet" label="默认音量" value={bgmVolume.toFixed(2)} />
         </section>
 
-        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white xl:mr-[360px]">
+        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
             <div>
               <h2 className="text-base font-semibold text-slate-900">曲目列表</h2>
