@@ -99,7 +99,8 @@ docker compose up -d
 │   │   ├── api/
 │   │   │   ├── health.py                            # 健康检查端点
 │   │   │   ├── upload.py                            # 视频上传（流式写入 + 校验）
-│   │   │   ├── tasks.py                             # 任务 CRUD + WebSocket + 诊断 + 审核 + 重试
+│   │   │   ├── tasks.py                             # 任务路由（CRUD + WebSocket + 诊断 + 审核 + 重试）
+│   │   │   ├── task_helpers.py                      # 任务摘要 / 诊断 / 复核 payload 组装工具
 │   │   │   ├── clips.py                             # 片段列表 / 下载 / 批量下载 / 缩略图
 │   │   │   ├── settings.py                          # 设置模型与校验 + 敏感字段分离
 │   │   │   ├── music.py                             # 音乐库上传 / 标签编辑 / 删除
