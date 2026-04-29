@@ -434,10 +434,11 @@ export function AdminSettingsPage() {
           )}
 
           {activeSection === 2 && (
+          <>
           <SettingsCard
-            id="settings-section-2"
-            title="字幕与转写"
-            desc="ASR 决定字幕时间轴质量。Karaoke 模式推荐火山 VC。"
+            id="settings-section-2-asr"
+            title="ASR 转写服务"
+            desc="选择语音转写引擎和凭证。ASR 决定字幕时间轴质量，Karaoke 模式推荐火山 VC。"
             badge={draft.asrProvider === "volcengine_vc" ? "火山 VC 推荐" : undefined}
           >
             <div className="grid gap-3 md:grid-cols-3">
@@ -460,8 +461,24 @@ export function AdminSettingsPage() {
                 onClick={() => updateDraft({ asrProvider: "dashscope" })}
               />
             </div>
-
             <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <Field label="ASR API Key" className="md:col-span-2">
+                <input
+                  type="password"
+                  value={draft.asrApiKey}
+                  onChange={(event) => updateDraft({ asrApiKey: event.target.value })}
+                  className={fieldClassName}
+                />
+              </Field>
+            </div>
+          </SettingsCard>
+
+          <SettingsCard
+            id="settings-section-2-subtitle"
+            title="字幕样式与位置"
+            desc="控制字幕模式、样式模板、语气词处理和画面中的字幕坐标。"
+          >
+            <div className="grid gap-4 md:grid-cols-3">
               <Field label="字幕模式">
                 <select
                   value={draft.subtitleMode}
@@ -499,22 +516,33 @@ export function AdminSettingsPage() {
                   <option value="karaoke">Karaoke</option>
                 </select>
               </Field>
-              <Field label="ASR API Key" className="md:col-span-2">
-                <input
-                  type="password"
-                  value={draft.asrApiKey}
-                  onChange={(event) => updateDraft({ asrApiKey: event.target.value })}
-                  className={fieldClassName}
-                />
-              </Field>
             </div>
+            <div className="mt-4">
+              <SubtitlePositionEditor
+                disabled={draft.subtitleMode === "off"}
+                position={draft.subtitlePosition}
+                customY={draft.customPositionY ?? 72}
+                hoveredPreset={hoveredSubtitlePreset}
+                onHoverPreset={setHoveredSubtitlePreset}
+                onPresetChange={setSubtitlePreset}
+                onCustomYChange={(customPositionY) => updateDraft({ subtitlePosition: "custom", customPositionY })}
+                onPreviewPointer={updateSubtitleYFromPointer}
+              />
+            </div>
+          </SettingsCard>
 
-            <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-              <div className="rounded-lg border border-slate-200 bg-white p-4">
+          <SettingsCard
+            id="settings-section-2-sensitive"
+            title="敏感词过滤"
+            desc="维护违规词库，命中后按字幕句段裁剪视频，或直接跳过整条片段。"
+            badge={draft.sensitiveFilterEnabled ? "已启用" : "未启用"}
+          >
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+              <div>
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <h3 className="text-sm font-semibold text-slate-950">敏感词过滤</h3>
-                    <p className="mt-1 text-xs leading-5 text-slate-500">命中后按字幕句段处理，避免视频违规内容残留。</p>
+                    <h3 className="text-sm font-semibold text-slate-950">启用状态</h3>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">关闭时保留词库，但新任务不会应用过滤。</p>
                   </div>
                   <button
                     onClick={() => updateDraft({ sensitiveFilterEnabled: !draft.sensitiveFilterEnabled })}
@@ -582,27 +610,22 @@ export function AdminSettingsPage() {
                 </div>
               </div>
 
-              <SubtitlePositionEditor
-                disabled={draft.subtitleMode === "off"}
-                position={draft.subtitlePosition}
-                customY={draft.customPositionY ?? 72}
-                hoveredPreset={hoveredSubtitlePreset}
-                onHoverPreset={setHoveredSubtitlePreset}
-                onPresetChange={setSubtitlePreset}
-                onCustomYChange={(customPositionY) => updateDraft({ subtitlePosition: "custom", customPositionY })}
-                onPreviewPointer={updateSubtitleYFromPointer}
-              />
+              <div className="rounded-lg bg-slate-50 p-4 text-xs leading-5 text-slate-500">
+                <div className="font-semibold text-slate-700">处理说明</div>
+                <p className="mt-2">
+                  裁掉命中句段会保留 clip 其它内容；整条不导出适合更严格的合规策略。敏感词依赖 transcript，所以开启后即使字幕关闭也会触发 ASR。
+                </p>
+              </div>
             </div>
+          </SettingsCard>
 
             {needsTos && (
-              <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-4">
-                <div className="flex items-center gap-2 text-sm font-semibold text-blue-900">
-                  <Info size={16} />
-                  火山存储配置
-                </div>
-                <p className="mt-1 text-xs leading-5 text-blue-700">
-                  火山标准版和 VC 字幕需要 TOS 上传音频。敏感字段上传时会写入 secrets.json。
-                </p>
+              <SettingsCard
+                id="settings-section-2-tos"
+                title="火山存储配置"
+                desc="火山标准版和 VC 字幕需要 TOS 上传音频。敏感字段上传时会写入 secrets.json。"
+                badge="TOS"
+              >
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   <Field label="TOS AK">
                     <input value={draft.tosAk} onChange={(event) => updateDraft({ tosAk: event.target.value })} className={fieldClassName} />
@@ -629,16 +652,17 @@ export function AdminSettingsPage() {
                     />
                   </Field>
                 </div>
-              </div>
+              </SettingsCard>
             )}
-          </SettingsCard>
+          </>
           )}
 
           {activeSection === 3 && (
+          <>
           <SettingsCard
-            id="settings-section-3"
-            title="切分策略"
-            desc="控制商品讨论段和视觉换衣信号如何融合。"
+            id="settings-section-3-granularity"
+            title="切分粒度"
+            desc="控制商品讨论段最终按单品还是整套穿搭导出。"
           >
             <div className="grid gap-3 md:grid-cols-2">
               <OptionCard
@@ -654,8 +678,14 @@ export function AdminSettingsPage() {
                 onClick={() => updateDraft({ segmentGranularity: "outfit" })}
               />
             </div>
+          </SettingsCard>
 
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <SettingsCard
+            id="settings-section-3-visual"
+            title="视觉换衣检测"
+            desc="控制视觉信号如何判定换衣节点。默认沿用旧逻辑，加权投票更适合减少光照和抖动误切。"
+          >
+            <div className="grid gap-4 md:grid-cols-2">
               <Field
                 label="换衣信号融合"
                 tooltip="默认沿用旧逻辑：任一视觉信号触发就进入换衣检测。加权投票会综合品类、上身 HSV、下身 HSV、纹理和全局 HSV，通常更抗光照变化和摄像头抖动。"
@@ -688,8 +718,14 @@ export function AdminSettingsPage() {
                 />
               </Field>
             </div>
+          </SettingsCard>
 
-            <div className="mt-4 space-y-3">
+          <SettingsCard
+            id="settings-section-3-text"
+            title="文本边界与精修"
+            desc="用 ASR 句子和 LLM 文本分析校正片段边界，减少半句话和商品边界错位。"
+          >
+            <div className="space-y-3">
               <ToggleCard
                 title="句边界对齐"
                 desc="将片段起止时间对齐到 ASR 句子边界，避免截断半句话。"
@@ -744,13 +780,15 @@ export function AdminSettingsPage() {
               />
             </div>
           </SettingsCard>
+          </>
           )}
 
           {activeSection === 4 && (
+          <>
           <SettingsCard
-            id="settings-section-4"
-            title="导出与音频"
-            desc="控制分辨率、视频倍速、封面选择和 BGM 混音。"
+            id="settings-section-4-video"
+            title="视频导出"
+            desc="控制分辨率、封面策略、编码速度和视频倍速。"
           >
             <div className="grid gap-4 md:grid-cols-2">
               <Field label="导出分辨率">
@@ -813,8 +851,15 @@ export function AdminSettingsPage() {
                 />
               </Field>
             </div>
+          </SettingsCard>
 
-            <div className="mt-4 space-y-3">
+          <SettingsCard
+            id="settings-section-4-audio"
+            title="音频与 BGM"
+            desc="控制是否自动选曲，以及 BGM 与原声的混音比例。"
+            badge={draft.bgmEnabled ? "BGM 已启用" : "BGM 关闭"}
+          >
+            <div className="space-y-3">
               <ToggleCard
                 title="启用 BGM"
                 desc="自动从内置曲库和用户曲库中按商品类型选曲。"
@@ -829,13 +874,15 @@ export function AdminSettingsPage() {
               )}
             </div>
           </SettingsCard>
+          </>
           )}
 
           {activeSection === 5 && (
+          <>
           <SettingsCard
-            id="settings-section-5"
-            title="高级参数"
-            desc="默认只展示关键数值。需要排查召回、误切或性能问题时再展开完整表单。"
+            id="settings-section-5-overview"
+            title="高级参数概览"
+            desc="默认展示关键数值。需要排查召回、误切或性能问题时再展开分组表单。"
             badge="谨慎调整"
           >
             <div className="grid gap-3 md:grid-cols-4">
@@ -851,8 +898,16 @@ export function AdminSettingsPage() {
               <SlidersHorizontal size={16} />
               {expandedAdvanced ? "收起高级参数" : "展开高级参数"}
             </button>
-            {expandedAdvanced && (
-              <div className="mt-4 grid gap-4 md:grid-cols-2">
+          </SettingsCard>
+
+          {expandedAdvanced && (
+            <>
+              <SettingsCard
+                id="settings-section-5-core"
+                title="检测基础阈值"
+                desc="影响候选召回的基础检测参数。调低通常更敏感，调高通常更保守。"
+              >
+                <div className="grid gap-4 md:grid-cols-2">
                 <NumberField label="场景检测阈值" value={draft.sceneThreshold} onChange={(sceneThreshold) => updateDraft({ sceneThreshold })} />
                 <NumberField label="抽帧帧率 (fps)" value={draft.frameSampleFps} onChange={(frameSampleFps) => updateDraft({ frameSampleFps })} />
                 <NumberField
@@ -861,6 +916,15 @@ export function AdminSettingsPage() {
                   onChange={(minSegmentDurationSeconds) => updateDraft({ minSegmentDurationSeconds })}
                 />
                 <NumberField label="去重窗口 (秒)" value={draft.dedupeWindowSeconds} onChange={(dedupeWindowSeconds) => updateDraft({ dedupeWindowSeconds })} />
+                </div>
+              </SettingsCard>
+
+              <SettingsCard
+                id="settings-section-5-recall"
+                title="召回与候选合并"
+                desc="限制候选数量、回讲召回和相邻片段合并，主要影响导出数量。"
+              >
+                <div className="grid gap-4 md:grid-cols-2">
                 <NumberField label="最大候选数" value={draft.maxCandidateCount} onChange={(maxCandidateCount) => updateDraft({ maxCandidateCount })} />
                 <NumberField
                   label="召回冷却时间 (秒)"
@@ -868,6 +932,21 @@ export function AdminSettingsPage() {
                   onChange={(recallCooldownSeconds) => updateDraft({ recallCooldownSeconds })}
                 />
                 <NumberField label="合并数量" value={draft.mergeCount} onChange={(mergeCount) => updateDraft({ mergeCount })} />
+                <ToggleCard
+                  title="允许回讲商品"
+                  desc="同一商品被主播回讲时允许再次生成候选。"
+                  checked={draft.allowReturnedProduct}
+                  onChange={(allowReturnedProduct) => updateDraft({ allowReturnedProduct })}
+                />
+                </div>
+              </SettingsCard>
+
+              <SettingsCard
+                id="settings-section-5-yolo"
+                title="服装检测门限"
+                desc="控制服装检测框进入后续 HSV/纹理分析的最低置信度。"
+              >
+                <div className="grid gap-4 md:grid-cols-2">
                 <NumberField
                   label="服装 YOLO 置信度"
                   value={draft.clothingYoloConfidence}
@@ -876,15 +955,11 @@ export function AdminSettingsPage() {
                   tooltip="服装检测框的最低置信度。提高到 0.35-0.4 可减少杂乱画面中的低质量框，但可能降低小件服装召回。"
                   onChange={(clothingYoloConfidence) => updateDraft({ clothingYoloConfidence })}
                 />
-                <ToggleCard
-                  title="允许回讲商品"
-                  desc="同一商品被主播回讲时允许再次生成候选。"
-                  checked={draft.allowReturnedProduct}
-                  onChange={(allowReturnedProduct) => updateDraft({ allowReturnedProduct })}
-                />
-              </div>
-            )}
-          </SettingsCard>
+                </div>
+              </SettingsCard>
+            </>
+          )}
+          </>
           )}
         </section>
 
@@ -1065,7 +1140,7 @@ function SubtitlePositionEditor({
   const previewY = previewPosition === "custom" ? effectiveY : subtitlePresetMeta[previewPosition].y;
 
   return (
-    <div className={cn("rounded-lg border border-slate-200 bg-white p-4", disabled && "opacity-60")}>
+    <div className={cn("rounded-lg border border-slate-200 bg-slate-50 p-4", disabled && "opacity-60")}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-slate-950">字幕位置调整</h3>

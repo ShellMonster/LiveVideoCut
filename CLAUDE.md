@@ -51,7 +51,7 @@
 - **assets/:taskId/:segmentId/commerce** — 独立 AI 商品素材工作台，从片段资产页新标签打开；异步调用 Gemini 商品识别/平台文案生成，并异步调用 OpenAI Image/gpt-image-2 生成默认 2K 的模特图和淘宝详情页示例；片段视频用 `/preview` 内嵌播放，支持单张素材图独立重试
 - **music** — 音乐库管理（指标卡、曲目表格、覆盖式右侧标签编辑抽屉、全宽底部播放器、上传、删除）
 - **diagnostics** — 任务诊断（项目工具栏、指标卡、横向管线阶段、Recharts 漏斗图、异常建议、分页事件日志、右侧事件详情、导出报告/artifacts.zip）
-- **settings** — 设置编辑器（侧栏+面板布局）
+- **settings** — 设置编辑器（侧栏+面板布局；AI、字幕、切分、导出、高级参数都按业务拆成多个同级设置卡，避免不同性质的设置挤在一个大表单里）
 
 `admin/` 目录结构：`api.ts`（API 调用）、`types.ts`（类型定义）、`format.ts`（格式化工具）、`constants.tsx`（常量）、`shared.tsx`（共享组件）、`pages/`（9 个页面组件）。
 
