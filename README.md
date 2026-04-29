@@ -44,6 +44,26 @@ docker compose up -d
 - **视频变速** — 0.5x ~ 3x，先烧字幕再变速
 - **实时进度** — WebSocket 推送，前端实时展示处理阶段
 
+## 项目结构
+
+```
+直播视频剪辑_GLM/
+├── backend/                  # FastAPI 后端
+│   ├── app/api/              # REST API 端点（上传、任务、片段、音乐库）
+│   ├── app/services/         # 核心业务（换衣检测、ASR、VLM、FFmpeg、字幕、BGM）
+│   ├── app/tasks/            # Celery 流水线编排 & 四阶段模块
+│   ├── assets/               # ML 模型、字体、BGM 曲库、水印
+│   └── tests/                # 测试文件
+├── frontend/                 # React + TypeScript + Vite
+│   └── src/
+│       ├── components/       # UI 组件 & 9 个页面
+│       ├── hooks/            # WebSocket、TanStack Query hooks
+│       └── stores/           # Zustand 状态管理
+├── docs/images/              # 架构图 & 流程图
+├── docker-compose.yml        # 容器编排（4 services）
+└── .env.example              # 环境变量模板
+```
+
 ## 系统架构
 
 ![技术架构图](docs/images/technical-architecture.png)
