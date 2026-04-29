@@ -146,6 +146,7 @@ class ClothingChangeDetector:
         orb_descs: list[np.ndarray | None] = []
         garment_sets: list[set[int] | None] = []
         person_present_flags: list[bool] = []
+        valid_frame_flags: list[bool] = []
 
         for analysis in analyses:
             if analysis is not None:
@@ -157,6 +158,7 @@ class ClothingChangeDetector:
                     ClothingSegmenter.get_main_garment_set(analysis["items"])
                 )
                 person_present_flags.append(len(analysis["items"]) > 0)
+                valid_frame_flags.append(True)
                 del analysis
             else:
                 hsv_hists.append(None)
@@ -165,6 +167,7 @@ class ClothingChangeDetector:
                 orb_descs.append(None)
                 garment_sets.append(None)
                 person_present_flags.append(False)
+                valid_frame_flags.append(False)
 
         # Compare consecutive frames
         correlations: list[float | None] = []
@@ -172,8 +175,12 @@ class ClothingChangeDetector:
         lower_correlations: list[float | None] = []
         category_changes: list[bool] = []
         texture_similarities: list[float | None] = []
+        valid_pair_flags: list[bool] = []
 
         for i in range(len(hsv_hists) - 1):
+            valid_pair = valid_frame_flags[i] and valid_frame_flags[i + 1]
+            valid_pair_flags.append(valid_pair)
+
             hsv_corr = self._compare_optional_hists(hsv_hists[i], hsv_hists[i + 1])
             correlations.append(hsv_corr)
 
@@ -228,9 +235,13 @@ class ClothingChangeDetector:
         upper_trigger_count = 0
         lower_trigger_count = 0
         tex_trigger_count = 0
-        weighted_vote_scores: list[float] = []
+        weighted_vote_scores: list[float | None] = []
 
         for i in range(len(global_ema)):
+            if not valid_pair_flags[i]:
+                weighted_vote_scores.append(None)
+                continue
+
             g_ema = global_ema[i]
             u_ema = upper_ema[i]
             l_ema = lower_ema[i]
@@ -306,9 +317,8 @@ class ClothingChangeDetector:
             elif state == "changing":
                 if all_recovered:
                     assert change_start is not None
-                    duration_frames = i - change_start
                     if (
-                        duration_frames >= self.confirm_frames
+                        len(change_candidates) >= self.confirm_frames
                         and change_candidates
                     ):
                         best = min(
@@ -448,6 +458,12 @@ class ClothingChangeDetector:
                 "lower_correlations": [c if c is not None else "N/A" for c in lower_correlations],
                 "texture_similarities": [s if s is not None else "N/A" for s in texture_similarities],
                 "category_changes": category_changes,
+                "valid_frames": valid_frame_flags,
+                "valid_pairs": valid_pair_flags,
+                "invalid_frame_indices": [
+                    idx for idx, valid in enumerate(valid_frame_flags) if not valid
+                ],
+                "invalid_frame_count": valid_frame_flags.count(False),
                 "ema_global": [v if v is not None else None for v in global_ema],
                 "ema_upper": [v if v is not None else None for v in upper_ema],
                 "ema_lower": [v if v is not None else None for v in lower_ema],
@@ -497,6 +513,11 @@ class ClothingChangeDetector:
                     "person_present": (
                         person_present_flags[i]
                         if i < len(person_present_flags)
+                        else False
+                    ),
+                    "analysis_valid": (
+                        valid_frame_flags[i]
+                        if i < len(valid_frame_flags)
                         else False
                     ),
                 }
@@ -608,19 +629,6 @@ class ClothingChangeDetector:
         if category_change:
             return max(1.0 - hsv_corr, 0.3)
         return 1.0 - hsv_corr
-
-    @staticmethod
-    def _fallback_analysis() -> dict:
-        """Return a neutral analysis when frame processing fails."""
-        return {
-            "mask": np.ones((360, 640), dtype=bool),
-            "items": [],
-            "hsv_hist": (
-                np.ones(180, dtype=np.float32),
-                np.ones(256, dtype=np.float32),
-                np.ones(256, dtype=np.float32),
-            ),
-        }
 
     def _merge_events(
         self,

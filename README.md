@@ -69,7 +69,7 @@ docker compose up -d
 
 | 阶段 | 模块 | 输入 | 输出 | 说明 |
 |------|------|------|------|------|
-| Stage 1 | `visual_prescreen` | 原始 MP4 | `candidates.json` | FFmpeg 0.5fps 抽帧 + 五信号联合换衣检测（YOLO 46类 + MediaPipe + HSV × 3 + ORB 纹理），输出候选换衣节点 |
+| Stage 1 | `visual_prescreen` | 原始 MP4 | `candidates.json` | FFmpeg 0.5fps 抽帧 + 五信号联合换衣检测（YOLO 46类 + MediaPipe + HSV × 3 + ORB 纹理），失败帧标记为缺失信号并跳过候选判断 |
 | Stage 2 | `vlm_confirm` | 候选帧 | `segments.json` | VLM 二次确认（Qwen / GLM），按导出模式决定是否参与 |
 | Stage 3 | `enrich_segments` | 视觉分段 | `enriched_segments.json` + `transcript.json` | ASR 转写 + LLM 文本边界识别 + 两层树信号融合 + 句边界对齐 |
 | Stage 4 | `process_clips` | 分段 + 字幕 | `clips/*.mp4` | FFmpeg 烧录字幕 + BGM 混音 + 封面选择 + 敏感词/语气词裁剪，ThreadPoolExecutor 并行导出 |

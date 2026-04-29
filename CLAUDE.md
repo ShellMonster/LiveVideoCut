@@ -226,7 +226,7 @@ Celery stage 重试中不要提前把 `state.json` 写成 `ERROR`；只有达到
 - 用 ClothingChangeDetector（五信号联合：YOLO 品类变化 + MediaPipe 像素分割 + 全帧 HSV + 分区域 HSV（上身/下身）+ ORB 纹理）检测换衣节点
 - 默认五信号各自独立走 EMA 平滑，任何一个信号的 EMA 低于阈值即可触发换衣检测；如果 `change_detection_fusion_mode=weighted_vote`，则按品类、上身 HSV、下身 HSV、纹理、全局 HSV 加权投票，并根据 `change_detection_sensitivity` 决定进入阈值
 - 帧分析可使用 `resource_detector.calculate_parallelism()["frame_workers"]` 并行，每个 worker 线程持有自己的 ClothingSegmenter，避免 MediaPipe/ONNX session 跨线程共享；分析失败帧标记为缺失信号，不再写均匀直方图
-- 写出 `scenes/person_presence.json`（每帧人物出现标记，用于下游空镜过滤）
+- 写出 `scenes/person_presence.json`（每帧人物出现标记，用于下游空镜过滤；`analysis_valid=false` 表示该帧分析失败，不参与换衣候选判断）
 - 产出 `candidates.json` 和 `scenes.json`
 
 ### 2) vlm_confirm
@@ -672,7 +672,7 @@ VC 贵 3 倍但效果最好，适合对字幕质量有要求的场景。
 - 换衣检测的帧分析会在处理前 resize 到 640px 以降低内存占用
 - 新增依赖 `mediapipe>=0.10.14`（在 requirements.txt 中）
 - 换衣检测已从三信号升级到五信号：YOLO 品类变化 + MediaPipe 像素分割 + 全帧 HSV + 分区域 HSV（上身/下身，用 YOLO bbox 区分 UPPER_BODY_CLASSES / LOWER_BODY_CLASSES）+ ORB 纹理（上身 bbox 裁剪后提取描述子）
-- 换衣检测 EMA 已升级为多信号独立触发：全局 HSV、上身 HSV、下身 HSV、纹理各自独立走 EMA 平滑，任何一个信号 EMA 低于阈值即可触发，所有信号恢复才结束。`hist_debug.json` 新增 `ema_global`、`ema_upper`、`ema_lower`、`ema_texture` 字段
+- 换衣检测 EMA 已升级为多信号独立触发：全局 HSV、上身 HSV、下身 HSV、纹理各自独立走 EMA 平滑，任何一个信号 EMA 低于阈值即可触发，所有信号恢复才结束。分析失败帧不再用均匀直方图伪造稳定信号，而是标记为缺失并跳过候选判断；`hist_debug.json` 新增 `ema_global`、`ema_upper`、`ema_lower`、`ema_texture`、`valid_frames`、`valid_pairs`、`invalid_frame_indices`、`invalid_frame_count` 字段
 - 空镜过滤：`person_presence.json` 由换衣检测写入 `scenes/` 目录，`process_clips` 从 `scenes/person_presence.json` 读取；两层过滤：(1) 整体出现率 < 60% 丢弃；(2) 开头连续无人 ≥ 8 秒丢弃
 - `hist_debug.json` 新增 `upper_correlations`、`lower_correlations`、`texture_similarities` 字段
 - `analyze_frame()` 返回值已扩展：`{mask, items, hsv_hist, upper_hsv_hist, lower_hsv_hist, orb_descriptors}`
