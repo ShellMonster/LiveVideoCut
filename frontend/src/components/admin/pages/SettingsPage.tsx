@@ -47,7 +47,21 @@ const subtitleLabels: Record<SubtitleMode, string> = {
   off: "关闭",
   basic: "基础字幕",
   styled: "样式字幕",
-  karaoke: "Karaoke",
+  karaoke: "卡拉 OK 字幕",
+};
+
+const subtitlePositionLabels: Record<SubtitlePosition, string> = {
+  top: "顶部",
+  middle: "中部",
+  bottom: "底部",
+  custom: "自定义",
+};
+
+const subtitleTemplateLabels: Record<SubtitleTemplate, string> = {
+  clean: "简洁",
+  ecommerce: "电商",
+  bold: "加粗",
+  karaoke: "卡拉 OK",
 };
 
 const initialDraft = (state: ReturnType<typeof useSettingsStore.getState>): SettingsDraft => {
@@ -215,7 +229,7 @@ export function AdminSettingsPage() {
             <div className="grid gap-3 md:grid-cols-2">
               <PresetCard
                 title="高质量字幕版"
-                desc="火山 VC + Karaoke 字幕 + BGM，适合正式交付和公开视频。"
+                desc="火山 VC + 卡拉 OK 字幕 + BGM，适合正式交付和公开视频。"
                 selected={draft.asrProvider === "volcengine_vc" && draft.subtitleMode === "karaoke" && draft.bgmEnabled}
                 tags={["质量高", "推荐"]}
                 onClick={() => applyPreset("quality")}
@@ -438,13 +452,13 @@ export function AdminSettingsPage() {
           <SettingsCard
             id="settings-section-2-asr"
             title="ASR 转写服务"
-            desc="选择语音转写引擎和凭证。ASR 决定字幕时间轴质量，Karaoke 模式推荐火山 VC。"
+            desc="选择语音转写引擎和凭证。ASR 决定字幕时间轴质量，卡拉 OK 字幕推荐火山 VC。"
             badge={draft.asrProvider === "volcengine_vc" ? "火山 VC 推荐" : undefined}
           >
             <div className="grid gap-3 md:grid-cols-3">
               <OptionCard
                 title="火山 VC 字幕"
-                desc="剪映引擎分句，真实节奏时间戳，适合 Karaoke 字幕。"
+                desc="剪映引擎分句，真实节奏时间戳，适合卡拉 OK 字幕。"
                 selected={draft.asrProvider === "volcengine_vc"}
                 onClick={() => updateDraft({ asrProvider: "volcengine_vc" })}
               />
@@ -456,7 +470,7 @@ export function AdminSettingsPage() {
               />
               <OptionCard
                 title="DashScope"
-                desc="成本较低，基础字幕可用，不推荐 Karaoke 跳字。"
+                desc="成本较低，基础字幕可用，不推荐卡拉 OK 跳字。"
                 selected={draft.asrProvider === "dashscope"}
                 onClick={() => updateDraft({ asrProvider: "dashscope" })}
               />
@@ -527,7 +541,7 @@ export function AdminSettingsPage() {
                   <option value="off">关闭</option>
                   <option value="basic">基础字幕</option>
                   <option value="styled">样式字幕</option>
-                  <option value="karaoke">Karaoke</option>
+                  <option value="karaoke">{subtitleLabels.karaoke}</option>
                 </select>
               </Field>
               <Field label="语气词过滤">
@@ -549,10 +563,10 @@ export function AdminSettingsPage() {
                   className={fieldClassName}
                   disabled={draft.subtitleMode === "off"}
                 >
-                  <option value="clean">Clean</option>
-                  <option value="ecommerce">电商</option>
-                  <option value="bold">加粗</option>
-                  <option value="karaoke">Karaoke</option>
+                  <option value="clean">{subtitleTemplateLabels.clean}</option>
+                  <option value="ecommerce">{subtitleTemplateLabels.ecommerce}</option>
+                  <option value="bold">{subtitleTemplateLabels.bold}</option>
+                  <option value="karaoke">{subtitleTemplateLabels.karaoke}</option>
                 </select>
               </Field>
             </div>
@@ -1187,12 +1201,12 @@ function SubtitlePositionEditor({
           </div>
           <div className="mt-3 grid gap-2 text-xs">
             <div className="rounded-lg bg-white p-2 ring-1 ring-slate-200">
-              <div className="text-slate-400">subtitle_position</div>
-              <div className="mt-1 font-medium text-slate-800">{position}</div>
+              <div className="text-slate-400">字幕位置</div>
+              <div className="mt-1 font-medium text-slate-800">{subtitlePositionLabels[position]}</div>
             </div>
             <div className="rounded-lg bg-white p-2 ring-1 ring-slate-200">
-              <div className="text-slate-400">custom_position_y</div>
-              <div className="mt-1 font-medium text-slate-800">{position === "custom" ? effectiveY : "—"}</div>
+              <div className="text-slate-400">自定义纵向坐标</div>
+              <div className="mt-1 font-medium text-slate-800">{position === "custom" ? `${effectiveY}%` : "未启用"}</div>
             </div>
           </div>
         </div>

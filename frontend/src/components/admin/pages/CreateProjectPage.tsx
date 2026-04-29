@@ -7,6 +7,26 @@ import { useSettingsStore, type Settings } from "@/stores/settingsStore";
 import { stageLabels } from "../constants";
 import { ChecklistItem, Chip, Header } from "../shared";
 
+const exportModeLabels: Record<Settings["exportMode"], string> = {
+  smart: "智能模式",
+  no_vlm: "跳过 VLM",
+  all_candidates: "候选全切",
+  all_scenes: "场景全切",
+};
+
+const asrProviderLabels: Record<Settings["asrProvider"], string> = {
+  volcengine_vc: "火山 VC",
+  volcengine: "火山标准",
+  dashscope: "DashScope",
+};
+
+const subtitleModeLabels: Record<Settings["subtitleMode"], string> = {
+  off: "关闭字幕",
+  basic: "基础字幕",
+  styled: "样式字幕",
+  karaoke: "卡拉 OK 字幕",
+};
+
 function settingsSnapshot(): Settings {
   const state = useSettingsStore.getState();
   const { setSettings, reset, ...settings } = state;
@@ -62,7 +82,7 @@ export function CreateProjectPage() {
   const presets = [
     {
       title: "高质量字幕版",
-      desc: "火山 VC + Karaoke 字幕 + BGM，适合正式交付。",
+      desc: "火山 VC + 卡拉 OK 字幕 + BGM，适合正式交付。",
       active: draftSettings.asrProvider === "volcengine_vc" && draftSettings.subtitleMode === "karaoke",
     },
     {
@@ -161,10 +181,10 @@ export function CreateProjectPage() {
               <h2 className="text-sm font-semibold text-slate-900">本次任务配置</h2>
               <p className="mt-1 text-xs text-slate-500">预设只影响本次上传，不会覆盖系统设置默认值。</p>
               <div className="mt-4 flex flex-wrap gap-2">
-                <Chip label={draftSettings.exportMode === "smart" ? "智能模式" : draftSettings.exportMode} tone="blue" />
+                <Chip label={exportModeLabels[draftSettings.exportMode]} tone="blue" />
                 <Chip label={draftSettings.provider.toUpperCase()} tone="blue" />
-                <Chip label={draftSettings.asrProvider === "volcengine_vc" ? "火山 VC" : draftSettings.asrProvider} tone="emerald" />
-                <Chip label={`${draftSettings.subtitleMode} 字幕`} tone="amber" />
+                <Chip label={asrProviderLabels[draftSettings.asrProvider]} tone="emerald" />
+                <Chip label={subtitleModeLabels[draftSettings.subtitleMode]} tone="amber" />
                 <Chip label={draftSettings.exportResolution} tone="blue" />
                 <Chip label={draftSettings.bgmEnabled ? "BGM开启" : "BGM关闭"} tone="emerald" />
               </div>
