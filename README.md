@@ -66,6 +66,115 @@ docker compose up -d
 └── .env.example              # 环境变量模板
 ```
 
+<details>
+<summary>📁 查看完整目录结构</summary>
+
+```
+直播视频剪辑_GLM/
+├── docker-compose.yml
+├── .env.example
+├── CLAUDE.md
+├── AGENTS.md
+├── docs/
+│   └── images/
+│       ├── product-flow.png
+│       └── technical-architecture.png
+├── backend/
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── assets/
+│   │   ├── fonts/
+│   │   ├── models/
+│   │   │   ├── selfie_multiclass_256x256.tflite   # MediaPipe 6类像素分割
+│   │   │   ├── yolov8n-fashionpedia.onnx           # YOLO 46类服装检测
+│   │   │   └── yolov8n.onnx                        # COCO YOLO 80类（封面遮挡检测）
+│   │   ├── bgm/
+│   │   │   ├── bgm_library.json                    # 音乐库索引
+│   │   │   └── *.mp3
+│   │   ├── default_bgm.mp3
+│   │   └── watermark.png
+│   ├── app/
+│   │   ├── main.py                                 # FastAPI 入口
+│   │   ├── config.py                               # 共享配置常量
+│   │   ├── api/
+│   │   │   ├── health.py
+│   │   │   ├── upload.py
+│   │   │   ├── tasks.py
+│   │   │   ├── clips.py
+│   │   │   ├── settings.py
+│   │   │   ├── music.py
+│   │   │   ├── assets.py
+│   │   │   ├── commerce.py
+│   │   │   └── system.py
+│   │   ├── services/
+│   │   │   ├── clothing_change_detector.py          # 换衣检测（五信号联合）
+│   │   │   ├── clothing_segmenter.py                # 服装分段
+│   │   │   ├── frame_extractor.py                   # FFmpeg 抽帧
+│   │   │   ├── vlm_confirmor.py                     # VLM 二次确认
+│   │   │   ├── vlm_client.py                        # VLM API 客户端
+│   │   │   ├── dashscope_asr_client.py              # DashScope ASR
+│   │   │   ├── volcengine_asr_client.py             # 火山 BigModel ASR
+│   │   │   ├── volcengine_vc_client.py              # 火山 VC 字幕 ASR
+│   │   │   ├── srt_generator.py                     # SRT/ASS 字幕生成
+│   │   │   ├── ffmpeg_builder.py                    # FFmpeg 命令构建
+│   │   │   ├── filler_filter.py                     # 语气词过滤
+│   │   │   ├── cover_selector.py                    # 智能封面选择
+│   │   │   ├── bgm_selector.py                      # BGM 自动选曲
+│   │   │   ├── resource_detector.py                 # 容器资源检测
+│   │   │   ├── text_segment_analyzer.py             # LLM 文本边界分析
+│   │   │   ├── segment_fusion.py                    # 两层树信号融合
+│   │   │   ├── boundary_snapper.py                  # 句边界对齐
+│   │   │   └── boundary_refiner.py                  # LLM 边界精修
+│   │   ├── utils/
+│   │   │   └── json_io.py                           # 统一 JSON 读写工具
+│   │   └── tasks/
+│   │       ├── pipeline.py                          # 薄编排器（~310 行）
+│   │       ├── shared.py                            # 跨 stage 共享工具
+│   │       └── stages/
+│   │           ├── visual_prescreen.py
+│   │           ├── vlm_confirm.py
+│   │           ├── enrich_segments.py
+│   │           └── process_clips.py
+│   └── tests/
+└── frontend/
+    ├── Dockerfile
+    ├── nginx.conf
+    ├── package.json
+    └── src/
+        ├── App.tsx
+        ├── router.tsx
+        ├── components/
+        │   ├── AdminDashboard.tsx
+        │   ├── admin/
+        │   │   ├── api.ts
+        │   │   ├── types.ts
+        │   │   ├── shared.tsx
+        │   │   └── pages/
+        │   │       ├── ProjectManagementPage.tsx
+        │   │       ├── CreateProjectPage.tsx
+        │   │       ├── QueuePage.tsx
+        │   │       ├── ReviewPage.tsx
+        │   │       ├── AssetsPage.tsx
+        │   │       ├── CommerceWorkbenchPage.tsx
+        │   │       ├── MusicPage.tsx
+        │   │       ├── DiagnosticsPage.tsx
+        │   │       └── SettingsPage.tsx
+        │   ├── UploadZone.tsx
+        │   ├── ProgressBar.tsx
+        │   └── VideoPreview.tsx
+        ├── hooks/
+        │   ├── useAdminQueries.ts
+        │   └── useWebSocket.ts
+        ├── stores/
+        │   ├── settingsStore.ts
+        │   ├── taskStore.ts
+        │   └── toastStore.ts
+        └── lib/
+            └── utils.ts
+```
+
+</details>
+
 ## 系统架构
 
 ![技术架构图](docs/images/technical-architecture.png)
