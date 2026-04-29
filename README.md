@@ -138,9 +138,9 @@ graph TD
 - **任务诊断** -- 设计图式诊断仪表盘，包含项目工具栏、紧凑指标卡、横向流水线耗时、Recharts 漏斗图、右侧异常建议/事件详情和分页事件日志；窄屏下指标与流水线自动降密度展示
 - **后台布局** -- 桌面端左侧导航栏固定为视口高度，右侧页面内容独立滚动；Worker 资源/服务状态卡固定在侧栏底部，不随长页面滚出视口
 - **后台分页** -- 项目总览、任务队列、片段资产使用服务端分页；剪辑复核、音乐库、诊断日志使用页面内分页，避免无限下滑
-- **列表索引缓存** -- `GET /api/tasks` 和 `GET /api/assets/clips` 优先读取 `uploads/index.sqlite3` 的 SQLite 列表索引，开启 WAL + `synchronous=NORMAL`；JSON 文件仍是真源，索引缺失/版本变化可自动重建，异常时回退文件扫描
+- **列表索引缓存** -- `GET /api/tasks` 和 `GET /api/assets/clips` 优先读取 `uploads/index.sqlite3` 的 SQLite 列表索引，开启 WAL + `synchronous=NORMAL`；JSON 文件仍是真源，索引缺失/版本变化可自动重建，异常时回退文件扫描；SQL LIKE 搜索会转义 `%` / `_`，API 进程内缓存索引 ready 状态以减少重复 schema 检查
 - **进程内读缓存** -- 不引入 Redis 缓存；`/api/system/resources` 使用 3 秒 TTL，任务 summary/diagnostics/events/review、`/api/tasks/{id}/clips` 和 `/api/music/library` 使用 mtime 指纹内存缓存，文件变化后自动失效
-- **通用后端工具** -- 任务目录 JSON 读写统一走 `app.utils.json_io.read_json/write_json`；任务 ID、片段 ID 和安全目录名校验统一走 `app.api.validation`；`UPLOAD_DIR` 与用户 BGM 目录统一从 `app.config` 获取
+- **通用后端工具** -- 任务目录 JSON 读写统一走 `app.utils.json_io.read_json/read_json_silent/write_json`；`write_json()` 使用同目录临时文件 + `os.replace()` 原子写入；任务 ID、片段 ID 和安全目录名校验统一走 `app.api.validation`；`UPLOAD_DIR` 与用户 BGM 目录统一从 `app.config` 获取
 - **共享后台组件** -- `shared.tsx` 提供 `DrawerShell`、`DrawerTabs`、`DrawerSection`、`FilterToolbar`、`SearchInput`、`ToolbarSelect`、`Card` 和 `Button`，项目总览/任务队列的抽屉以及任务队列/片段资产/音乐库筛选栏优先复用这些组件
 - **前端性能** -- 项目总览、任务队列、片段资产和音乐库搜索输入使用 300ms debounce；任务列表轮询会根据是否存在处理中/等待中任务在 5s 与 30s 间切换；复核、音乐库、片段资产、诊断页的大列表派生数据使用 memo 化减少重复计算
 - **语气词过滤** -- 三级词表（38词），支持仅过滤字幕或同时裁剪视频片段，默认关闭
@@ -235,7 +235,8 @@ docker compose up -d
 
 ### 后端通用工具约定
 
-- 任务目录、索引和商品素材相关 JSON 文件读写统一使用 `app.utils.json_io.read_json()` / `write_json()`，避免各接口重复裸写 `json.loads(path.read_text())` 和 `write_text(json.dumps(...))`。
+- 任务目录、索引和商品素材相关 JSON 文件读写统一使用 `app.utils.json_io.read_json()` / `read_json_silent()` / `write_json()`，避免各接口重复裸写 `json.loads(path.read_text())` 和 `write_text(json.dumps(...))`。
+- `write_json()` 使用同目录临时文件 + `os.replace()` 原子写入，适合 `state.json`、`review.json`、音乐库索引等关键 JSON。
 - `write_json()` 支持 `json_default`，需要写入 numpy/时间等非原生 JSON 类型时传入转换函数，不要为了 `default=str` 重新手写 `json.dumps()`。
 - 任务 ID、片段 ID、图片文件名和安全任务目录名的正则校验集中在 `app.api.validation`；新增 API 路由不要再单独定义 `_TASK_ID_RE` / `_SEGMENT_ID_RE`。
 - 上传根目录使用 `app.config.UPLOAD_DIR`，用户 BGM 目录使用 `app.config.USER_BGM_DIR`；不要在 API 或 service 中硬编码 `/app/uploads`。

@@ -2,14 +2,17 @@ import datetime
 import logging
 import sqlite3
 from pathlib import Path
+from threading import RLock
 from typing import Any
 
-from app.utils.json_io import read_json
+from app.utils.json_io import read_json_silent as _read_json
 
 logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = "1"
 INDEX_DB_NAME = "index.sqlite3"
+_READY_INDEXES: set[Path] = set()
+_READY_LOCK = RLock()
 
 
 def _connect(upload_dir: Path) -> sqlite3.Connection:
@@ -95,15 +98,11 @@ def _init_schema(conn: sqlite3.Connection) -> None:
     )
 
 
-def _read_json(path: Path, fallback: Any) -> Any:
-    return read_json(path, fallback, log_errors=False)
-
-
 def _now_iso() -> str:
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 
-def _status_group(status: str) -> str:
+def status_group(status: str) -> str:
     if status == "COMPLETED":
         return "completed"
     if status == "ERROR":
@@ -209,7 +208,7 @@ def _build_task_record(task_dir: Path) -> dict[str, Any] | None:
     return {
         "task_id": task_id,
         "status": status,
-        "status_group": _status_group(status),
+        "status_group": status_group(status),
         "stage": state.get("step"),
         "message": state.get("message"),
         "created_at": created_at,
@@ -364,6 +363,7 @@ def _index_task_locked(conn: sqlite3.Connection, task_dir: Path) -> None:
 
 
 def rebuild_index(upload_dir: Path) -> None:
+    ready_key = upload_dir.resolve()
     with _connect(upload_dir) as conn:
         _init_schema(conn)
         conn.execute("BEGIN IMMEDIATE")
@@ -383,6 +383,8 @@ def rebuild_index(upload_dir: Path) -> None:
             ("rebuilt_at", _now_iso()),
         )
         conn.commit()
+    with _READY_LOCK:
+        _READY_INDEXES.add(ready_key)
 
 
 def _ensure_ready(conn: sqlite3.Connection, upload_dir: Path) -> bool:
@@ -397,10 +399,20 @@ def _ensure_ready(conn: sqlite3.Connection, upload_dir: Path) -> bool:
 
 
 def ensure_index(upload_dir: Path) -> None:
+    ready_key = upload_dir.resolve()
+    with _READY_LOCK:
+        if ready_key in _READY_INDEXES and (upload_dir / INDEX_DB_NAME).exists():
+            return
     with _connect(upload_dir) as conn:
         if _ensure_ready(conn, upload_dir):
+            with _READY_LOCK:
+                _READY_INDEXES.add(ready_key)
             return
     rebuild_index(upload_dir)
+
+
+def _escape_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def refresh_task_index(upload_dir: Path, task_id: str) -> None:
@@ -474,8 +486,8 @@ def query_tasks(
         params.extend(status_params)
         normalized_q = (q or "").strip().lower()
         if normalized_q:
-            like = f"%{normalized_q}%"
-            where += " AND (lower(task_id) LIKE ? OR lower(original_filename) LIKE ? OR lower(display_name) LIKE ?)"
+            like = f"%{_escape_like(normalized_q)}%"
+            where += " AND (lower(task_id) LIKE ? ESCAPE '\\' OR lower(original_filename) LIKE ? ESCAPE '\\' OR lower(display_name) LIKE ? ESCAPE '\\')"
             params.extend([like, like, like])
 
         total = int(conn.execute(f"SELECT COUNT(*) FROM task_index {where}", params).fetchone()[0])
@@ -532,8 +544,8 @@ def query_clip_assets(
             where += " AND c.duration > 90"
         normalized_q = (q or "").strip().lower()
         if normalized_q:
-            like = f"%{normalized_q}%"
-            where += " AND (lower(c.product_name) LIKE ? OR lower(c.task_id) LIKE ? OR lower(c.clip_id) LIKE ? OR lower(c.segment_id) LIKE ?)"
+            like = f"%{_escape_like(normalized_q)}%"
+            where += " AND (lower(c.product_name) LIKE ? ESCAPE '\\' OR lower(c.task_id) LIKE ? ESCAPE '\\' OR lower(c.clip_id) LIKE ? ESCAPE '\\' OR lower(c.segment_id) LIKE ? ESCAPE '\\')"
             params.extend([like, like, like, like])
 
         base_from = """

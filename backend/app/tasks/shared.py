@@ -9,7 +9,7 @@ from app.api.settings import SettingsRequest
 from app.services.dashscope_asr_client import DashScopeASRClient
 from app.services.volcengine_asr_client import VolcengineASRClient
 from app.services.volcengine_vc_client import VolcengineVCClient
-from app.utils.json_io import read_json
+from app.utils.json_io import read_json, read_json_silent
 
 logger = logging.getLogger(__name__)
 
@@ -72,12 +72,12 @@ def _load_task_settings(task_dir: str | Path) -> SettingsRequest:
 
     payload: dict[str, object] = {}
 
-    raw_settings = read_json(settings_path, {}, log_errors=False)
+    raw_settings = read_json_silent(settings_path, {})
     if isinstance(raw_settings, dict):
         payload = raw_settings
 
     secrets_path = task_path / "secrets.json"
-    raw_secrets = read_json(secrets_path, {}, log_errors=False)
+    raw_secrets = read_json_silent(secrets_path, {})
     if isinstance(raw_secrets, dict):
         payload.update(raw_secrets)
 

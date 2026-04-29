@@ -25,9 +25,9 @@ from app.services.subtitle_overrides import (
     normalize_subtitle_override_text,
 )
 from app.services.state_machine import TaskStateMachine
-from app.services.list_index import delete_task_index, query_tasks, refresh_task_index
+from app.services.list_index import delete_task_index, query_tasks, refresh_task_index, status_group
 from app.tasks.pipeline import reprocess_clip, start_pipeline
-from app.utils.json_io import read_json, write_json
+from app.utils.json_io import read_json_silent as _read_json, write_json
 
 logger = logging.getLogger(__name__)
 
@@ -92,10 +92,6 @@ class ReviewSegmentPatch(BaseModel):
                 f"Subtitle overrides cannot exceed {MAX_SUBTITLE_OVERRIDE_TOTAL_TEXT_CHARS} total characters"
             )
         return value
-
-
-def _read_json(path: Path, fallback: Any) -> Any:
-    return read_json(path, fallback, log_errors=False)
 
 
 def _task_dir_or_404(task_id: str) -> Path | JSONResponse:
@@ -170,16 +166,6 @@ def _write_clip_job_api(task_dir: Path, segment_id: str, payload: dict[str, Any]
 
 def _segment_id(index: int) -> str:
     return f"clip_{index:03d}"
-
-
-def _task_status_group(task_state: str) -> str:
-    if task_state == "COMPLETED":
-        return "completed"
-    if task_state == "ERROR":
-        return "failed"
-    if task_state == "UPLOADED":
-        return "uploaded"
-    return "processing"
 
 
 def _summary_from_task_dir(task_dir: Path) -> dict[str, Any]:
@@ -375,7 +361,7 @@ async def list_tasks(
             continue
 
         try:
-            state_data = read_json(Path(state_path), None, log_errors=False)
+            state_data = _read_json(Path(state_path), None)
             if not isinstance(state_data, dict):
                 continue
         except OSError:
@@ -389,7 +375,7 @@ async def list_tasks(
         meta: dict = {}
         if os.path.exists(meta_path):
             try:
-                loaded_meta = read_json(Path(meta_path), {}, log_errors=False)
+                loaded_meta = _read_json(Path(meta_path), {})
                 if isinstance(loaded_meta, dict):
                     meta = loaded_meta
             except OSError:
@@ -423,7 +409,7 @@ async def list_tasks(
             first_product = ""
             for mf in sorted(Path(clips_dir).glob("*_meta.json")):
                 try:
-                    pm = read_json(mf, {}, log_errors=False)
+                    pm = _read_json(mf, {})
                     first_product = pm.get("product_name", "") if isinstance(pm, dict) else ""
                 except OSError:
                     pass
@@ -448,12 +434,12 @@ async def list_tasks(
         }
 
         summary["total"] += 1
-        summary[_task_status_group(task_state)] += 1
+        summary[status_group(task_state)] += 1
         summary["clip_count"] += clip_count
 
         if status:
             if status == "processing":
-                if _task_status_group(task_state) != "processing":
+                if status_group(task_state) != "processing":
                     continue
             elif task_state != status:
                 continue
@@ -518,7 +504,7 @@ async def get_task_status(task_id: str):
     meta_file = task_dir / "meta.json"
     metadata = {}
     if meta_file.exists():
-        metadata = read_json(meta_file, {})
+        metadata = _read_json(meta_file, {})
 
     return {"task_id": task_id, **state, "metadata": metadata}
 

@@ -1,7 +1,6 @@
 import fcntl
 import logging
 import os
-import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 from uuid import uuid4
@@ -14,7 +13,7 @@ from pydantic import BaseModel
 from app.config import USER_BGM_DIR
 from app.services.bgm_selector import DEFAULT_SELECTOR
 from app.services.memory_cache import FingerprintMemoryCache, path_fingerprint
-from app.utils.json_io import read_json
+from app.utils.json_io import read_json_silent, write_json
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +49,7 @@ def _library_lock():
 def _read_user_library() -> list[dict]:
     if not USER_LIBRARY_PATH.exists():
         return []
-    data = read_json(USER_LIBRARY_PATH, None, log_errors=False)
+    data = read_json_silent(USER_LIBRARY_PATH, None)
     if not isinstance(data, list):
         logger.error("Corrupted user BGM library: %s", USER_LIBRARY_PATH)
         raise RuntimeError("User BGM library is corrupted, aborting write to prevent data loss")
@@ -58,18 +57,8 @@ def _read_user_library() -> list[dict]:
 
 
 def _write_user_library(tracks: list[dict]) -> None:
-    USER_BGM_DIR.mkdir(parents=True, exist_ok=True)
-    tmp_fd, tmp_path = tempfile.mkstemp(dir=USER_BGM_DIR, suffix=".json")
-    try:
-        with os.fdopen(tmp_fd, "w") as f:
-            import json
-
-            json.dump(tracks, f, ensure_ascii=False, indent=2)
-        os.replace(tmp_path, str(USER_LIBRARY_PATH))
-        _music_library_cache.clear()
-    except BaseException:
-        Path(tmp_path).unlink(missing_ok=True)
-        raise
+    write_json(USER_LIBRARY_PATH, tracks)
+    _music_library_cache.clear()
 
 
 def _merged_library() -> list[dict]:

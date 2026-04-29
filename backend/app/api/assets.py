@@ -7,15 +7,11 @@ from fastapi import APIRouter, Query
 from app.api.commerce import commerce_status_for_clip
 from app.config import UPLOAD_DIR
 from app.services.list_index import query_clip_assets
-from app.utils.json_io import read_json
+from app.utils.json_io import read_json_silent as _read_json
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-def _read_json(path: Path, fallback: Any) -> Any:
-    return read_json(path, fallback, log_errors=False)
 
 
 def _review_status(task_dir: Path, segment_id: str) -> str:

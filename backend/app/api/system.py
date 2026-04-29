@@ -1,24 +1,17 @@
 import os
-from pathlib import Path
-from typing import Any
-
 from fastapi import APIRouter
 from redis import Redis, RedisError
 
 from app.config import UPLOAD_DIR
 from app.services.memory_cache import TTLMemoryCache
 from app.services.resource_detector import calculate_parallelism
-from app.utils.json_io import read_json
+from app.utils.json_io import read_json_silent as _read_json
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 RESOURCE_CACHE_TTL_SECONDS = 3.0
 
 router = APIRouter()
 _resources_cache = TTLMemoryCache(max_size=8)
-
-
-def _read_json(path: Path, fallback: Any) -> Any:
-    return read_json(path, fallback, log_errors=False)
 
 
 def _redis_status() -> str:

@@ -11,7 +11,7 @@ from app.config import UPLOAD_DIR
 from app.services.gemini_vision_client import GeminiVisionClient
 from app.services.list_index import refresh_task_index
 from app.services.openai_image_client import OpenAIImageClient
-from app.utils.json_io import read_json, write_json
+from app.utils.json_io import read_json_silent as _read_json, write_json
 
 _IMAGE_KEYS = {"model_front", "model_side", "model_back", "detail_page"}
 
@@ -21,10 +21,6 @@ router = APIRouter()
 class CommerceBatchRequest(BaseModel):
     clip_ids: list[str] = Field(default_factory=list, max_length=50)
     actions: list[str] = Field(default_factory=lambda: ["analyze", "copywriting", "images"])
-
-
-def _read_json(path: Path, fallback: Any) -> Any:
-    return read_json(path, fallback, log_errors=False)
 
 
 def _write_json(path: Path, payload: Any) -> None:
