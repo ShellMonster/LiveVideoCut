@@ -269,6 +269,10 @@ def _process_single_clip(
             bgm_volume=getattr(settings, "bgm_volume", 0.25),
             original_volume=getattr(settings, "original_volume", 1.0),
             thumbnail_precreated=thumbnail_precreated,
+            ffmpeg_preset=getattr(settings, "ffmpeg_preset", "fast").value
+            if hasattr(getattr(settings, "ffmpeg_preset", "fast"), "value")
+            else getattr(settings, "ffmpeg_preset", "fast"),
+            ffmpeg_crf=getattr(settings, "ffmpeg_crf", 23),
         )
         logger.info("Clip %s FFmpeg export finished in %.2fs", safe_label, time.perf_counter() - export_started_at)
 

@@ -6,11 +6,14 @@ import {
   DEFAULT_MODELS,
   useSettingsStore,
   type AsrProvider,
+  type ChangeDetectionFusionMode,
+  type ChangeDetectionSensitivity,
   type CommerceImageQuality,
   type CommerceImageSize,
   type CoverStrategy,
   type ExportMode,
   type ExportResolution,
+  type FFmpegPreset,
   type FillerFilterMode,
   type LlmType,
   type Settings,
@@ -547,6 +550,40 @@ export function AdminSettingsPage() {
               />
             </div>
 
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <Field
+                label="换衣信号融合"
+                tooltip="默认沿用旧逻辑：任一视觉信号触发就进入换衣检测。加权投票会综合品类、上身 HSV、下身 HSV、纹理和全局 HSV，通常更抗光照变化和摄像头抖动。"
+              >
+                <SegmentedControl
+                  value={draft.changeDetectionFusionMode}
+                  onChange={(changeDetectionFusionMode) =>
+                    updateDraft({ changeDetectionFusionMode: changeDetectionFusionMode as ChangeDetectionFusionMode })
+                  }
+                  options={[
+                    ["any_signal", "任一信号"],
+                    ["weighted_vote", "加权投票"],
+                  ]}
+                />
+              </Field>
+              <Field
+                label="换衣检测敏感度"
+                tooltip="只影响加权投票模式。保守会减少误切但可能漏掉弱变化；灵敏会提高召回但更容易把光照或遮挡变化切出来。"
+              >
+                <SegmentedControl
+                  value={draft.changeDetectionSensitivity}
+                  onChange={(changeDetectionSensitivity) =>
+                    updateDraft({ changeDetectionSensitivity: changeDetectionSensitivity as ChangeDetectionSensitivity })
+                  }
+                  options={[
+                    ["conservative", "保守"],
+                    ["balanced", "均衡"],
+                    ["sensitive", "灵敏"],
+                  ]}
+                />
+              </Field>
+            </div>
+
             <div className="mt-4 space-y-3">
               <ToggleCard
                 title="句边界对齐"
@@ -632,6 +669,28 @@ export function AdminSettingsPage() {
                   <option value="person_first">主播优先</option>
                 </select>
               </Field>
+              <Field
+                label="FFmpeg 编码速度"
+                tooltip="veryfast 导出更快、文件可能略大；fast 是当前默认；medium 更慢，通常只在特别追求压缩率时使用。"
+              >
+                <SegmentedControl
+                  value={draft.ffmpegPreset}
+                  onChange={(ffmpegPreset) => updateDraft({ ffmpegPreset: ffmpegPreset as FFmpegPreset })}
+                  options={[
+                    ["veryfast", "很快"],
+                    ["fast", "默认"],
+                    ["medium", "压缩优先"],
+                  ]}
+                />
+              </Field>
+              <NumberField
+                label="FFmpeg CRF"
+                value={draft.ffmpegCrf}
+                min={18}
+                max={32}
+                tooltip="画质/体积参数，数值越低画质越高、文件越大。23 是当前默认，建议保持 20-26。"
+                onChange={(ffmpegCrf) => updateDraft({ ffmpegCrf })}
+              />
               <Field label="视频倍速" hint="先烧字幕再变速" className="md:col-span-2">
                 <SegmentedControl
                   value={String(draft.videoSpeed)}
@@ -704,6 +763,14 @@ export function AdminSettingsPage() {
                   onChange={(recallCooldownSeconds) => updateDraft({ recallCooldownSeconds })}
                 />
                 <NumberField label="合并数量" value={draft.mergeCount} onChange={(mergeCount) => updateDraft({ mergeCount })} />
+                <NumberField
+                  label="服装 YOLO 置信度"
+                  value={draft.clothingYoloConfidence}
+                  min={0.05}
+                  max={0.8}
+                  tooltip="服装检测框的最低置信度。提高到 0.35-0.4 可减少杂乱画面中的低质量框，但可能降低小件服装召回。"
+                  onChange={(clothingYoloConfidence) => updateDraft({ clothingYoloConfidence })}
+                />
                 <ToggleCard
                   title="允许回讲商品"
                   desc="同一商品被主播回讲时允许再次生成候选。"
@@ -865,22 +932,41 @@ function OptionCard({
 function Field({
   label,
   hint,
+  tooltip,
   className,
   children,
 }: {
   label: string;
   hint?: string;
+  tooltip?: string;
   className?: string;
   children: React.ReactNode;
 }) {
   return (
     <label className={cn("block", className)}>
       <span className="mb-1.5 flex items-center justify-between gap-3 text-xs">
-        <span className="font-medium text-slate-600">{label}</span>
+        <span className="flex items-center gap-1.5 font-medium text-slate-600">
+          {label}
+          {tooltip && <Tooltip text={tooltip} />}
+        </span>
         {hint && <span className="text-slate-400">{hint}</span>}
       </span>
       {children}
     </label>
+  );
+}
+
+function Tooltip({ text }: { text: string }) {
+  return (
+    <span className="group relative inline-flex">
+      <Info size={13} className="cursor-help text-slate-400" aria-hidden="true" />
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute left-1/2 top-5 z-20 hidden w-64 -translate-x-1/2 rounded-lg border border-slate-200 bg-white p-3 text-xs font-normal leading-5 text-slate-600 shadow-lg group-hover:block group-focus-within:block"
+      >
+        {text}
+      </span>
+    </span>
   );
 }
 
@@ -977,16 +1063,18 @@ function NumberField({
   value,
   min,
   max,
+  tooltip,
   onChange,
 }: {
   label: string;
   value: number;
   min?: number;
   max?: number;
+  tooltip?: string;
   onChange: (value: number) => void;
 }) {
   return (
-    <Field label={label}>
+    <Field label={label} tooltip={tooltip}>
       <input
         type="number"
         step="any"

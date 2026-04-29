@@ -15,6 +15,7 @@ def run_visual_prescreen(task_id: str, video_path: str, task_dir: str) -> dict[s
         PipelineErrorHandler,
         TempFileCleaner,
         ClothingChangeDetector,
+        calculate_parallelism,
         _load_task_settings,
         _log_elapsed,
         _get_video_duration,
@@ -68,10 +69,15 @@ def run_visual_prescreen(task_id: str, video_path: str, task_dir: str) -> dict[s
     stage_started_at = time.perf_counter()
     sm.transition("EXTRACTING_FRAMES", "SCENE_DETECTING", step="scene_detecting")
 
+    parallelism = calculate_parallelism()
     clothing_detector = ClothingChangeDetector(
         hist_threshold=0.85,
         min_scene_gap=float(settings.recall_cooldown_seconds),
         merge_window=25.0,
+        fusion_mode=settings.change_detection_fusion_mode.value,
+        sensitivity=settings.change_detection_sensitivity.value,
+        yolo_confidence_threshold=settings.clothing_yolo_confidence,
+        frame_workers=int(parallelism["frame_workers"]),
     )
     candidates = clothing_detector.detect_from_frames(
         frames,

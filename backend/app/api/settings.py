@@ -81,6 +81,23 @@ class SegmentGranularity(str, Enum):
     outfit = "outfit"
 
 
+class ChangeDetectionFusionMode(str, Enum):
+    any_signal = "any_signal"
+    weighted_vote = "weighted_vote"
+
+
+class ChangeDetectionSensitivity(str, Enum):
+    conservative = "conservative"
+    balanced = "balanced"
+    sensitive = "sensitive"
+
+
+class FFmpegPreset(str, Enum):
+    veryfast = "veryfast"
+    fast = "fast"
+    medium = "medium"
+
+
 class CommerceImageSize(str, Enum):
     r2k = "2K"
     square = "1024x1024"
@@ -169,6 +186,13 @@ class SettingsRequest(BaseModel):
     segment_granularity: SegmentGranularity = SegmentGranularity.single_item
     boundary_snap: bool = True  # Snap clip boundaries to sentence edges
     enable_boundary_refinement: bool = False  # LLM reviews and adjusts clip boundaries for narrative completeness
+    change_detection_fusion_mode: ChangeDetectionFusionMode = ChangeDetectionFusionMode.any_signal
+    change_detection_sensitivity: ChangeDetectionSensitivity = ChangeDetectionSensitivity.balanced
+    clothing_yolo_confidence: float = Field(default=0.25, ge=0.05, le=0.8)
+
+    # --- FFmpeg 导出编码设置 ---
+    ffmpeg_preset: FFmpegPreset = FFmpegPreset.fast
+    ffmpeg_crf: int = Field(default=23, ge=18, le=32)
 
     # --- BGM 设置 ---
     bgm_enabled: bool = True

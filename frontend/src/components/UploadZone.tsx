@@ -47,6 +47,11 @@ interface UploadSettingsPayload {
   llm_type: Settings["llmType"];
   export_resolution: Settings["exportResolution"];
   segment_granularity: Settings["segmentGranularity"];
+  change_detection_fusion_mode: Settings["changeDetectionFusionMode"];
+  change_detection_sensitivity: Settings["changeDetectionSensitivity"];
+  clothing_yolo_confidence: number;
+  ffmpeg_preset: Settings["ffmpegPreset"];
+  ffmpeg_crf: number;
   bgm_enabled: boolean;
   bgm_volume: number;
   original_volume: number;
@@ -134,6 +139,11 @@ function buildUploadSettingsPayload(settings: Settings): UploadSettingsPayload {
     llm_type: settings.llmType,
     export_resolution: settings.exportResolution,
     segment_granularity: settings.segmentGranularity,
+    change_detection_fusion_mode: settings.changeDetectionFusionMode,
+    change_detection_sensitivity: settings.changeDetectionSensitivity,
+    clothing_yolo_confidence: settings.clothingYoloConfidence,
+    ffmpeg_preset: settings.ffmpegPreset,
+    ffmpeg_crf: settings.ffmpegCrf,
     bgm_enabled: settings.bgmEnabled,
     bgm_volume: settings.bgmVolume,
     original_volume: settings.originalVolume,

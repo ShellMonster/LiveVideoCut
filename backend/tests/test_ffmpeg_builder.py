@@ -123,6 +123,37 @@ class TestBuildCutCommand:
         idx = cmd.index("-crf")
         assert cmd[idx + 1] == "23"
 
+    def test_accepts_custom_preset_and_crf(self, builder):
+        cmd = builder.build_cut_command(
+            "input.mp4",
+            0.0,
+            30.0,
+            "sub.srt",
+            "bgm.mp3",
+            "wm.png",
+            "out.mp4",
+            ffmpeg_preset="veryfast",
+            ffmpeg_crf=21,
+        )
+        assert cmd[cmd.index("-preset") + 1] == "veryfast"
+        assert cmd[cmd.index("-crf") + 1] == "21"
+
+    def test_trim_concat_accepts_custom_preset_and_crf(self, builder):
+        cmd = builder.build_cut_command(
+            "input.mp4",
+            0.0,
+            30.0,
+            "sub.srt",
+            "bgm.mp3",
+            "wm.png",
+            "out.mp4",
+            filler_cut_ranges=[{"start_time": 2.0, "end_time": 3.0}],
+            ffmpeg_preset="medium",
+            ffmpeg_crf=20,
+        )
+        assert cmd[cmd.index("-preset") + 1] == "medium"
+        assert cmd[cmd.index("-crf") + 1] == "20"
+
     def test_contains_aac_audio(self, builder):
         cmd = builder.build_cut_command(
             "input.mp4", 0.0, 30.0, "sub.srt", "bgm.mp3", "wm.png", "out.mp4"

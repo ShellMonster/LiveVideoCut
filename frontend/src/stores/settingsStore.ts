@@ -14,6 +14,9 @@ export type VideoSpeed = 0.5 | 0.75 | 1.0 | 1.25 | 1.5 | 1.75 | 2.0 | 3.0;
 export type LlmType = "openai" | "gemini";
 export type ExportResolution = "original" | "1080p" | "4k";
 export type SegmentGranularity = "single_item" | "outfit";
+export type ChangeDetectionFusionMode = "any_signal" | "weighted_vote";
+export type ChangeDetectionSensitivity = "conservative" | "balanced" | "sensitive";
+export type FFmpegPreset = "veryfast" | "fast" | "medium";
 export type CommerceImageSize = "2K" | "1024x1024" | "1024x1536" | "1536x1024" | "2048x2048" | "2160x3840";
 export type CommerceImageQuality = "auto" | "low" | "medium" | "high";
 
@@ -58,6 +61,11 @@ export interface Settings {
   llmType: LlmType;
   exportResolution: ExportResolution;
   segmentGranularity: SegmentGranularity;
+  changeDetectionFusionMode: ChangeDetectionFusionMode;
+  changeDetectionSensitivity: ChangeDetectionSensitivity;
+  clothingYoloConfidence: number;
+  ffmpegPreset: FFmpegPreset;
+  ffmpegCrf: number;
   bgmEnabled: boolean;
   bgmVolume: number;
   originalVolume: number;
@@ -126,6 +134,11 @@ const defaultSettings: Settings = {
   llmType: "openai",
   exportResolution: "1080p" as ExportResolution,
   segmentGranularity: "single_item" as SegmentGranularity,
+  changeDetectionFusionMode: "any_signal",
+  changeDetectionSensitivity: "balanced",
+  clothingYoloConfidence: 0.25,
+  ffmpegPreset: "fast",
+  ffmpegCrf: 23,
   bgmEnabled: true,
   bgmVolume: 0.25,
   originalVolume: 1.0,

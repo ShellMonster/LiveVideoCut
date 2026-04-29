@@ -117,7 +117,7 @@ graph TD
 ## 功能特性
 
 - **上传** -- 支持 20GB 以内 MP4，自动校验编码格式和音频流
-- **换衣检测** -- 五信号联合：YOLO 46类服装检测 + MediaPipe 像素分割 + 全帧 HSV + 分区域 HSV（上身/下身）+ ORB 纹理；多信号独立 EMA 平滑 + 滞后阈值状态机，任一信号触发即可检测到换衣
+- **换衣检测** -- 五信号联合：YOLO 46类服装检测 + MediaPipe 像素分割 + 全帧 HSV + 分区域 HSV（上身/下身）+ ORB 纹理；默认保持多信号独立 EMA + 任一信号触发，也可在设置页切换为加权投票融合，并调整敏感度和 YOLO 置信度
 - **空镜过滤** -- 换衣检测阶段记录每帧人物出现标记，导出时两层过滤：(1) 段内人物出现率 < 60% 丢弃；(2) 开头连续无人 ≥ 8 秒丢弃
 - **VLM 确认** -- 支持 Qwen / GLM 两种 Provider，按导出模式决定是否参与
 - **多 ASR 支持** -- 火山 VC 字幕（推荐）、火山 BigModel、阿里 DashScope，三选一
@@ -145,7 +145,7 @@ graph TD
 - **前端性能** -- 项目总览、任务队列、片段资产和音乐库搜索输入使用 300ms debounce；任务列表轮询会根据是否存在处理中/等待中任务在 5s 与 30s 间切换；复核、音乐库、片段资产、诊断页的大列表派生数据使用 memo 化减少重复计算
 - **语气词过滤** -- 三级词表（38词），支持仅过滤字幕或同时裁剪视频片段，默认关闭
 - **智能封面** -- content_first（商品优先）/ person_first（主播优先），最多 30 帧评分选最佳；优先复用 visual_prescreen 已抽帧，不足时再用 FFmpeg 补足候选，COCO YOLO 遮挡检测自动排除手机等遮挡帧；封面检测模型单例使用线程锁保护并发初始化
-- **视频变速** -- 0.5x~3x 倍速，先烧字幕再变速，默认 1.25x
+- **视频变速与编码** -- 0.5x~3x 倍速，先烧字幕再变速，默认 1.25x；FFmpeg preset 和 CRF 可在设置页调整，默认仍为 `fast` + `23`
 - **并发处理** -- cgroup-aware 资源检测，ThreadPoolExecutor 并行处理多 clip，4GB 容器通常约 3 workers（由 CPU/内存实时计算）
 - **BGM 自动选曲** -- 双库架构（内置曲库+用户上传），按商品类型自动匹配背景音乐，用户曲目优先，跨 clip 去重，前端支持拖拽上传/编辑标签/删除
 
@@ -156,7 +156,7 @@ graph TD
 | 前端 | React 19 + TypeScript 6 + Vite 8 + Tailwind CSS 4 + Zustand 5 + react-router-dom + TanStack Query |
 | 后端 API | FastAPI + Uvicorn |
 | 异步任务 | Celery + Redis |
-| 换衣检测 | YOLOv8 (ONNX, 46类) + MediaPipe Selfie (TFLite, 6类) + HSV + 分区域 HSV + ORB 纹理 + 多信号独立 EMA + 滞后阈值 |
+| 换衣检测 | YOLOv8 (ONNX, 46类) + MediaPipe Selfie (TFLite, 6类) + HSV + 分区域 HSV + ORB 纹理 + 多信号独立 EMA + 滞后阈值 / 加权投票融合 |
 | VLM | Qwen / GLM (OpenAI 兼容 API) |
 | ASR | 火山 VC 字幕 (推荐) / 火山大模型 / 阿里 DashScope |
 | 视频处理 | FFmpeg |
@@ -211,6 +211,7 @@ docker compose up -d
 - `POST /api/commerce/clips/{task_id}/{segment_id}/images/{item_key}` 支持单张商品素材图独立重新生成，`item_key` 为 `model_front` / `model_side` / `model_back` / `detail_page`。
 - `POST /api/commerce/batch` 支持按 clip_id 批量提交 `analyze` / `copywriting` / `images` 商品素材任务，片段资产页底部批量条会调用该接口，并用右侧批量队列抽屉展示已排队和提交失败的片段。
 - 设置页 **AI 服务** 页签内上下分成两个面板：上方是剪辑 VLM/导出模式，下方是独立的 **AI 商品素材** 配置。商品素材配置内部继续分成 **Gemini 商品识图** 和 **OpenAI Image 生图** 两个子块，保存 `commerce_gemini_api_base/model/api_key/timeout` 与 `commerce_image_api_base/model/api_key/size/quality/timeout`。OpenAI Image 默认尺寸为 `2K`，请求时会解析为 `2048x2048`；两个 API Key 属于敏感字段，上传时写入 `secrets.json`，不会进入 `settings.json`。
+- 设置页 **切分策略** 可配置 `change_detection_fusion_mode`（默认 `any_signal`，可选 `weighted_vote`）和 `change_detection_sensitivity`；设置页 **高级参数** 可配置 `clothing_yolo_confidence`；设置页 **导出与音频** 可配置 `ffmpeg_preset` 与 `ffmpeg_crf`。这些项都有 hover 说明，保存后只影响新上传任务。
 - 前端项目总览、任务队列、片段资产页直接使用后端分页；剪辑复核片段队列、音乐库、诊断事件日志使用固定页大小的前端分页。
 - 项目总览点击行或“详情”打开右侧抽屉，抽屉内聚合概览、片段预览和诊断日志；操作列保留主操作按钮，删除收进“更多”菜单。
 - 任务队列采用队列流式行布局，任务详情、日志和资源监控在右侧抽屉内切换；删除仍走自定义确认弹窗。

@@ -28,6 +28,11 @@ def test_settings_request_uses_backend_defaults_for_qwen():
     assert settings.subtitle_position == "bottom"
     assert settings.subtitle_template == "clean"
     assert settings.custom_position_y is None
+    assert settings.change_detection_fusion_mode == "any_signal"
+    assert settings.change_detection_sensitivity == "balanced"
+    assert settings.clothing_yolo_confidence == 0.25
+    assert settings.ffmpeg_preset == "fast"
+    assert settings.ffmpeg_crf == 23
 
 
 def test_settings_request_resolves_glm_defaults():
@@ -74,6 +79,10 @@ def test_settings_request_allows_blank_api_key_for_all_scenes_mode():
         ("max_candidate_count", 101),
         ("custom_position_y", -1),
         ("custom_position_y", 101),
+        ("clothing_yolo_confidence", 0.04),
+        ("clothing_yolo_confidence", 0.81),
+        ("ffmpeg_crf", 17),
+        ("ffmpeg_crf", 33),
     ],
 )
 def test_settings_request_rejects_out_of_range_values(

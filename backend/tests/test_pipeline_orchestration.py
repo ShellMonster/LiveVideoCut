@@ -177,6 +177,9 @@ def test_visual_prescreen_uses_task_snapshot_segmentation_controls(
                 "frame_sample_fps": 4,
                 "recall_cooldown_seconds": 7,
                 "candidate_looseness": "loose",
+                "change_detection_fusion_mode": "weighted_vote",
+                "change_detection_sensitivity": "sensitive",
+                "clothing_yolo_confidence": 0.4,
             }
         )
     )
@@ -207,10 +210,18 @@ def test_visual_prescreen_uses_task_snapshot_segmentation_controls(
             hist_threshold: float | None = None,
             min_scene_gap: float | None = None,
             merge_window: float | None = None,
+            fusion_mode: str | None = None,
+            sensitivity: str | None = None,
+            yolo_confidence_threshold: float | None = None,
+            frame_workers: int | None = None,
         ):
             captured["hist_threshold"] = hist_threshold
             captured["min_scene_gap"] = min_scene_gap
             captured["merge_window"] = merge_window
+            captured["fusion_mode"] = fusion_mode
+            captured["sensitivity"] = sensitivity
+            captured["yolo_confidence_threshold"] = yolo_confidence_threshold
+            captured["frame_workers"] = frame_workers
 
         def detect_from_frames(
             self,
@@ -247,6 +258,7 @@ def test_visual_prescreen_uses_task_snapshot_segmentation_controls(
     monkeypatch.setattr(pipeline, "ClothingChangeDetector", _FakeClothingDetector)
     monkeypatch.setattr(pipeline.subprocess, "run", _fake_subprocess_run)
     monkeypatch.setattr(pipeline, "_get_video_duration", lambda _p: 120.0)
+    monkeypatch.setattr(pipeline, "calculate_parallelism", lambda: {"frame_workers": 2, "clip_workers": 1})
 
     result = pipeline.visual_prescreen.run(task_id, str(video_path), str(task_dir))
 
@@ -254,6 +266,10 @@ def test_visual_prescreen_uses_task_snapshot_segmentation_controls(
     assert captured["hist_threshold"] == 0.85
     assert captured["min_scene_gap"] == 7.0
     assert captured["merge_window"] == 25.0
+    assert captured["fusion_mode"] == "weighted_vote"
+    assert captured["sensitivity"] == "sensitive"
+    assert captured["yolo_confidence_threshold"] == 0.4
+    assert captured["frame_workers"] == 2
     assert captured["frames_count"] == 3
     assert captured["output_dir"] == str(task_dir / "scenes")
     assert captured["video_duration"] == 120.0
@@ -710,6 +726,8 @@ def test_process_clips_downgrades_karaoke_to_basic_and_threads_subtitle_settings
                 "subtitle_position": "custom",
                 "subtitle_template": "karaoke",
                 "custom_position_y": 72,
+                "ffmpeg_preset": "veryfast",
+                "ffmpeg_crf": 21,
             }
         )
     )
@@ -774,6 +792,8 @@ def test_process_clips_downgrades_karaoke_to_basic_and_threads_subtitle_settings
             captured["subtitle_position"] = kwargs["subtitle_position"]
             captured["subtitle_template"] = kwargs["subtitle_template"]
             captured["custom_position_y"] = kwargs["custom_position_y"]
+            captured["ffmpeg_preset"] = kwargs["ffmpeg_preset"]
+            captured["ffmpeg_crf"] = kwargs["ffmpeg_crf"]
             return {
                 "output_path": str(task_dir / "clips" / "clip_000.mp4"),
                 "thumbnail_path": str(task_dir / "thumbnails" / "clip_000.jpg"),
@@ -796,6 +816,8 @@ def test_process_clips_downgrades_karaoke_to_basic_and_threads_subtitle_settings
     assert captured["subtitle_position"] == "custom"
     assert captured["subtitle_template"] == "karaoke"
     assert captured["custom_position_y"] == 72
+    assert captured["ffmpeg_preset"] == "veryfast"
+    assert captured["ffmpeg_crf"] == 21
 
 
 def test_process_clips_writes_clip_metadata_for_listing(monkeypatch, tmp_path):

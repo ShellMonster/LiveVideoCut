@@ -13,6 +13,16 @@ RESOLUTION_SCALE = {
     "4k": "scale=min(3840\\,iw):-2",
 }
 
+ALLOWED_FFMPEG_PRESETS = {"veryfast", "fast", "medium"}
+
+
+def _normalize_ffmpeg_preset(value: str) -> str:
+    return value if value in ALLOWED_FFMPEG_PRESETS else "fast"
+
+
+def _normalize_ffmpeg_crf(value: int) -> str:
+    return str(min(max(int(value), 18), 32))
+
 ASSETS_DIR = Path(__file__).resolve().parent.parent.parent / "assets"
 SUBTITLE_FONTS_DIR = ASSETS_DIR / "fonts"
 SUBTITLE_FONT_FAMILY = "Noto Sans CJK SC"
@@ -114,6 +124,8 @@ class FFmpegBuilder:
         bgm_enabled: bool = True,
         bgm_volume: float = 0.25,
         original_volume: float = 1.0,
+        ffmpeg_preset: str = "fast",
+        ffmpeg_crf: int = 23,
     ) -> list[str]:
         # 1. filler_cut_ranges → keep_ranges (segments to KEEP)
         keep_ranges: list[tuple[float, float]] = []
@@ -222,9 +234,9 @@ class FFmpegBuilder:
             "-c:v",
             "libx264",
             "-preset",
-            "fast",
+            _normalize_ffmpeg_preset(ffmpeg_preset),
             "-crf",
-            "23",
+            _normalize_ffmpeg_crf(ffmpeg_crf),
             "-x264opts",
             "rc-lookahead=5:bframes=1:ref=1",
             "-threads",
@@ -262,6 +274,8 @@ class FFmpegBuilder:
         bgm_enabled: bool = True,
         bgm_volume: float = 0.25,
         original_volume: float = 1.0,
+        ffmpeg_preset: str = "fast",
+        ffmpeg_crf: int = 23,
     ) -> list[str]:
         if filler_cut_ranges:
             return self._build_trim_concat_command(
@@ -273,6 +287,8 @@ class FFmpegBuilder:
                 bgm_enabled=bgm_enabled,
                 bgm_volume=bgm_volume,
                 original_volume=original_volume,
+                ffmpeg_preset=ffmpeg_preset,
+                ffmpeg_crf=ffmpeg_crf,
             )
 
         video_chain = "[0:v]setpts=PTS-STARTPTS"
@@ -336,9 +352,9 @@ class FFmpegBuilder:
             "-c:v",
             "libx264",
             "-preset",
-            "fast",
+            _normalize_ffmpeg_preset(ffmpeg_preset),
             "-crf",
-            "23",
+            _normalize_ffmpeg_crf(ffmpeg_crf),
             "-x264opts",
             "rc-lookahead=5:bframes=1:ref=1",
             "-threads",
@@ -398,6 +414,8 @@ class FFmpegBuilder:
         bgm_volume: float = 0.25,
         original_volume: float = 1.0,
         thumbnail_precreated: bool = False,
+        ffmpeg_preset: str = "fast",
+        ffmpeg_crf: int = 23,
     ) -> dict[str, Any]:
         start = float(segment.get("start_time", 0.0))
         end = float(segment.get("end_time", 0.0))
@@ -423,6 +441,8 @@ class FFmpegBuilder:
             bgm_enabled=bgm_enabled,
             bgm_volume=bgm_volume,
             original_volume=original_volume,
+            ffmpeg_preset=ffmpeg_preset,
+            ffmpeg_crf=ffmpeg_crf,
         )
 
         started_at = time.perf_counter()
@@ -447,6 +467,8 @@ class FFmpegBuilder:
                 bgm_enabled=bgm_enabled,
                 bgm_volume=bgm_volume,
                 original_volume=original_volume,
+                ffmpeg_preset=ffmpeg_preset,
+                ffmpeg_crf=ffmpeg_crf,
             )
             result = subprocess.run(
                 cut_cmd, capture_output=True, text=True, timeout=600

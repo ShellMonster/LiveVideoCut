@@ -78,8 +78,13 @@ DEFAULT_YOLO_MODEL_PATH = "/app/assets/models/yolov8n-fashionpedia.onnx"
 class ClothingSegmenter:
     """Combines MediaPipe clothes mask + YOLO fashionpedia detection."""
 
-    def __init__(self, yolo_model_path: str | None = None) -> None:
+    def __init__(
+        self,
+        yolo_model_path: str | None = None,
+        yolo_confidence_threshold: float = 0.25,
+    ) -> None:
         self._yolo_model_path = yolo_model_path or DEFAULT_YOLO_MODEL_PATH
+        self.yolo_confidence_threshold = min(max(float(yolo_confidence_threshold), 0.05), 0.8)
         self._mp_segmenter = None
         self._yolo_session = None
         self._mp_available: bool | None = None
@@ -318,7 +323,7 @@ class ClothingSegmenter:
         confidences = class_scores.max(axis=1)
 
         # Filter by confidence threshold
-        keep = confidences > 0.25
+        keep = confidences > self.yolo_confidence_threshold
         boxes_filtered = boxes_cxcywh[keep]
         classes_filtered = best_class_ids[keep]
         confs_filtered = confidences[keep]
@@ -345,7 +350,7 @@ class ClothingSegmenter:
         indices = cv2.dnn.NMSBoxes(
             boxes_xyxy.tolist(),
             confs_filtered.tolist(),
-            score_threshold=0.25,
+            score_threshold=self.yolo_confidence_threshold,
             nms_threshold=0.45,
         )
         if len(indices) == 0:

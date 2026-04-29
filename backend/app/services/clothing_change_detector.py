@@ -20,6 +20,8 @@ detect_scenes_from_candidates() have the same signatures and return formats.
 """
 
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import cv2
@@ -38,6 +40,18 @@ class ClothingChangeDetector:
     DEFAULT_HIST_THRESHOLD: float = 0.85
     DEFAULT_MIN_SCENE_GAP: float = 20.0
     DEFAULT_MERGE_WINDOW: float = 25.0
+    FUSION_WEIGHTS: dict[str, float] = {
+        "category": 0.25,
+        "upper_hsv": 0.25,
+        "texture": 0.20,
+        "lower_hsv": 0.15,
+        "global_hsv": 0.15,
+    }
+    SENSITIVITY_THRESHOLDS: dict[str, tuple[float, float]] = {
+        "conservative": (0.72, 0.48),
+        "balanced": (0.60, 0.35),
+        "sensitive": (0.48, 0.28),
+    }
 
     def __init__(
         self,
@@ -47,6 +61,10 @@ class ClothingChangeDetector:
         ema_alpha: float | None = None,
         exit_threshold: float | None = None,
         confirm_frames: int = 2,
+        fusion_mode: str = "any_signal",
+        sensitivity: str = "balanced",
+        yolo_confidence_threshold: float = 0.25,
+        frame_workers: int = 1,
     ) -> None:
         self.hist_threshold = hist_threshold or self.DEFAULT_HIST_THRESHOLD
         self.min_scene_gap = min_scene_gap or self.DEFAULT_MIN_SCENE_GAP
@@ -54,12 +72,54 @@ class ClothingChangeDetector:
         self.ema_alpha = ema_alpha if ema_alpha is not None else 0.3
         self.exit_threshold = exit_threshold if exit_threshold is not None else 0.90
         self.confirm_frames = confirm_frames
+        self.fusion_mode = fusion_mode if fusion_mode in {"any_signal", "weighted_vote"} else "any_signal"
+        self.sensitivity = sensitivity if sensitivity in self.SENSITIVITY_THRESHOLDS else "balanced"
+        self.yolo_confidence_threshold = min(max(float(yolo_confidence_threshold), 0.05), 0.8)
+        self.frame_workers = max(1, int(frame_workers or 1))
         self._segmenter: ClothingSegmenter | None = None
+        self._bf_matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
 
     def _get_segmenter(self) -> ClothingSegmenter:
         if self._segmenter is None:
-            self._segmenter = ClothingSegmenter()
+            self._segmenter = ClothingSegmenter(
+                yolo_confidence_threshold=self.yolo_confidence_threshold,
+            )
         return self._segmenter
+
+    def _analyze_frames(self, frame_records: list[dict]) -> list[dict | None]:
+        if self.frame_workers <= 1 or len(frame_records) < 4:
+            segmenter = self._get_segmenter()
+            return [self._analyze_frame_with_segmenter(segmenter, rec) for rec in frame_records]
+
+        worker_state = threading.local()
+
+        def _worker(rec: dict) -> dict | None:
+            segmenter = getattr(worker_state, "segmenter", None)
+            if segmenter is None:
+                segmenter = ClothingSegmenter(
+                    yolo_confidence_threshold=self.yolo_confidence_threshold,
+                )
+                worker_state.segmenter = segmenter
+            return self._analyze_frame_with_segmenter(segmenter, rec)
+
+        logger.info(
+            "Analyzing %d frames with %d frame workers",
+            len(frame_records),
+            self.frame_workers,
+        )
+        with ThreadPoolExecutor(max_workers=self.frame_workers) as executor:
+            return list(executor.map(_worker, frame_records))
+
+    @staticmethod
+    def _analyze_frame_with_segmenter(
+        segmenter: ClothingSegmenter,
+        rec: dict,
+    ) -> dict | None:
+        try:
+            return segmenter.analyze_frame(rec["path"])
+        except Exception as exc:
+            logger.warning("Frame analysis failed for %s: %s", rec.get("path"), exc)
+            return None
 
     def detect_from_frames(
         self,
@@ -78,18 +138,17 @@ class ClothingChangeDetector:
         if len(frame_records) < 2:
             return []
 
-        segmenter = self._get_segmenter()
+        analyses = self._analyze_frames(frame_records)
 
-        hsv_hists: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
+        hsv_hists: list[tuple[np.ndarray, np.ndarray, np.ndarray] | None] = []
         upper_hists: list[tuple[np.ndarray, np.ndarray, np.ndarray] | None] = []
         lower_hists: list[tuple[np.ndarray, np.ndarray, np.ndarray] | None] = []
         orb_descs: list[np.ndarray | None] = []
-        garment_sets: list[set[int]] = []
+        garment_sets: list[set[int] | None] = []
         person_present_flags: list[bool] = []
 
-        for rec in frame_records:
-            try:
-                analysis = segmenter.analyze_frame(rec["path"])
+        for analysis in analyses:
+            if analysis is not None:
                 hsv_hists.append(analysis["hsv_hist"])
                 upper_hists.append(analysis.get("upper_hsv_hist"))
                 lower_hists.append(analysis.get("lower_hsv_hist"))
@@ -99,30 +158,23 @@ class ClothingChangeDetector:
                 )
                 person_present_flags.append(len(analysis["items"]) > 0)
                 del analysis
-            except Exception as exc:
-                logger.warning("Frame analysis failed for %s: %s", rec["path"], exc)
-                hsv_hists.append(
-                    (
-                        np.ones(180, dtype=np.float32) / 180,
-                        np.ones(256, dtype=np.float32) / 256,
-                        np.ones(256, dtype=np.float32) / 256,
-                    )
-                )
+            else:
+                hsv_hists.append(None)
                 upper_hists.append(None)
                 lower_hists.append(None)
                 orb_descs.append(None)
-                garment_sets.append(set())
+                garment_sets.append(None)
                 person_present_flags.append(False)
 
         # Compare consecutive frames
-        correlations: list[float] = []
+        correlations: list[float | None] = []
         upper_correlations: list[float | None] = []
         lower_correlations: list[float | None] = []
         category_changes: list[bool] = []
         texture_similarities: list[float | None] = []
 
         for i in range(len(hsv_hists) - 1):
-            hsv_corr = self._compare_hists(hsv_hists[i], hsv_hists[i + 1])
+            hsv_corr = self._compare_optional_hists(hsv_hists[i], hsv_hists[i + 1])
             correlations.append(hsv_corr)
 
             upper_corr = self._compare_optional_hists(upper_hists[i], upper_hists[i + 1])
@@ -151,7 +203,7 @@ class ClothingChangeDetector:
                 return raw
             return self.ema_alpha * raw + (1 - self.ema_alpha) * prev
 
-        global_ema: list[float] = [correlations[0]]
+        global_ema: list[float | None] = [correlations[0]]
         upper_ema: list[float | None] = [upper_correlations[0]]
         lower_ema: list[float | None] = [lower_correlations[0]]
         tex_ema: list[float | None] = [
@@ -159,10 +211,7 @@ class ClothingChangeDetector:
         ]
 
         for i in range(1, len(correlations)):
-            global_ema.append(
-                self.ema_alpha * correlations[i]
-                + (1 - self.ema_alpha) * global_ema[-1]
-            )
+            global_ema.append(_ema(global_ema[-1], correlations[i]))
             upper_ema.append(_ema(upper_ema[-1], upper_correlations[i]))
             lower_ema.append(_ema(lower_ema[-1], lower_correlations[i]))
             raw_tex = texture_similarities[i]
@@ -179,6 +228,7 @@ class ClothingChangeDetector:
         upper_trigger_count = 0
         lower_trigger_count = 0
         tex_trigger_count = 0
+        weighted_vote_scores: list[float] = []
 
         for i in range(len(global_ema)):
             g_ema = global_ema[i]
@@ -187,14 +237,31 @@ class ClothingChangeDetector:
             t_ema = tex_ema[i]
 
             any_triggered = (
-                g_ema < self.hist_threshold
+                (g_ema is not None and g_ema < self.hist_threshold)
                 or (u_ema is not None and u_ema < self.hist_threshold)
                 or (l_ema is not None and l_ema < self.hist_threshold)
                 or (t_ema is not None and t_ema < TEX_ENTER_THRESHOLD)
             )
+            weighted_vote_score = self._weighted_vote_score(
+                g_ema,
+                u_ema,
+                l_ema,
+                t_ema,
+                category_changes[i],
+                self.hist_threshold,
+                TEX_ENTER_THRESHOLD,
+            )
+            weighted_vote_scores.append(weighted_vote_score)
+            stable_threshold, changing_threshold = self.SENSITIVITY_THRESHOLDS[self.sensitivity]
+            weighted_triggered = (
+                weighted_vote_score >= stable_threshold
+                if state == "stable"
+                else weighted_vote_score >= changing_threshold
+            )
+            triggered = weighted_triggered if self.fusion_mode == "weighted_vote" else any_triggered
 
             all_recovered = (
-                g_ema >= self.exit_threshold
+                (g_ema is None or g_ema >= self.exit_threshold)
                 and (u_ema is None or u_ema >= self.exit_threshold)
                 and (l_ema is None or l_ema >= self.exit_threshold)
                 and (t_ema is None or t_ema >= TEX_EXIT_THRESHOLD)
@@ -203,7 +270,7 @@ class ClothingChangeDetector:
             cat_change = category_changes[i]
 
             # Per-signal trigger bookkeeping for the log
-            if g_ema < self.hist_threshold:
+            if g_ema is not None and g_ema < self.hist_threshold:
                 global_trigger_count += 1
             if u_ema is not None and u_ema < self.hist_threshold:
                 upper_trigger_count += 1
@@ -213,26 +280,27 @@ class ClothingChangeDetector:
                 tex_trigger_count += 1
 
             # Compute best (lowest) EMA across available signals for ranking
-            ema_values = [g_ema]
+            ema_values = [v for v in [g_ema] if v is not None]
             if u_ema is not None:
                 ema_values.append(u_ema)
             if l_ema is not None:
                 ema_values.append(l_ema)
             if t_ema is not None:
                 ema_values.append(t_ema)
-            best_ema = min(ema_values)
+            best_ema = min(ema_values) if ema_values else 1.0
 
             if state == "stable":
-                if any_triggered:
+                if triggered:
                     state = "changing"
                     change_start = i
                     change_candidates = [
                         {
                             "frame_idx": i + 1,
                             "timestamp": float(frame_records[i + 1]["timestamp"]),
-                            "correlation": correlations[i],
+                            "correlation": correlations[i] if correlations[i] is not None else best_ema,
                             "best_ema": best_ema,
                             "category_change": cat_change,
+                            "weighted_vote_score": weighted_vote_score,
                         }
                     ]
             elif state == "changing":
@@ -250,7 +318,8 @@ class ClothingChangeDetector:
                         wi = change_candidates.index(best)
                         bi = change_start + wi
                         region_change = False
-                        region_min_corr = correlations[bi]
+                        base_corr = correlations[bi] if correlations[bi] is not None else 1.0
+                        region_min_corr = base_corr
                         uc = upper_correlations[bi]
                         if uc is not None and uc < self.hist_threshold:
                             region_change = True
@@ -263,7 +332,7 @@ class ClothingChangeDetector:
                         tex_change = ts is not None and ts < 0.4
 
                         best["combined_score"] = self._combined_score_v2(
-                            correlations[bi],
+                            base_corr,
                             category_changes[bi],
                             region_change,
                             region_min_corr,
@@ -280,9 +349,10 @@ class ClothingChangeDetector:
                         {
                             "frame_idx": i + 1,
                             "timestamp": float(frame_records[i + 1]["timestamp"]),
-                            "correlation": correlations[i],
+                            "correlation": correlations[i] if correlations[i] is not None else best_ema,
                             "best_ema": best_ema,
                             "category_change": cat_change,
+                            "weighted_vote_score": weighted_vote_score,
                         }
                     )
 
@@ -296,7 +366,8 @@ class ClothingChangeDetector:
             wi = change_candidates.index(best)
             bi = (change_start or 0) + wi
             region_change = False
-            region_min_corr = correlations[bi]
+            base_corr = correlations[bi] if correlations[bi] is not None else 1.0
+            region_min_corr = base_corr
             uc = upper_correlations[bi]
             if uc is not None and uc < self.hist_threshold:
                 region_change = True
@@ -309,7 +380,7 @@ class ClothingChangeDetector:
             tex_change = ts is not None and ts < 0.4
 
             best["combined_score"] = self._combined_score_v2(
-                correlations[bi],
+                base_corr,
                 category_changes[bi],
                 region_change,
                 region_min_corr,
@@ -337,7 +408,7 @@ class ClothingChangeDetector:
             l = lower_ema[i]
             t = tex_ema[i]
             if (
-                global_ema[i] >= self.hist_threshold
+                (global_ema[i] is None or global_ema[i] >= self.hist_threshold)
                 and (u is None or u >= self.hist_threshold)
                 and (l is None or l >= self.hist_threshold)
                 and (t is None or t >= TEX_ENTER_THRESHOLD)
@@ -370,16 +441,18 @@ class ClothingChangeDetector:
         if output_dir:
             out = Path(output_dir)
             out.mkdir(parents=True, exist_ok=True)
+            debug_segmenter = self._segmenter
             debug_data = {
-                "correlations": correlations,
+                "correlations": [c if c is not None else "N/A" for c in correlations],
                 "upper_correlations": [c if c is not None else "N/A" for c in upper_correlations],
                 "lower_correlations": [c if c is not None else "N/A" for c in lower_correlations],
                 "texture_similarities": [s if s is not None else "N/A" for s in texture_similarities],
                 "category_changes": category_changes,
-                "ema_global": global_ema,
+                "ema_global": [v if v is not None else None for v in global_ema],
                 "ema_upper": [v if v is not None else None for v in upper_ema],
                 "ema_lower": [v if v is not None else None for v in lower_ema],
                 "ema_texture": [v if v is not None else None for v in tex_ema],
+                "weighted_vote_scores": weighted_vote_scores,
                 "raw_points": [
                     {k: v for k, v in p.items() if k not in ("combined_score", "best_ema")}
                     for p in raw_points
@@ -396,13 +469,24 @@ class ClothingChangeDetector:
                     "confirm_frames": self.confirm_frames,
                     "min_scene_gap": self.min_scene_gap,
                     "merge_window": self.merge_window,
+                    "fusion_mode": self.fusion_mode,
+                    "change_detection_sensitivity": self.sensitivity,
+                    "weighted_vote_weights": self.FUSION_WEIGHTS,
+                    "weighted_vote_thresholds": {
+                        "stable": self.SENSITIVITY_THRESHOLDS[self.sensitivity][0],
+                        "changing": self.SENSITIVITY_THRESHOLDS[self.sensitivity][1],
+                    },
+                    "yolo_confidence_threshold": self.yolo_confidence_threshold,
+                    "frame_workers": self.frame_workers,
                     "orb_texture_threshold": 0.4,
                     "tex_enter_threshold": TEX_ENTER_THRESHOLD,
                     "tex_exit_threshold": TEX_EXIT_THRESHOLD,
                 },
                 "models": {
-                    "mediapipe_available": segmenter.mediapipe_available,
-                    "yolo_available": segmenter.yolo_available,
+                    "mediapipe_available": (
+                        debug_segmenter.mediapipe_available if debug_segmenter else None
+                    ),
+                    "yolo_available": debug_segmenter.yolo_available if debug_segmenter else None,
                 },
             }
             write_json(out / "hist_debug.json", debug_data, json_default=str)
@@ -441,20 +525,41 @@ class ClothingChangeDetector:
             return None
         return ClothingChangeDetector._compare_hists(pair1, pair2)
 
-    @staticmethod
     def _compare_orb(
+        self,
         desc1: np.ndarray | None,
         desc2: np.ndarray | None,
     ) -> float | None:
         if desc1 is None or desc2 is None or len(desc1) < 5 or len(desc2) < 5:
             return None
         try:
-            bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-            matches = bf.match(desc1, desc2)
+            matches = self._bf_matcher.match(desc1, desc2)
             good = [m for m in matches if m.distance < 50]
             return len(good) / max(len(desc1), len(desc2))
         except Exception:
             return None
+
+    @classmethod
+    def _weighted_vote_score(
+        cls,
+        global_ema: float | None,
+        upper_ema: float | None,
+        lower_ema: float | None,
+        texture_ema: float | None,
+        category_change: bool,
+        hist_threshold: float,
+        texture_threshold: float,
+    ) -> float:
+        score = cls.FUSION_WEIGHTS["category"] if category_change else 0.0
+        if global_ema is not None and global_ema < hist_threshold:
+            score += cls.FUSION_WEIGHTS["global_hsv"]
+        if upper_ema is not None and upper_ema < hist_threshold:
+            score += cls.FUSION_WEIGHTS["upper_hsv"]
+        if lower_ema is not None and lower_ema < hist_threshold:
+            score += cls.FUSION_WEIGHTS["lower_hsv"]
+        if texture_ema is not None and texture_ema < texture_threshold:
+            score += cls.FUSION_WEIGHTS["texture"]
+        return round(score, 4)
 
     @staticmethod
     def _combined_score_v2(
@@ -477,10 +582,13 @@ class ClothingChangeDetector:
 
     @staticmethod
     def _detect_category_change(
-        prev_garments: set[int],
-        curr_garments: set[int],
+        prev_garments: set[int] | None,
+        curr_garments: set[int] | None,
     ) -> bool:
         """Detect if main garment categories changed between frames."""
+        if prev_garments is None or curr_garments is None:
+            return False
+
         if not prev_garments and not curr_garments:
             return False
 
