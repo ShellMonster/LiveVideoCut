@@ -179,6 +179,7 @@ docker compose up -d
         │       ├── format.ts                        # 格式化工具（状态分类 / 时长 / 日期）
         │       ├── constants.tsx                    # 常量（状态映射 / 图标 / 枚举中文标签）
         │       ├── shared.tsx                       # 共享 UI 组件（DrawerShell / FilterToolbar / Card）
+        │       ├── settings/                       # 设置页分组与通用表单控件
         │       └── pages/
         │           ├── ProjectManagementPage.tsx    # 项目总览（任务列表 + 右侧详情抽屉）
         │           ├── CreateProjectPage.tsx        # 新建项目 + 上传
@@ -188,7 +189,7 @@ docker compose up -d
         │           ├── CommerceWorkbenchPage.tsx    # AI 商品素材工作台（识图 / 文案 / 生图）
         │           ├── MusicPage.tsx                # 音乐库管理（上传 / 播放 / 标签编辑）
         │           ├── DiagnosticsPage.tsx          # 任务诊断（指标卡 + 漏斗图 + 事件日志）
-        │           └── SettingsPage.tsx             # 设置页（AI / 转写 / 字幕 / 切分 / 导出）
+        │           └── SettingsPage.tsx             # 设置页容器（状态 / 保存 / 页签）
         ├── hooks/
         │   ├── useAdminQueries.ts                   # TanStack Query hooks（15+ 查询）
         │   ├── useWebSocket.ts                      # WebSocket 实时进度推送
