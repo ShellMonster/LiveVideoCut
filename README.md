@@ -180,7 +180,11 @@ docker compose up -d
         │       ├── format.ts                        # 格式化工具（状态分类 / 时长 / 日期）
         │       ├── constants.tsx                    # 常量（状态映射 / 图标 / 枚举中文标签）
         │       ├── shared.tsx                       # 共享 UI 组件（DrawerShell / FilterToolbar / Card）
-        │       ├── settings/                       # 设置页分组与通用表单控件
+        │       ├── settings/
+        │       │   ├── labels.ts                       # 设置项中文标签映射
+        │       │   ├── SettingsControls.tsx             # 通用表单控件（Select / Slider / Switch）
+        │       │   ├── SettingsSections.tsx             # 设置分块渲染（AI / 转写 / 字幕 / 导出等）
+        │       │   └── types.ts                         # 设置页内部类型定义
         │       └── pages/
         │           ├── ProjectManagementPage.tsx    # 项目总览（任务列表 + 右侧详情抽屉）
         │           ├── CreateProjectPage.tsx        # 新建项目 + 上传
