@@ -211,7 +211,7 @@ docker compose up -d
 - `POST /api/commerce/clips/{task_id}/{segment_id}/images/{item_key}` 支持单张商品素材图独立重新生成，`item_key` 为 `model_front` / `model_side` / `model_back` / `detail_page`。
 - `POST /api/commerce/batch` 支持按 clip_id 批量提交 `analyze` / `copywriting` / `images` 商品素材任务，片段资产页底部批量条会调用该接口，并用右侧批量队列抽屉展示已排队和提交失败的片段。
 - 设置页 **AI 服务** 页签内上下分成两个面板：上方是剪辑 VLM/导出模式，下方是独立的 **AI 商品素材** 配置。商品素材配置内部继续分成 **Gemini 商品识图** 和 **OpenAI Image 生图** 两个子块，保存 `commerce_gemini_api_base/model/api_key/timeout` 与 `commerce_image_api_base/model/api_key/size/quality/timeout`。OpenAI Image 默认尺寸为 `2K`，请求时会解析为 `2048x2048`；两个 API Key 属于敏感字段，上传时写入 `secrets.json`，不会进入 `settings.json`。
-- 设置页 **切分策略** 可配置 `change_detection_fusion_mode`（默认 `any_signal`，可选 `weighted_vote`）和 `change_detection_sensitivity`；设置页 **高级参数** 可配置 `clothing_yolo_confidence`；设置页 **导出与音频** 可配置 `ffmpeg_preset` 与 `ffmpeg_crf`。这些项都有 hover 说明，保存后只影响新上传任务。
+- 设置页 **切分策略** 可配置 `change_detection_fusion_mode`（默认 `any_signal`，可选 `weighted_vote`）和 `change_detection_sensitivity`；设置页 **高级参数** 默认展开，可配置 `clothing_yolo_confidence`；设置页 **导出与音频** 可配置 `ffmpeg_preset` 与 `ffmpeg_crf`。这些项都有 hover 说明，保存后只影响新上传任务。
 - 前端项目总览、任务队列、片段资产页直接使用后端分页；剪辑复核片段队列、音乐库、诊断事件日志使用固定页大小的前端分页。
 - 项目总览点击行或“详情”打开右侧抽屉，抽屉内聚合概览、片段预览和诊断日志；操作列保留主操作按钮，删除收进“更多”菜单。
 - 任务队列采用队列流式行布局，任务详情、日志和资源监控在右侧抽屉内切换；删除仍走自定义确认弹窗。

@@ -60,7 +60,7 @@ const isVolcengineAsr = (provider: AsrProvider) => provider === "volcengine" || 
 export function AdminSettingsPage() {
   const settings = useSettingsStore();
   const [draft, setDraft] = useState<SettingsDraft>(() => initialDraft(useSettingsStore.getState()));
-  const [expandedAdvanced, setExpandedAdvanced] = useState(false);
+  const [expandedAdvanced, setExpandedAdvanced] = useState(true);
   const [activeSection, setActiveSection] = useState(0);
 
   const savedSnapshot = useMemo(() => JSON.stringify(initialDraft(settings)), [settings]);
