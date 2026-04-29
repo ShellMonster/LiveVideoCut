@@ -2,7 +2,11 @@
 
 一键将直播录像自动拆分为商品讲解短视频片段，支持烧录字幕、karaoke 逐字高亮、语气词过滤、智能封面选择、BGM 自动选曲和视频变速。上传 MP4，AI 自动识别换衣节点、转写语音、匹配商品名、导出短视频。
 
+![直播视频 AI 智能剪辑产品流程图](docs/images/product-flow.png)
+
 ## 系统架构
+
+![直播视频 AI 智能剪辑技术架构图](docs/images/technical-architecture.png)
 
 ```mermaid
 graph TB
