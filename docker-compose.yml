@@ -115,4 +115,3 @@ services:
 volumes:
   redis_data:
   model_cache:
-  whisper_cache:

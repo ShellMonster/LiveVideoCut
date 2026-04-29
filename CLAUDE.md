@@ -525,7 +525,7 @@ docker-compose.yml 中 worker 启动参数：
 ### 前端
 
 - `frontend/src/App.tsx`               # 入口，渲染 AdminDashboard
-- `frontend/src/components/AdminDashboard.tsx`  # 主应用壳（330 行，8 页状态机）
+- `frontend/src/components/AdminDashboard.tsx`  # 主应用壳（330 行，9 页状态机）
 - `frontend/src/components/admin/`     # 拆分后的子模块
   - `api.ts`                           # API 调用封装
   - `types.ts`                         # 类型定义（PageKey 等）
@@ -544,9 +544,6 @@ docker-compose.yml 中 worker 启动参数：
     - `DiagnosticsPage.tsx`            # 诊断
     - `SettingsPage.tsx`               # 设置容器
 - `frontend/src/components/UploadZone.tsx`
-- `frontend/src/components/SettingsPage.tsx`   # 独立设置页（备选入口）
-- `frontend/src/components/MusicPage.tsx`      # 独立音乐页（备选入口）
-- `frontend/src/components/HistoryPage.tsx`    # 独立历史页（备选入口）
 - `frontend/src/components/ToastViewport.tsx`
 - `frontend/src/hooks/useWebSocket.ts`
 - `frontend/src/stores/settingsStore.ts`

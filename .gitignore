@@ -50,5 +50,6 @@ frame_*.jpg
 # Playwright MCP
 .playwright-mcp/
 
-# Sisyphus working files
-.sisyphus/notepads/
+# Sisyphus & GStack working files
+.sisyphus/
+.gstack/
