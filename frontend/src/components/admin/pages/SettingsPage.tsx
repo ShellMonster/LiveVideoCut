@@ -1191,21 +1191,35 @@ function SubtitlePositionEditor({
           </div>
 
           <div className="relative mt-4">
-            <div className="grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1">
+            <div className="grid grid-cols-2 gap-2">
               {(Object.keys(subtitlePresetMeta) as SubtitlePosition[]).map((item) => (
                 <button
                   key={item}
                   disabled={disabled}
+                  aria-pressed={position === item}
                   onMouseEnter={() => onHoverPreset(item)}
                   onMouseLeave={() => onHoverPreset(null)}
                   onClick={() => onPresetChange(item)}
                   className={cn(
-                    "rounded-md px-2 py-2 text-xs font-medium transition",
-                    position === item ? "bg-white text-blue-700 shadow-sm" : "text-slate-500 hover:text-slate-800",
+                    "group rounded-lg border bg-white px-3 py-2.5 text-left transition hover:border-blue-200 hover:bg-blue-50/50",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200",
+                    position === item ? "border-blue-400 bg-blue-50 text-blue-800 shadow-sm" : "border-slate-200 text-slate-600",
                     disabled && "cursor-not-allowed",
                   )}
                 >
-                  {subtitlePresetMeta[item].label}
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold">{subtitlePresetMeta[item].label}</span>
+                    {position === item ? (
+                      <span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-blue-600 text-white">
+                        <Check size={11} />
+                      </span>
+                    ) : (
+                      <span className="h-4 w-4 shrink-0 rounded-full border border-slate-300 bg-white group-hover:border-blue-300" />
+                    )}
+                  </span>
+                  <span className="mt-1 block text-[11px] leading-4 text-slate-500">
+                    Y {item === "custom" ? effectiveY : subtitlePresetMeta[item].y}%
+                  </span>
                 </button>
               ))}
             </div>
