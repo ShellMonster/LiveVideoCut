@@ -28,7 +28,7 @@ import { Chip, Header } from "../shared";
 
 type SettingsDraft = Settings;
 
-const sectionTabs = ["处理预设", "AI 服务", "字幕与转写", "切分策略", "导出与音频", "高级参数"];
+const sectionTabs = ["处理预设", "AI 服务", "转写服务", "字幕设置", "敏感词过滤", "切分策略", "导出与音频", "高级参数"];
 
 const exportModeLabels: Record<ExportMode, string> = {
   smart: "智能模式",
@@ -473,6 +473,45 @@ export function AdminSettingsPage() {
             </div>
           </SettingsCard>
 
+            {needsTos && (
+              <SettingsCard
+                id="settings-section-2-tos"
+                title="火山存储配置"
+                desc="火山标准版和 VC 字幕需要 TOS 上传音频。敏感字段上传时会写入 secrets.json。"
+                badge="TOS"
+              >
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Field label="TOS AK">
+                    <input value={draft.tosAk} onChange={(event) => updateDraft({ tosAk: event.target.value })} className={fieldClassName} />
+                  </Field>
+                  <Field label="TOS SK">
+                    <input
+                      type="password"
+                      value={draft.tosSk}
+                      onChange={(event) => updateDraft({ tosSk: event.target.value })}
+                      className={fieldClassName}
+                    />
+                  </Field>
+                  <Field label="Bucket">
+                    <input value={draft.tosBucket} onChange={(event) => updateDraft({ tosBucket: event.target.value })} className={fieldClassName} />
+                  </Field>
+                  <Field label="Region">
+                    <input value={draft.tosRegion} onChange={(event) => updateDraft({ tosRegion: event.target.value })} className={fieldClassName} />
+                  </Field>
+                  <Field label="Endpoint" className="md:col-span-2">
+                    <input
+                      value={draft.tosEndpoint}
+                      onChange={(event) => updateDraft({ tosEndpoint: event.target.value })}
+                      className={fieldClassName}
+                    />
+                  </Field>
+                </div>
+              </SettingsCard>
+            )}
+          </>
+          )}
+
+          {activeSection === 3 && (
           <SettingsCard
             id="settings-section-2-subtitle"
             title="字幕样式与位置"
@@ -530,7 +569,9 @@ export function AdminSettingsPage() {
               />
             </div>
           </SettingsCard>
+          )}
 
+          {activeSection === 4 && (
           <SettingsCard
             id="settings-section-2-sensitive"
             title="敏感词过滤"
@@ -618,46 +659,9 @@ export function AdminSettingsPage() {
               </div>
             </div>
           </SettingsCard>
-
-            {needsTos && (
-              <SettingsCard
-                id="settings-section-2-tos"
-                title="火山存储配置"
-                desc="火山标准版和 VC 字幕需要 TOS 上传音频。敏感字段上传时会写入 secrets.json。"
-                badge="TOS"
-              >
-                <div className="mt-4 grid gap-4 md:grid-cols-2">
-                  <Field label="TOS AK">
-                    <input value={draft.tosAk} onChange={(event) => updateDraft({ tosAk: event.target.value })} className={fieldClassName} />
-                  </Field>
-                  <Field label="TOS SK">
-                    <input
-                      type="password"
-                      value={draft.tosSk}
-                      onChange={(event) => updateDraft({ tosSk: event.target.value })}
-                      className={fieldClassName}
-                    />
-                  </Field>
-                  <Field label="Bucket">
-                    <input value={draft.tosBucket} onChange={(event) => updateDraft({ tosBucket: event.target.value })} className={fieldClassName} />
-                  </Field>
-                  <Field label="Region">
-                    <input value={draft.tosRegion} onChange={(event) => updateDraft({ tosRegion: event.target.value })} className={fieldClassName} />
-                  </Field>
-                  <Field label="Endpoint" className="md:col-span-2">
-                    <input
-                      value={draft.tosEndpoint}
-                      onChange={(event) => updateDraft({ tosEndpoint: event.target.value })}
-                      className={fieldClassName}
-                    />
-                  </Field>
-                </div>
-              </SettingsCard>
-            )}
-          </>
           )}
 
-          {activeSection === 3 && (
+          {activeSection === 5 && (
           <>
           <SettingsCard
             id="settings-section-3-granularity"
@@ -783,7 +787,7 @@ export function AdminSettingsPage() {
           </>
           )}
 
-          {activeSection === 4 && (
+          {activeSection === 6 && (
           <>
           <SettingsCard
             id="settings-section-4-video"
@@ -877,7 +881,7 @@ export function AdminSettingsPage() {
           </>
           )}
 
-          {activeSection === 5 && (
+          {activeSection === 7 && (
           <>
           <SettingsCard
             id="settings-section-5-overview"
@@ -1141,88 +1145,94 @@ function SubtitlePositionEditor({
 
   return (
     <div className={cn("rounded-lg border border-slate-200 bg-slate-50 p-4", disabled && "opacity-60")}>
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-950">字幕位置调整</h3>
-          <p className="mt-1 text-xs leading-5 text-slate-500">选择预设或直接拖动字幕条，自动写入垂直坐标。</p>
-        </div>
-        <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">Y {effectiveY}%</span>
-      </div>
-
-      <div className="relative mt-4">
-        <div className="grid grid-cols-4 gap-1 rounded-lg bg-slate-100 p-1">
-          {(Object.keys(subtitlePresetMeta) as SubtitlePosition[]).map((item) => (
-            <button
-              key={item}
-              disabled={disabled}
-              onMouseEnter={() => onHoverPreset(item)}
-              onMouseLeave={() => onHoverPreset(null)}
-              onClick={() => onPresetChange(item)}
-              className={cn(
-                "rounded-md px-2 py-2 text-xs font-medium transition",
-                position === item ? "bg-white text-blue-700 shadow-sm" : "text-slate-500 hover:text-slate-800",
-                disabled && "cursor-not-allowed",
-              )}
-            >
-              {subtitlePresetMeta[item].label}
-            </button>
-          ))}
-        </div>
-        {hoveredPreset && (
-          <div className="absolute left-0 top-12 z-20 w-36 rounded-lg border border-slate-200 bg-white p-2 shadow-lg">
-            <MiniSubtitlePreview y={subtitlePresetMeta[hoveredPreset].y} />
-            <div className="mt-1 text-center text-[11px] font-medium text-slate-600">{subtitlePresetMeta[hoveredPreset].desc}</div>
+      <div className="grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <div className="min-w-0">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-950">字幕位置调整</h3>
+              <p className="mt-1 text-xs leading-5 text-slate-500">左侧设置位置，右侧拖动视频预览中的字幕条。</p>
+            </div>
+            <span className="shrink-0 rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">Y {effectiveY}%</span>
           </div>
-        )}
-      </div>
 
-      <div
-        className={cn("relative mx-auto mt-4 aspect-[9/16] max-h-[360px] overflow-hidden rounded-lg border border-slate-200 bg-slate-900", !disabled && "cursor-grab active:cursor-grabbing")}
-        onPointerDown={(event) => {
-          if (disabled) return;
-          event.currentTarget.setPointerCapture(event.pointerId);
-          onPreviewPointer(event);
-        }}
-        onPointerMove={(event) => {
-          if (disabled || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
-          onPreviewPointer(event);
-        }}
-        onPointerUp={(event) => {
-          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-            event.currentTarget.releasePointerCapture(event.pointerId);
-          }
-        }}
-      >
-        <div className="absolute inset-0 bg-gradient-to-b from-slate-700 via-slate-800 to-slate-950" />
-        <div className="absolute left-[18%] top-[14%] h-28 w-16 rounded-full bg-slate-500/70" />
-        <div className="absolute left-[14%] top-[30%] h-36 w-24 rounded-t-full bg-blue-300/40" />
-        <div className="absolute right-[14%] top-[18%] h-44 w-20 rounded-lg border border-white/20 bg-white/10" />
-        {[12, 50, 88].map((line) => (
-          <div key={line} className="absolute left-0 right-0 border-t border-white/15" style={{ top: `${line}%` }} />
-        ))}
-        <div
-          className="absolute left-1/2 inline-flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-lg border border-blue-300 bg-black/55 px-3 py-1.5 text-center text-sm font-semibold text-white shadow-lg"
-          style={{ top: `${previewY}%` }}
-        >
-          <Move size={14} />
-          这款连衣裙显瘦又好搭
-        </div>
-        <div className="absolute left-1/2 rounded-full bg-blue-600 px-2 py-0.5 text-[11px] font-medium text-white" style={{ top: `calc(${previewY}% + 22px)`, transform: "translateX(-50%)" }}>
-          X 50%, Y {previewY}%
-        </div>
-      </div>
+          <div className="relative mt-4">
+            <div className="grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1">
+              {(Object.keys(subtitlePresetMeta) as SubtitlePosition[]).map((item) => (
+                <button
+                  key={item}
+                  disabled={disabled}
+                  onMouseEnter={() => onHoverPreset(item)}
+                  onMouseLeave={() => onHoverPreset(null)}
+                  onClick={() => onPresetChange(item)}
+                  className={cn(
+                    "rounded-md px-2 py-2 text-xs font-medium transition",
+                    position === item ? "bg-white text-blue-700 shadow-sm" : "text-slate-500 hover:text-slate-800",
+                    disabled && "cursor-not-allowed",
+                  )}
+                >
+                  {subtitlePresetMeta[item].label}
+                </button>
+              ))}
+            </div>
+            {hoveredPreset && (
+              <div className="absolute left-0 top-24 z-20 w-36 rounded-lg border border-slate-200 bg-white p-2 shadow-lg">
+                <MiniSubtitlePreview y={subtitlePresetMeta[hoveredPreset].y} />
+                <div className="mt-1 text-center text-[11px] font-medium text-slate-600">{subtitlePresetMeta[hoveredPreset].desc}</div>
+              </div>
+            )}
+          </div>
 
-      <div className="mt-4">
-        <RangeField label="垂直位置" value={effectiveY / 100} max={1} onChange={(value) => onCustomYChange(Math.round(value * 100))} />
-      </div>
-      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-        <div className="rounded-lg bg-slate-50 p-2">
-          <div className="text-slate-400">subtitle_position</div>
-          <div className="mt-1 font-medium text-slate-800">{position}</div>
+          <div className="mt-4">
+            <RangeField label="垂直位置" value={effectiveY / 100} max={1} onChange={(value) => onCustomYChange(Math.round(value * 100))} />
+          </div>
+          <div className="mt-3 grid gap-2 text-xs">
+            <div className="rounded-lg bg-white p-2 ring-1 ring-slate-200">
+              <div className="text-slate-400">subtitle_position</div>
+              <div className="mt-1 font-medium text-slate-800">{position}</div>
+            </div>
+            <div className="rounded-lg bg-white p-2 ring-1 ring-slate-200">
+              <div className="text-slate-400">custom_position_y</div>
+              <div className="mt-1 font-medium text-slate-800">{position === "custom" ? effectiveY : "—"}</div>
+            </div>
+          </div>
         </div>
-        <div className="rounded-lg bg-slate-50 p-2">
-          <div className="text-slate-400">custom_position_y</div>
-          <div className="mt-1 font-medium text-slate-800">{position === "custom" ? effectiveY : "—"}</div>
+
+        <div className="min-w-0">
+          <div
+            className={cn("relative mx-auto aspect-[9/16] max-h-[430px] overflow-hidden rounded-lg border border-slate-200 bg-slate-900", !disabled && "cursor-grab active:cursor-grabbing")}
+            onPointerDown={(event) => {
+              if (disabled) return;
+              event.currentTarget.setPointerCapture(event.pointerId);
+              onPreviewPointer(event);
+            }}
+            onPointerMove={(event) => {
+              if (disabled || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+              onPreviewPointer(event);
+            }}
+            onPointerUp={(event) => {
+              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              }
+            }}
+          >
+            <div className="absolute inset-0 bg-gradient-to-b from-slate-700 via-slate-800 to-slate-950" />
+            <div className="absolute left-[18%] top-[14%] h-28 w-16 rounded-full bg-slate-500/70" />
+            <div className="absolute left-[14%] top-[30%] h-36 w-24 rounded-t-full bg-blue-300/40" />
+            <div className="absolute right-[14%] top-[18%] h-44 w-20 rounded-lg border border-white/20 bg-white/10" />
+            {[12, 50, 88].map((line) => (
+              <div key={line} className="absolute left-0 right-0 border-t border-white/15" style={{ top: `${line}%` }} />
+            ))}
+            <div
+              className="absolute left-1/2 inline-flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-lg border border-blue-300 bg-black/55 px-3 py-1.5 text-center text-sm font-semibold text-white shadow-lg"
+              style={{ top: `${previewY}%` }}
+            >
+              <Move size={14} />
+              这款连衣裙显瘦又好搭
+            </div>
+            <div className="absolute left-1/2 rounded-full bg-blue-600 px-2 py-0.5 text-[11px] font-medium text-white" style={{ top: `calc(${previewY}% + 22px)`, transform: "translateX(-50%)" }}>
+              X 50%, Y {previewY}%
+            </div>
+          </div>
         </div>
       </div>
     </div>
