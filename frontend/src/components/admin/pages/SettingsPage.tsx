@@ -570,11 +570,30 @@ export function AdminSettingsPage() {
                 </select>
               </Field>
             </div>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <NumberField
+                label="普通字幕字号"
+                value={draft.subtitleFontSize}
+                min={24}
+                max={120}
+                tooltip="用于基础字幕、样式字幕，以及卡拉 OK 字幕的普通白字层。只影响新上传任务。"
+                onChange={(subtitleFontSize) => updateDraft({ subtitleFontSize: Math.round(subtitleFontSize) })}
+              />
+              <NumberField
+                label="高亮字幕字号"
+                value={draft.subtitleHighlightFontSize}
+                min={24}
+                max={144}
+                tooltip="用于卡拉 OK 逐字高亮和弹跳层。通常比普通字号略大；非卡拉 OK 模式不会使用。"
+                onChange={(subtitleHighlightFontSize) => updateDraft({ subtitleHighlightFontSize: Math.round(subtitleHighlightFontSize) })}
+              />
+            </div>
             <div className="mt-4">
               <SubtitlePositionEditor
                 disabled={draft.subtitleMode === "off"}
                 position={draft.subtitlePosition}
                 customY={draft.customPositionY ?? 72}
+                fontSize={draft.subtitleFontSize}
                 hoveredPreset={hoveredSubtitlePreset}
                 onHoverPreset={setHoveredSubtitlePreset}
                 onPresetChange={setSubtitlePreset}
@@ -1138,6 +1157,7 @@ function SubtitlePositionEditor({
   disabled,
   position,
   customY,
+  fontSize,
   hoveredPreset,
   onHoverPreset,
   onPresetChange,
@@ -1147,6 +1167,7 @@ function SubtitlePositionEditor({
   disabled: boolean;
   position: SubtitlePosition;
   customY: number;
+  fontSize: number;
   hoveredPreset: SubtitlePosition | null;
   onHoverPreset: (position: SubtitlePosition | null) => void;
   onPresetChange: (position: SubtitlePosition) => void;
@@ -1229,16 +1250,22 @@ function SubtitlePositionEditor({
               }
             }}
           >
-            <div className="absolute inset-0 bg-gradient-to-b from-slate-700 via-slate-800 to-slate-950" />
-            <div className="absolute left-[18%] top-[14%] h-28 w-16 rounded-full bg-slate-500/70" />
-            <div className="absolute left-[14%] top-[30%] h-36 w-24 rounded-t-full bg-blue-300/40" />
-            <div className="absolute right-[14%] top-[18%] h-44 w-20 rounded-lg border border-white/20 bg-white/10" />
+            <img
+              src="/images/subtitle-preview-live-demo.png"
+              alt=""
+              className="absolute inset-0 h-full w-full object-cover"
+              draggable={false}
+            />
+            <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/35 to-transparent" />
             {[12, 50, 88].map((line) => (
               <div key={line} className="absolute left-0 right-0 border-t border-white/15" style={{ top: `${line}%` }} />
             ))}
             <div
               className="absolute left-1/2 inline-flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-lg border border-blue-300 bg-black/55 px-3 py-1.5 text-center text-sm font-semibold text-white shadow-lg"
-              style={{ top: `${previewY}%` }}
+              style={{
+                top: `${previewY}%`,
+                fontSize: `${Math.min(Math.max(fontSize, 24), 120) / 4}px`,
+              }}
             >
               <Move size={14} />
               这款连衣裙显瘦又好搭

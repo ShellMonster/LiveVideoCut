@@ -201,6 +201,20 @@ class TestKaraokeGenerate:
         assert "Style: Default,Noto Sans CJK SC,60" in content
         assert ",2,30,30,538,1" in content
 
+    def test_karaoke_uses_custom_font_sizes(self, generator, tmp_dir):
+        output = str(tmp_dir / "font-size.ass")
+        result = generator.generate(
+            [{"text": "测试字幕", "start_time": 0.0, "end_time": 1.0}],
+            output,
+            mode="karaoke",
+            font_size=66,
+            highlight_font_size=84,
+        )
+
+        content = Path(result).read_text(encoding="utf-8")
+        assert "Style: Default,Noto Sans CJK SC,66" in content
+        assert "Style: Highlight,Noto Sans CJK SC,84" in content
+
     def test_karaoke_supports_top_subtitle_position(self, generator, tmp_dir):
         output = str(tmp_dir / "top.ass")
         result = generator.generate(

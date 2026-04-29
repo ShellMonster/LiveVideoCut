@@ -28,6 +28,8 @@ interface UploadSettingsPayload {
   subtitle_mode: Settings["subtitleMode"];
   subtitle_position: Settings["subtitlePosition"];
   subtitle_template: Settings["subtitleTemplate"];
+  subtitle_font_size: number;
+  subtitle_highlight_font_size: number;
   boundary_snap: boolean;
   custom_position_y: number | null;
   asr_provider: Settings["asrProvider"];
@@ -124,6 +126,8 @@ function buildUploadSettingsPayload(settings: Settings): UploadSettingsPayload {
     subtitle_mode: settings.subtitleMode,
     subtitle_position: settings.subtitlePosition,
     subtitle_template: settings.subtitleTemplate,
+    subtitle_font_size: settings.subtitleFontSize,
+    subtitle_highlight_font_size: settings.subtitleHighlightFontSize,
     boundary_snap: settings.boundarySnap,
     custom_position_y: settings.customPositionY,
     asr_provider: settings.asrProvider,

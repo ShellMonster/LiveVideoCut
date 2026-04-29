@@ -270,6 +270,12 @@ def _process_single_clip(
                     mode=effective_subtitle_mode,
                     subtitle_position=settings.subtitle_position.value,
                     custom_position_y=settings.custom_position_y,
+                    font_size=getattr(settings, "subtitle_font_size", 60),
+                    highlight_font_size=getattr(
+                        settings,
+                        "subtitle_highlight_font_size",
+                        72,
+                    ),
                 )
             except Exception:
                 logger.warning(
@@ -322,6 +328,7 @@ def _process_single_clip(
             if hasattr(getattr(settings, "ffmpeg_preset", "fast"), "value")
             else getattr(settings, "ffmpeg_preset", "fast"),
             ffmpeg_crf=getattr(settings, "ffmpeg_crf", 23),
+            subtitle_font_size=getattr(settings, "subtitle_font_size", 60),
         )
         logger.info("Clip %s FFmpeg export finished in %.2fs", safe_label, time.perf_counter() - export_started_at)
 

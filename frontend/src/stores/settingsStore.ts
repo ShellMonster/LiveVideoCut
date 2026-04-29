@@ -43,6 +43,8 @@ export interface Settings {
   subtitleMode: SubtitleMode;
   subtitlePosition: SubtitlePosition;
   subtitleTemplate: SubtitleTemplate;
+  subtitleFontSize: number;
+  subtitleHighlightFontSize: number;
   fillerFilterMode: FillerFilterMode;
   sensitiveFilterEnabled: boolean;
   sensitiveWords: string[];
@@ -120,6 +122,8 @@ const defaultSettings: Settings = {
   subtitleMode: "karaoke",
   subtitlePosition: "bottom",
   subtitleTemplate: "clean",
+  subtitleFontSize: 60,
+  subtitleHighlightFontSize: 72,
   fillerFilterMode: "off",
   sensitiveFilterEnabled: false,
   sensitiveWords: [],

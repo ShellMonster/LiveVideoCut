@@ -26,8 +26,8 @@ PlayResY: 1920
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Noto Sans CJK SC,60,&H00FFFFFF,&H0000FFFF,&H00000000,&H64000000,1,0,0,0,100,100,0,0,1,3,1,{alignment},30,30,{margin_v},1
-Style: Highlight,Noto Sans CJK SC,72,&H0000FFFF,&H0000FFFF,&H00000000,&H64000000,1,0,0,0,100,100,0,0,1,4,1,{alignment},30,30,{margin_v},1
+Style: Default,Noto Sans CJK SC,{font_size},&H00FFFFFF,&H0000FFFF,&H00000000,&H64000000,1,0,0,0,100,100,0,0,1,3,1,{alignment},30,30,{margin_v},1
+Style: Highlight,Noto Sans CJK SC,{highlight_font_size},&H0000FFFF,&H0000FFFF,&H00000000,&H64000000,1,0,0,0,100,100,0,0,1,4,1,{alignment},30,30,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -56,6 +56,8 @@ def subtitle_alignment_and_margin(
 def build_karaoke_ass_header(
     subtitle_position: str = "bottom",
     custom_position_y: int | None = None,
+    font_size: int = 60,
+    highlight_font_size: int = 72,
 ) -> str:
     alignment, margin_v = subtitle_alignment_and_margin(
         subtitle_position,
@@ -64,6 +66,8 @@ def build_karaoke_ass_header(
     return KARAOKE_ASS_HEADER_TEMPLATE.format(
         alignment=alignment,
         margin_v=margin_v,
+        font_size=font_size,
+        highlight_font_size=highlight_font_size,
     )
 
 
@@ -118,6 +122,8 @@ class SRTGenerator:
         mode: str = "basic",
         subtitle_position: str = "bottom",
         custom_position_y: int | None = None,
+        font_size: int = 60,
+        highlight_font_size: int = 72,
     ) -> str:
         if mode == "karaoke":
             return self.generate_ass(
@@ -125,6 +131,8 @@ class SRTGenerator:
                 output_path,
                 subtitle_position=subtitle_position,
                 custom_position_y=custom_position_y,
+                font_size=font_size,
+                highlight_font_size=highlight_font_size,
             )
         return self.generate_srt(segments, output_path)
 
@@ -162,6 +170,8 @@ class SRTGenerator:
         output_path: str,
         subtitle_position: str = "bottom",
         custom_position_y: int | None = None,
+        font_size: int = 60,
+        highlight_font_size: int = 72,
     ) -> str:
         output = Path(output_path)
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -172,6 +182,8 @@ class SRTGenerator:
             build_karaoke_ass_header(
                 subtitle_position=subtitle_position,
                 custom_position_y=custom_position_y,
+                font_size=font_size,
+                highlight_font_size=highlight_font_size,
             ).rstrip("\n")
         ]
         for seg in non_overlapping:

@@ -173,6 +173,8 @@ class SettingsRequest(BaseModel):
     subtitle_position: SubtitlePosition = SubtitlePosition.bottom
     subtitle_template: SubtitleTemplate = SubtitleTemplate.clean
     custom_position_y: int | None = Field(default=None, ge=0, le=100)
+    subtitle_font_size: int = Field(default=60, ge=24, le=120)
+    subtitle_highlight_font_size: int = Field(default=72, ge=24, le=144)
 
     filter_filler_mode: str = "off"
     sensitive_filter_enabled: bool = False

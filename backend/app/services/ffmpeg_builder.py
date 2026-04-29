@@ -47,6 +47,7 @@ class FFmpegBuilder:
         subtitle_position: str = "bottom",
         subtitle_template: str = "clean",
         custom_position_y: int | None = None,
+        subtitle_font_size: int = 60,
     ) -> str:
         escaped_subtitle_path = subtitle_path.replace("\\", "\\\\").replace(":", "\\:")
         escaped_fonts_dir = (
@@ -60,6 +61,7 @@ class FFmpegBuilder:
                 subtitle_position=subtitle_position,
                 subtitle_template=subtitle_template,
                 custom_position_y=custom_position_y,
+                subtitle_font_size=subtitle_font_size,
             )
             if style:
                 subtitle_filter += f":force_style='{style}'"
@@ -70,8 +72,12 @@ class FFmpegBuilder:
         subtitle_position: str,
         subtitle_template: str,
         custom_position_y: int | None,
+        subtitle_font_size: int,
     ) -> str | None:
-        style_parts: list[str] = [f"FontName={SUBTITLE_FONT_FAMILY}"]
+        style_parts: list[str] = [
+            f"FontName={SUBTITLE_FONT_FAMILY}",
+            f"FontSize={min(max(int(subtitle_font_size), 24), 120)}",
+        ]
         alignment, margin_v = subtitle_alignment_and_margin(
             subtitle_position,
             custom_position_y,
@@ -80,10 +86,9 @@ class FFmpegBuilder:
 
         template_styles = {
             "clean": [],
-            "ecommerce": ["FontSize=20", "Outline=2", "Bold=1"],
-            "bold": ["FontSize=22", "Outline=3", "Bold=1"],
+            "ecommerce": ["Outline=2", "Bold=1"],
+            "bold": ["Outline=3", "Bold=1"],
             "karaoke": [
-                "FontSize=20",
                 "Outline=2",
                 "Bold=1",
                 "PrimaryColour=&H0000FFFF",
@@ -127,6 +132,7 @@ class FFmpegBuilder:
         original_volume: float = 1.0,
         ffmpeg_preset: str = "fast",
         ffmpeg_crf: int = 23,
+        subtitle_font_size: int = 60,
     ) -> list[str]:
         # 1. filler_cut_ranges → keep_ranges (segments to KEEP)
         keep_ranges: list[tuple[float, float]] = []
@@ -183,6 +189,7 @@ class FFmpegBuilder:
                 subtitle_position=subtitle_position,
                 subtitle_template=subtitle_template,
                 custom_position_y=custom_position_y,
+                subtitle_font_size=subtitle_font_size,
             )
             filters.append(f"[v_scaled]{sub_filter}[v_sub]")
         else:
@@ -277,6 +284,7 @@ class FFmpegBuilder:
         original_volume: float = 1.0,
         ffmpeg_preset: str = "fast",
         ffmpeg_crf: int = 23,
+        subtitle_font_size: int = 60,
     ) -> list[str]:
         if filler_cut_ranges:
             return self._build_trim_concat_command(
@@ -290,6 +298,7 @@ class FFmpegBuilder:
                 original_volume=original_volume,
                 ffmpeg_preset=ffmpeg_preset,
                 ffmpeg_crf=ffmpeg_crf,
+                subtitle_font_size=subtitle_font_size,
             )
 
         video_chain = "[0:v]setpts=PTS-STARTPTS"
@@ -304,6 +313,7 @@ class FFmpegBuilder:
                 subtitle_position=subtitle_position,
                 subtitle_template=subtitle_template,
                 custom_position_y=custom_position_y,
+                subtitle_font_size=subtitle_font_size,
             )
         else:
             video_chain += ",copy"
@@ -417,6 +427,7 @@ class FFmpegBuilder:
         thumbnail_precreated: bool = False,
         ffmpeg_preset: str = "fast",
         ffmpeg_crf: int = 23,
+        subtitle_font_size: int = 60,
     ) -> dict[str, Any]:
         start = float(segment.get("start_time", 0.0))
         end = float(segment.get("end_time", 0.0))
@@ -444,6 +455,7 @@ class FFmpegBuilder:
             original_volume=original_volume,
             ffmpeg_preset=ffmpeg_preset,
             ffmpeg_crf=ffmpeg_crf,
+            subtitle_font_size=subtitle_font_size,
         )
 
         started_at = time.perf_counter()

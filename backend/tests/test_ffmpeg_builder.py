@@ -245,11 +245,28 @@ class TestBuildCutCommand:
             "out.mp4",
             subtitle_position="middle",
             subtitle_template="bold",
+            subtitle_font_size=68,
         )
         cmd_str = " ".join(cmd)
         assert "force_style=" in cmd_str
         assert "Alignment=5" in cmd_str
-        assert "FontSize=22" in cmd_str
+        assert "FontSize=68" in cmd_str
+        assert "Outline=3" in cmd_str
+
+    def test_trim_concat_threads_custom_subtitle_font_size(self, builder):
+        cmd = builder.build_cut_command(
+            "input.mp4",
+            0.0,
+            30.0,
+            "sub.srt",
+            "bgm.mp3",
+            "wm.png",
+            "out.mp4",
+            filler_cut_ranges=[{"start_time": 2.0, "end_time": 3.0}],
+            subtitle_font_size=74,
+        )
+        cmd_str = " ".join(cmd)
+        assert "FontSize=74" in cmd_str
 
 
 class TestBuildThumbnailCommand:
