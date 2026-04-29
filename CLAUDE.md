@@ -7,7 +7,7 @@
 - 输入：一段直播录像 MP4
 - 输出：一组可预览、可下载的短视频片段（clips）
 - 目标：把直播里适合单独传播的商品讲解片段自动切出来，并带上烧录字幕
-- README 顶部使用 `docs/images/product-flow.png` 作为产品流程图，系统架构章节使用 `docs/images/technical-architecture.png` 作为技术架构图；Mermaid 图保留作为可复制的结构说明。
+- README 顶部使用 `docs/images/product-flow.png` 作为产品流程图，系统架构章节使用 `docs/images/technical-architecture.png` 作为技术架构图；原 Mermaid 图已移除。
 
 
 ## 当前真实架构
