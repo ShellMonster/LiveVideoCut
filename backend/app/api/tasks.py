@@ -12,7 +12,6 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, field_validator, model_validator
 from starlette.responses import JSONResponse, StreamingResponse
 
-from app.api import task_helpers
 from app.api.task_helpers import (
     deletable_task_dir_or_404,
     diagnostic_event_log,
@@ -52,13 +51,11 @@ _task_review_cache = FingerprintMemoryCache(max_size=64)
 
 
 def _route_task_dir_or_404(task_id: str):
-    task_helpers.UPLOAD_DIR = UPLOAD_DIR
-    return task_dir_or_404(task_id)
+    return task_dir_or_404(task_id, upload_dir=UPLOAD_DIR)
 
 
 def _route_deletable_task_dir_or_404(task_id: str):
-    task_helpers.UPLOAD_DIR = UPLOAD_DIR
-    return deletable_task_dir_or_404(task_id)
+    return deletable_task_dir_or_404(task_id, upload_dir=UPLOAD_DIR)
 
 
 class SubtitleOverridePatch(BaseModel):

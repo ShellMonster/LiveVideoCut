@@ -11,20 +11,26 @@ from app.services.memory_cache import path_fingerprint
 from app.utils.json_io import read_json_silent as _read_json, write_json
 
 
-def task_dir_or_404(task_id: str) -> Path | JSONResponse:
+def task_dir_or_404(
+    task_id: str,
+    upload_dir: Path = UPLOAD_DIR,
+) -> Path | JSONResponse:
     if not is_task_id(task_id):
         return JSONResponse(status_code=400, content={"detail": "Invalid task_id format"})
-    task_dir = UPLOAD_DIR / task_id
+    task_dir = upload_dir / task_id
     if not task_dir.exists():
         return JSONResponse(status_code=404, content={"detail": "Task not found"})
     return task_dir
 
 
-def deletable_task_dir_or_404(task_id: str) -> Path | JSONResponse:
+def deletable_task_dir_or_404(
+    task_id: str,
+    upload_dir: Path = UPLOAD_DIR,
+) -> Path | JSONResponse:
     if not is_safe_task_dir(task_id):
         return JSONResponse(status_code=400, content={"detail": "Invalid task_id format"})
-    task_dir = (UPLOAD_DIR / task_id).resolve()
-    upload_root = UPLOAD_DIR.resolve()
+    task_dir = (upload_dir / task_id).resolve()
+    upload_root = upload_dir.resolve()
     try:
         task_dir.relative_to(upload_root)
     except ValueError:
@@ -192,11 +198,14 @@ def diagnostic_event_log(task_dir: Path) -> list[dict[str, str]]:
 
 def artifact_mtime(task_dir: Path, relative_path: str) -> float | None:
     path = task_dir / relative_path
-    if path.is_dir():
-        mtimes = [item.stat().st_mtime for item in path.iterdir()]
-        return max(mtimes) if mtimes else path.stat().st_mtime
-    if path.exists():
-        return path.stat().st_mtime
+    try:
+        if path.is_dir():
+            mtimes = [item.stat().st_mtime for item in path.iterdir()]
+            return max(mtimes) if mtimes else path.stat().st_mtime
+        if path.exists():
+            return path.stat().st_mtime
+    except OSError:
+        return None
     return None
 
 
