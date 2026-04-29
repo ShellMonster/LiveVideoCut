@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Activity, Calendar, CheckCircle2, Circle, Cpu, Ellipsis, Eye, Film, HardDrive, RefreshCw, Search, Server, Trash2, Upload, X } from "lucide-react";
+import { Activity, Calendar, CheckCircle2, Circle, Cpu, Ellipsis, Eye, Film, HardDrive, RefreshCw, Server, Trash2, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAdminContext } from "@/components/admin/context";
 import { useTaskList, useSystemResources, useTaskEvents, useDeleteTask, useRetryTask } from "@/hooks/useAdminQueries";
@@ -17,7 +17,7 @@ import {
   statusLabel,
   userFacingMessage,
 } from "../format";
-import { Header, LogLine, MetricCard, Pagination, ResourceLine } from "../shared";
+import { Button, DrawerSection, DrawerShell, DrawerTabs, FilterToolbar, Header, LogLine, MetricCard, Pagination, ResourceLine, SearchInput, ToolbarSelect } from "../shared";
 import type { TaskItem } from "../types";
 
 type QueueDrawerTab = "overview" | "logs" | "resources";
@@ -117,48 +117,43 @@ export function QueuePage() {
               <ResourceSummary label="内存" value={resources ? `${resources.memory_gb.toFixed(1)}GB` : "—"} />
             </div>
           </div>
-          <div className="flex flex-wrap gap-3 border-b border-slate-100 px-4 py-3">
-            <label className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500 sm:min-w-72">
-              <Search size={16} />
-              <input
-                value={query}
-                onChange={(event) => {
-                  setQuery(event.target.value);
-                  setPage(1);
-                }}
-                placeholder="搜索项目 ID / 任务 ID / 视频名称"
-                className="min-w-0 flex-1 bg-transparent text-slate-700 outline-none placeholder:text-slate-400"
-              />
-            </label>
-            <select
-              value={statusFilter}
-              onChange={(event) => {
-                setStatusFilter(event.target.value);
+          <FilterToolbar>
+            <SearchInput
+              value={query}
+              onChange={(value) => {
+                setQuery(value);
                 setPage(1);
               }}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600"
+              placeholder="搜索项目 ID / 任务 ID / 视频名称"
+            />
+            <ToolbarSelect
+              value={statusFilter}
+              onChange={(value) => {
+                setStatusFilter(value);
+                setPage(1);
+              }}
             >
               <option value="all">全部状态</option>
               <option value="processing">处理中</option>
               <option value="completed">已完成</option>
               <option value="failed">失败</option>
               <option value="uploaded">等待中</option>
-            </select>
-            <select className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+            </ToolbarSelect>
+            <ToolbarSelect>
               <option>全部优先级</option>
               <option>高优先级</option>
               <option>普通优先级</option>
-            </select>
-            <select className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+            </ToolbarSelect>
+            <ToolbarSelect>
               <option>全部项目</option>
-            </select>
+            </ToolbarSelect>
             <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-500 hover:bg-slate-50">
               <Calendar size={15} />
               开始日期
               <span className="text-slate-300">→</span>
               结束日期
             </button>
-          </div>
+          </FilterToolbar>
 
           <div className="hidden overflow-x-auto lg:block">
             <div className="grid min-w-[1120px] grid-cols-[minmax(280px,1.4fr)_90px_160px_120px_80px_80px_110px_100px] gap-4 border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-medium text-slate-500">
@@ -517,39 +512,31 @@ function QueueDetailDrawer({
   if (!open || !task) return null;
 
   return (
-    <div className="fixed inset-0 z-40">
-      <button className="absolute inset-0 bg-slate-950/20" onClick={onClose} aria-label="关闭任务详情" />
-      <aside className="absolute right-0 top-0 flex h-full w-full max-w-[460px] flex-col border-l border-slate-200 bg-white shadow-2xl">
-        <div className="flex h-16 items-center justify-between border-b border-slate-200 px-5">
-          <h2 className="text-base font-semibold text-slate-950">任务详情</h2>
-          <button onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-50 hover:text-slate-700" aria-label="关闭">
-            <X size={18} />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-5">
-          <QueueDetailBody task={task} tab={tab} onTabChange={onTabChange} events={events} resources={resources} />
-        </div>
-
-        <div className="grid grid-cols-3 gap-2 border-t border-slate-200 p-5">
-          <button onClick={() => onOpenResult(task)} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
+    <DrawerShell
+      open={open}
+      title="任务详情"
+      onClose={onClose}
+      closeLabel="关闭任务详情"
+      footer={
+        <div className="grid grid-cols-3 gap-2">
+          <Button onClick={() => onOpenResult(task)} variant="primary">
             查看
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={() => onRetry(task)}
             disabled={task.status !== "ERROR"}
-            className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            icon={RefreshCw}
           >
-            <RefreshCw size={15} />
             重试
-          </button>
-          <button onClick={() => onDelete(task)} className="inline-flex items-center justify-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50">
-            <Trash2 size={15} />
+          </Button>
+          <Button onClick={() => onDelete(task)} variant="danger" icon={Trash2}>
             删除
-          </button>
+          </Button>
         </div>
-      </aside>
-    </div>
+      }
+    >
+      <QueueDetailBody task={task} tab={tab} onTabChange={onTabChange} events={events} resources={resources} />
+    </DrawerShell>
   );
 }
 
@@ -608,20 +595,7 @@ function QueueDetailBody({
         </div>
       </div>
 
-      <div className="mt-5 flex border-b border-slate-200">
-        {tabs.map((item) => (
-          <button
-            key={item.value}
-            onClick={() => onTabChange(item.value)}
-            className={cn(
-              "mr-6 border-b-2 px-1 pb-2 text-sm font-medium",
-              tab === item.value ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500 hover:text-slate-800",
-            )}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
+      <DrawerTabs tabs={tabs} value={tab} onChange={onTabChange} />
 
       {tab === "overview" && (
         <div className="mt-5 space-y-4">
@@ -641,7 +615,7 @@ function QueueDetailBody({
             <QueueInfoCard label="导出片段" value={String(task.clip_count ?? 0)} />
           </section>
 
-          <section className="rounded-lg border border-slate-200 p-4">
+          <DrawerSection>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-xs font-medium text-slate-400">当前阶段</div>
@@ -673,10 +647,9 @@ function QueueDetailBody({
                 );
               })}
             </div>
-          </section>
+          </DrawerSection>
 
-          <section className="rounded-lg border border-slate-200 p-4">
-            <h4 className="text-sm font-semibold text-slate-900">最近日志</h4>
+          <DrawerSection title="最近日志">
             <div className="mt-3 space-y-2 text-xs text-slate-600">
               {recentEvents.length > 0 ? recentEvents.map((event) => (
                 <LogLine key={`${event.time}-${event.file}`} time={formatDate(event.time)} text={`${displayEventStage(event.stage)}：${event.message}`} />
@@ -684,13 +657,12 @@ function QueueDetailBody({
                 <p className="text-slate-400">暂无任务事件</p>
               )}
             </div>
-          </section>
+          </DrawerSection>
         </div>
       )}
 
       {tab === "logs" && (
-        <div className="mt-5 rounded-lg border border-slate-200 p-4">
-          <h4 className="text-sm font-semibold text-slate-900">最近日志</h4>
+        <DrawerSection title="最近日志" className="mt-5">
           <div className="mt-3 space-y-2 font-mono text-xs text-slate-500">
             {events.length > 0 ? events.slice(-8).map((event) => (
               <LogLine key={`${event.time}-${event.file}`} time={formatDate(event.time)} text={`${displayEventStage(event.stage)}：${event.message}`} />
@@ -698,19 +670,18 @@ function QueueDetailBody({
               <p className="text-slate-400">暂无任务事件</p>
             )}
           </div>
-        </div>
+        </DrawerSection>
       )}
 
       {tab === "resources" && (
-        <div className="mt-5 rounded-lg border border-slate-200 p-4">
-          <h4 className="text-sm font-semibold text-slate-900">Worker 资源</h4>
+        <DrawerSection title="Worker 资源" className="mt-5">
           <div className="mt-4 space-y-4">
             <ResourceLine icon={Cpu} label="CPU 配额" value={resources ? `${resources.cpu_cores.toFixed(1)} cores` : "—"} tone="blue" percent={resourcePercent(resources?.cpu_cores, 16)} />
             <ResourceLine icon={HardDrive} label="内存上限" value={resources ? `${resources.memory_gb.toFixed(1)}GB` : "—"} tone="emerald" percent={resourcePercent(resources?.memory_gb, 16)} />
             <ResourceLine icon={Server} label="FFmpeg 实例" value={String(resources?.clip_workers ?? "—")} tone="amber" percent={resourcePercent(resources?.clip_workers, 4)} />
             <ResourceLine icon={Server} label="Redis 状态" value={resources?.redis ?? "—"} tone={resources?.redis === "ok" ? "emerald" : "amber"} />
           </div>
-        </div>
+        </DrawerSection>
       )}
     </>
   );

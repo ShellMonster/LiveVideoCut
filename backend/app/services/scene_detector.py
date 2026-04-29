@@ -1,9 +1,10 @@
 """Scene detection using PySceneDetect ContentDetector."""
 
-import json
 from pathlib import Path
 
 from scenedetect import ContentDetector, SceneManager, open_video
+
+from app.utils.json_io import write_json
 
 
 class SceneDetector:
@@ -64,9 +65,7 @@ class SceneDetector:
         if output_dir:
             out = Path(output_dir)
             out.mkdir(parents=True, exist_ok=True)
-            (out / "scenes.json").write_text(
-                json.dumps(scenes, ensure_ascii=False, indent=2)
-            )
+            write_json(out / "scenes.json", scenes)
 
         return scenes
 

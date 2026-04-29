@@ -1,4 +1,3 @@
-import json
 import time
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -11,6 +10,7 @@ from app.services.subtitle_overrides import (
     MAX_SUBTITLE_OVERRIDE_LINES,
     sanitize_subtitle_override_text,
 )
+from app.utils.json_io import write_json
 
 logger = logging.getLogger(__name__)
 
@@ -273,11 +273,7 @@ def _process_single_clip(
         logger.info("Clip %s FFmpeg export finished in %.2fs", safe_label, time.perf_counter() - export_started_at)
 
         meta_path = clips_dir / f"{safe_label}_meta.json"
-        meta_path.write_text(
-            json.dumps(
-                build_clip_metadata(seg, result), ensure_ascii=False, indent=2
-            )
-        )
+        write_json(meta_path, build_clip_metadata(seg, result))
 
         logger.info("Clip %s total processing finished in %.2fs", safe_label, time.perf_counter() - clip_started_at)
         return result

@@ -8,7 +8,6 @@ import {
   Play,
   RefreshCw,
   Repeat,
-  Search,
   Shuffle,
   SkipBack,
   SkipForward,
@@ -28,11 +27,14 @@ import { editableCategoryOptions, editableMoodOptions } from "../constants";
 import { formatDuration } from "../format";
 import {
   Field,
+  FilterToolbar,
   Header,
   InputField,
   MultiSelectField,
   Pagination,
+  SearchInput,
   TagGroup,
+  ToolbarSelect,
 } from "../shared";
 import type { MusicTrack } from "../types";
 
@@ -226,44 +228,39 @@ export function AdminMusicPage() {
               重置筛选
             </button>
           </div>
-          <div className="flex flex-wrap gap-3 border-b border-slate-100 px-4 py-3">
-            <label className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500 sm:min-w-72">
-              <Search size={16} />
-              <input
-                value={query}
-                onChange={(event) => {
-                  setQuery(event.target.value);
-                  setPage(1);
-                }}
-                placeholder="搜索标题 / 艺术家 / 编号"
-                className="min-w-0 flex-1 bg-transparent text-slate-700 outline-none placeholder:text-slate-400"
-              />
-            </label>
-            <select
-              value={sourceFilter}
-              onChange={(event) => {
-                setSourceFilter(event.target.value);
+          <FilterToolbar>
+            <SearchInput
+              value={query}
+              onChange={(value) => {
+                setQuery(value);
                 setPage(1);
               }}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600"
+              placeholder="搜索标题 / 艺术家 / 编号"
+            />
+            <ToolbarSelect
+              value={sourceFilter}
+              onChange={(value) => {
+                setSourceFilter(value);
+                setPage(1);
+              }}
             >
               <option value="all">来源 全部</option>
               <option value="user">我的音乐</option>
               <option value="built-in">内置曲目</option>
-            </select>
-            <select className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+            </ToolbarSelect>
+            <ToolbarSelect>
               <option>商品分类 全部</option>
               {editableCategoryOptions.map((item) => (
                 <option key={item}>{categoryLabel(item)}</option>
               ))}
-            </select>
-            <select className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+            </ToolbarSelect>
+            <ToolbarSelect>
               <option>Mood 全部</option>
               {editableMoodOptions.map((item) => (
                 <option key={item}>{moodLabel(item)}</option>
               ))}
-            </select>
-          </div>
+            </ToolbarSelect>
+          </FilterToolbar>
 
           <div className="overflow-x-auto">
             <div className="grid min-w-[1120px] grid-cols-[32px_minmax(220px,1fr)_210px_110px_80px_150px_minmax(190px,1fr)_80px] gap-4 border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-medium text-slate-500">

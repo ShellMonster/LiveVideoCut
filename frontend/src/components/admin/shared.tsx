@@ -8,8 +8,10 @@ import {
   Film,
   HardDrive,
   Loader2,
+  Search,
   Scissors,
   Server,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { navItems } from "./constants";
@@ -202,6 +204,148 @@ export function Button({
       {DisabledIcon && <DisabledIcon size={15} className={loading ? "animate-spin" : undefined} />}
       {children}
     </button>
+  );
+}
+
+export function DrawerShell({
+  open,
+  title,
+  onClose,
+  children,
+  footer,
+  widthClassName = "max-w-[460px]",
+  closeLabel = "关闭详情",
+}: {
+  open: boolean;
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+  widthClassName?: string;
+  closeLabel?: string;
+}) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-40">
+      <button className="absolute inset-0 bg-slate-950/20" onClick={onClose} aria-label={closeLabel} />
+      <aside className={cn("absolute right-0 top-0 flex h-full w-full flex-col border-l border-slate-200 bg-white shadow-2xl", widthClassName)}>
+        <div className="flex h-16 items-center justify-between border-b border-slate-200 px-5">
+          <h2 className="text-base font-semibold text-slate-950">{title}</h2>
+          <button onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-50 hover:text-slate-700" aria-label="关闭">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5">{children}</div>
+        {footer && <div className="border-t border-slate-200 p-5">{footer}</div>}
+      </aside>
+    </div>
+  );
+}
+
+export function DrawerTabs<T extends string>({
+  tabs,
+  value,
+  onChange,
+}: {
+  tabs: { value: T; label: string }[];
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="mt-5 flex border-b border-slate-200">
+      {tabs.map((item) => (
+        <button
+          key={item.value}
+          onClick={() => onChange(item.value)}
+          className={cn(
+            "mr-6 border-b-2 px-1 pb-2 text-sm font-medium",
+            value === item.value
+              ? "border-blue-600 text-blue-700"
+              : "border-transparent text-slate-500 hover:text-slate-800",
+          )}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function DrawerSection({
+  title,
+  children,
+  action,
+  className,
+}: {
+  title?: string;
+  children: React.ReactNode;
+  action?: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={cn("rounded-lg border border-slate-200 p-4", className)}>
+      {(title || action) && (
+        <div className="flex items-center justify-between gap-3">
+          {title && <h4 className="text-sm font-semibold text-slate-900">{title}</h4>}
+          {action}
+        </div>
+      )}
+      {children}
+    </section>
+  );
+}
+
+export function FilterToolbar({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div className={cn("flex flex-wrap gap-3 border-b border-slate-100 px-4 py-3", className)}>
+      {children}
+    </div>
+  );
+}
+
+export function SearchInput({
+  value,
+  onChange,
+  placeholder,
+  className,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  className?: string;
+}) {
+  return (
+    <label className={cn("flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500 sm:min-w-72", className)}>
+      <Search size={16} />
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className="min-w-0 flex-1 bg-transparent text-slate-700 outline-none placeholder:text-slate-400"
+      />
+    </label>
+  );
+}
+
+export function ToolbarSelect({
+  value,
+  onChange,
+  children,
+  className,
+}: {
+  value?: string;
+  onChange?: (value: string) => void;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={onChange ? (event) => onChange(event.target.value) : undefined}
+      className={cn("rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600", className)}
+    >
+      {children}
+    </select>
   );
 }
 

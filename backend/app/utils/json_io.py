@@ -1,7 +1,7 @@
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +18,14 @@ def read_json(path: str | Path, fallback: Any, *, log_errors: bool = True) -> An
         return fallback
 
 
-def write_json(path: str | Path, payload: Any, *, ensure_parent: bool = True) -> None:
+def write_json(
+    path: str | Path,
+    payload: Any,
+    *,
+    ensure_parent: bool = True,
+    json_default: Callable[[Any], Any] | None = None,
+) -> None:
     json_path = Path(path)
     if ensure_parent:
         json_path.parent.mkdir(parents=True, exist_ok=True)
-    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
+    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=json_default))

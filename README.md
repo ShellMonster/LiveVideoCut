@@ -141,6 +141,7 @@ graph TD
 - **列表索引缓存** -- `GET /api/tasks` 和 `GET /api/assets/clips` 优先读取 `uploads/index.sqlite3` 的 SQLite 列表索引，开启 WAL + `synchronous=NORMAL`；JSON 文件仍是真源，索引缺失/版本变化可自动重建，异常时回退文件扫描
 - **进程内读缓存** -- 不引入 Redis 缓存；`/api/system/resources` 使用 3 秒 TTL，任务 summary/diagnostics/events/review、`/api/tasks/{id}/clips` 和 `/api/music/library` 使用 mtime 指纹内存缓存，文件变化后自动失效
 - **通用后端工具** -- 任务目录 JSON 读写统一走 `app.utils.json_io.read_json/write_json`；任务 ID、片段 ID 和安全目录名校验统一走 `app.api.validation`；`UPLOAD_DIR` 与用户 BGM 目录统一从 `app.config` 获取
+- **共享后台组件** -- `shared.tsx` 提供 `DrawerShell`、`DrawerTabs`、`DrawerSection`、`FilterToolbar`、`SearchInput`、`ToolbarSelect`、`Card` 和 `Button`，项目总览/任务队列的抽屉以及任务队列/片段资产/音乐库筛选栏优先复用这些组件
 - **前端性能** -- 项目总览、任务队列、片段资产和音乐库搜索输入使用 300ms debounce；任务列表轮询会根据是否存在处理中/等待中任务在 5s 与 30s 间切换；复核、音乐库、片段资产、诊断页的大列表派生数据使用 memo 化减少重复计算
 - **语气词过滤** -- 三级词表（38词），支持仅过滤字幕或同时裁剪视频片段，默认关闭
 - **智能封面** -- content_first（商品优先）/ person_first（主播优先），最多 30 帧评分选最佳；优先复用 visual_prescreen 已抽帧，不足时再用 FFmpeg 补足候选，COCO YOLO 遮挡检测自动排除手机等遮挡帧；封面检测模型单例使用线程锁保护并发初始化
@@ -235,8 +236,15 @@ docker compose up -d
 ### 后端通用工具约定
 
 - 任务目录、索引和商品素材相关 JSON 文件读写统一使用 `app.utils.json_io.read_json()` / `write_json()`，避免各接口重复裸写 `json.loads(path.read_text())` 和 `write_text(json.dumps(...))`。
+- `write_json()` 支持 `json_default`，需要写入 numpy/时间等非原生 JSON 类型时传入转换函数，不要为了 `default=str` 重新手写 `json.dumps()`。
 - 任务 ID、片段 ID、图片文件名和安全任务目录名的正则校验集中在 `app.api.validation`；新增 API 路由不要再单独定义 `_TASK_ID_RE` / `_SEGMENT_ID_RE`。
 - 上传根目录使用 `app.config.UPLOAD_DIR`，用户 BGM 目录使用 `app.config.USER_BGM_DIR`；不要在 API 或 service 中硬编码 `/app/uploads`。
+
+### 前端共享组件约定
+
+- 页面级右侧抽屉优先使用 `DrawerShell`，抽屉页签使用 `DrawerTabs`，抽屉内部重复区块使用 `DrawerSection`。
+- 列表筛选栏优先使用 `FilterToolbar` + `SearchInput` + `ToolbarSelect`，避免每个页面重复搜索框和 select class。
+- 普通卡片和按钮优先复用 `Card` / `Button`；只有列表项、媒体卡和特殊交互控件需要保留页面内定制样式。
 
 ## 配置说明
 

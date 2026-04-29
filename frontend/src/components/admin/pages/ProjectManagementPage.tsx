@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Activity, FileVideo, Film, MoreHorizontal, Plus, Scissors, Search, SlidersHorizontal, Trash2, X } from "lucide-react";
+import { Activity, FileVideo, Film, MoreHorizontal, Plus, Scissors, SlidersHorizontal, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ProgressBar } from "@/components/ProgressBar";
 import { useAdminContext } from "@/components/admin/context";
@@ -9,10 +9,15 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useConfirmStore } from "@/stores/confirmStore";
 import {
   Header,
+  Button,
+  DrawerSection,
+  DrawerShell,
+  DrawerTabs,
   LogLine,
   MetricCard,
   MetricPill,
   Pagination,
+  SearchInput,
 } from "../shared";
 import {
   displayAsrProvider,
@@ -134,17 +139,17 @@ export function ProjectManagementPage() {
                   <h2 className="text-sm font-semibold text-slate-950">项目切换中心</h2>
                   <p className="mt-1 text-xs text-slate-500">选择项目后，可直接进入复核、资产或诊断。</p>
                 </div>
-                <button
+                <Button
                   onClick={() => {
                     setQuery("");
                     setStatusFilter("all");
                     setPage(1);
                   }}
-                  className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+                  icon={SlidersHorizontal}
+                  className="shrink-0"
                 >
-                  <SlidersHorizontal size={16} />
                   重置筛选
-                </button>
+                </Button>
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
                 {statusOptions.map((option) => (
@@ -168,18 +173,15 @@ export function ProjectManagementPage() {
                   </button>
                 ))}
               </div>
-              <label className="mt-4 flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
-                <Search size={16} />
-                <input
-                  value={query}
-                  onChange={(event) => {
-                    setQuery(event.target.value);
-                    setPage(1);
-                  }}
-                  placeholder="搜索项目 / 文件名 / 任务 ID"
-                  className="min-w-0 flex-1 bg-transparent text-slate-700 outline-none placeholder:text-slate-400"
-                />
-              </label>
+              <SearchInput
+                value={query}
+                onChange={(value) => {
+                  setQuery(value);
+                  setPage(1);
+                }}
+                placeholder="搜索项目 / 文件名 / 任务 ID"
+                className="mt-4 sm:min-w-0"
+              />
             </div>
             <div className="divide-y divide-slate-100 md:hidden">
               {loading ? (
@@ -507,16 +509,23 @@ function ProjectDetailDrawer({
   ];
 
   return (
-    <div className="fixed inset-0 z-40">
-      <button className="absolute inset-0 bg-slate-950/20" onClick={onClose} aria-label="关闭项目详情" />
-      <aside className="absolute right-0 top-0 flex h-full w-full max-w-[440px] flex-col border-l border-slate-200 bg-white shadow-2xl">
-        <div className="flex h-16 items-center justify-between border-b border-slate-200 px-5">
-          <h2 className="text-base font-semibold text-slate-950">项目详情</h2>
-          <button onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-50 hover:text-slate-700" aria-label="关闭">
-            <X size={18} />
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto p-5">
+    <DrawerShell
+      open={open}
+      title="项目详情"
+      onClose={onClose}
+      widthClassName="max-w-[440px]"
+      closeLabel="关闭项目详情"
+      footer={
+        <Button
+          onClick={() => onDelete(task.task_id)}
+          variant="danger"
+          icon={Trash2}
+          className="w-full"
+        >
+          删除项目
+        </Button>
+      }
+    >
           <div className="flex gap-3">
             <div className="h-16 w-24 shrink-0 overflow-hidden rounded-lg bg-slate-100">
               {task.thumbnail_url ? (
@@ -538,27 +547,11 @@ function ProjectDetailDrawer({
             </div>
           </div>
 
-          <div className="mt-5 flex border-b border-slate-200">
-            {tabs.map((item) => (
-              <button
-                key={item.value}
-                onClick={() => onTabChange(item.value)}
-                className={cn(
-                  "mr-6 border-b-2 px-1 pb-2 text-sm font-medium",
-                  tab === item.value
-                    ? "border-blue-600 text-blue-700"
-                    : "border-transparent text-slate-500 hover:text-slate-800",
-                )}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
+          <DrawerTabs tabs={tabs} value={tab} onChange={onTabChange} />
 
           {tab === "overview" && (
             <div className="mt-5 space-y-4">
-              <section className="rounded-lg border border-slate-200 p-4">
-                <h4 className="text-sm font-semibold text-slate-900">基础信息</h4>
+              <DrawerSection title="基础信息">
                 <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
                   <InfoItem label="片段数" value={String(summary?.clips_count ?? task.clip_count ?? 0)} />
                   <InfoItem label="总时长" value={formatDuration(task.video_duration_s)} />
@@ -567,10 +560,9 @@ function ProjectDetailDrawer({
                   <InfoItem label="候选数" value={String(summary?.candidates_count ?? "—")} />
                   <InfoItem label="未导出" value={String(summary?.empty_screen_dropped_estimate ?? "—")} />
                 </div>
-              </section>
+              </DrawerSection>
 
-              <section className="rounded-lg border border-slate-200 p-4">
-                <h4 className="text-sm font-semibold text-slate-900">处理进度</h4>
+              <DrawerSection title="处理进度">
                 <div className="mt-4">
                   <ProgressBar currentState={task.status} errorMessage={task.message || undefined} />
                 </div>
@@ -582,28 +574,26 @@ function ProjectDetailDrawer({
                     </div>
                   ))}
                 </div>
-              </section>
+              </DrawerSection>
 
-              <section className="rounded-lg border border-slate-200 p-4">
-                <h4 className="text-sm font-semibold text-slate-900">推荐下一步操作</h4>
+              <DrawerSection title="推荐下一步操作">
                 <div className="mt-3 space-y-2">
                   <DrawerAction title="进入复核" hint="人工复核片段质量、标题和封面" onClick={() => onReview(task)} />
                   <DrawerAction title="查看片段资产" hint="浏览导出片段，下载或分享" onClick={() => onAssets(task)} />
                   <DrawerAction title="诊断报告" hint="查看处理详情与系统诊断" onClick={() => onDiagnostics(task)} />
                 </div>
-              </section>
+              </DrawerSection>
 
-              <section className="rounded-lg border border-slate-200 p-4">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-semibold text-slate-900">诊断摘要</h4>
-                  <button onClick={() => onDiagnostics(task)} className="text-xs font-medium text-blue-600 hover:text-blue-700">查看完整诊断日志</button>
-                </div>
+              <DrawerSection
+                title="诊断摘要"
+                action={<button onClick={() => onDiagnostics(task)} className="text-xs font-medium text-blue-600 hover:text-blue-700">查看完整诊断日志</button>}
+              >
                 <div className="mt-3 grid grid-cols-3 gap-2">
                   <MetricPill label="确认" value={String(summary?.confirmed_count ?? "—")} />
                   <MetricPill label="导出" value={String(summary?.clips_count ?? task.clip_count ?? 0)} />
                   <MetricPill label="警告" value={String(diagnostics?.warnings.length ?? 0)} />
                 </div>
-              </section>
+              </DrawerSection>
             </div>
           )}
 
@@ -636,8 +626,7 @@ function ProjectDetailDrawer({
 
           {tab === "logs" && (
             <div className="mt-5 space-y-4">
-              <section className="rounded-lg border border-slate-200 p-4">
-                <h4 className="text-sm font-semibold text-slate-900">流水线阶段</h4>
+              <DrawerSection title="流水线阶段">
                 <div className="mt-3 space-y-2">
                   {pipeline.length > 0 ? pipeline.map((item) => (
                     <div key={item.stage} className="flex items-center justify-between rounded-md bg-slate-50 px-3 py-2 text-xs">
@@ -648,9 +637,8 @@ function ProjectDetailDrawer({
                     <p className="text-sm text-slate-400">暂无流水线数据</p>
                   )}
                 </div>
-              </section>
-              <section className="rounded-lg border border-slate-200 p-4">
-                <h4 className="text-sm font-semibold text-slate-900">最近事件</h4>
+              </DrawerSection>
+              <DrawerSection title="最近事件">
                 <div className="mt-3 space-y-2 text-xs text-slate-500">
                   {events.length > 0 ? events.slice(-6).map((event) => (
                     <LogLine
@@ -662,21 +650,10 @@ function ProjectDetailDrawer({
                     <p className="text-sm text-slate-400">暂无诊断事件</p>
                   )}
                 </div>
-              </section>
+              </DrawerSection>
             </div>
           )}
-        </div>
-        <div className="border-t border-slate-200 p-5">
-          <button
-            onClick={() => onDelete(task.task_id)}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
-          >
-            <Trash2 size={15} />
-            删除项目
-          </button>
-        </div>
-      </aside>
-    </div>
+    </DrawerShell>
   );
 }
 

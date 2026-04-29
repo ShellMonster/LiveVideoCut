@@ -56,13 +56,15 @@
 
 布局约定：`AdminDashboard.tsx` 使用固定视口高度的后台壳，右侧内容区独立滚动；桌面端左侧导航栏保持整屏高度，Worker 资源/服务状态卡固定在侧栏底部。列表页不要做无限下滑。项目总览、任务队列、片段资产使用后端 `offset/limit` 分页；剪辑复核片段队列、音乐库、诊断事件日志使用 `Pagination` 组件做页面内分页。项目总览、任务队列、剪辑复核、片段资产、音乐库、诊断报告的详情信息优先用右侧抽屉承载，避免列表被详情面板挤压；AI 商品素材采用独立工作台页面，不放在片段资产抽屉里。
 
+共享前端组件约定：`shared.tsx` 是后台 UI 组件的统一入口。新做或重构页面级右侧抽屉时优先使用 `DrawerShell`、`DrawerTabs`、`DrawerSection`；列表筛选栏优先使用 `FilterToolbar`、`SearchInput`、`ToolbarSelect`；普通按钮和白底边框卡片优先使用 `Button`、`Card`。不要在每个页面重复写同一套 `rounded-lg border border-slate-200 bg-white`、搜索框和 select class，除非该元素是媒体卡、表格行或有特殊布局。
+
 前端性能约定：项目总览、任务队列、片段资产和音乐库搜索输入使用 `useDebouncedValue()` 做 300ms debounce，避免每个字符触发请求或大列表过滤；`useTaskList()` / `useTasks()` 的轮询根据任务活跃度动态切换，存在处理中/等待中任务时 5s，全部完成/失败时 30s；Review/Music/Assets/Diagnostics 页面的大列表派生数据优先用 `useMemo`，避免 render 时重复 filter/map/reduce。
 
 后端列表性能约定：`uploads/index.sqlite3` 是 SQLite 读模型，只做 `/api/tasks` 和 `/api/assets/clips` 的列表索引缓存，不是主存储。真实数据仍以 `uploads/<task_id>/state.json`、`meta.json`、`settings.json`、`review.json`、`clips/*_meta.json`、`commerce/<segment_id>/*.json` 为准。SQLite 连接必须启用 `PRAGMA journal_mode=WAL;`、`PRAGMA synchronous=NORMAL;`、`PRAGMA busy_timeout=5000;`、`PRAGMA foreign_keys=ON;`；索引缺失或 schema 版本变化时可从 uploads 全量重建，查询异常必须回退文件扫描。上传、状态流转、复核保存、任务删除、单片段重导出、AI 商品素材 job 更新时刷新对应 task 的索引。
 
 后端接口缓存约定：当前只使用 API 进程内缓存，不引入 Redis 缓存。`/api/system/resources` 使用 3 秒 TTL；`/api/tasks/{id}/summary`、`/diagnostics`、`/events`、`/review`、`/api/tasks/{id}/clips` 和 `/api/music/library` 使用文件 mtime/size 指纹缓存。缓存只保存接口组装结果，相关 JSON、clips、covers 或音乐库文件变化后必须自动失效；不要缓存写接口、ZIP 下载流或上传结果。
 
-后端通用工具约定：任务目录、索引、音乐库和 AI 商品素材相关 JSON 文件读写统一使用 `app.utils.json_io.read_json()` / `write_json()`；新增 API 不要再裸写 `json.loads(path.read_text())` 或 `path.write_text(json.dumps(...))`。任务 ID、片段 ID、图片文件名和安全任务目录名校验统一从 `app.api.validation` 导入，不要重复定义 `_TASK_ID_RE` / `_SEGMENT_ID_RE` / `_CLIP_NAME_RE`。上传根目录和用户 BGM 目录统一从 `app.config.UPLOAD_DIR` / `USER_BGM_DIR` 获取，不要硬编码 `/app/uploads`。
+后端通用工具约定：任务目录、索引、音乐库和 AI 商品素材相关 JSON 文件读写统一使用 `app.utils.json_io.read_json()` / `write_json()`；新增 API 不要再裸写 `json.loads(path.read_text())` 或 `path.write_text(json.dumps(...))`。如需 `json.dumps(..., default=str)` 这类非原生 JSON 类型转换，使用 `write_json(..., json_default=str)`。任务 ID、片段 ID、图片文件名和安全任务目录名校验统一从 `app.api.validation` 导入，不要重复定义 `_TASK_ID_RE` / `_SEGMENT_ID_RE` / `_CLIP_NAME_RE`。上传根目录和用户 BGM 目录统一从 `app.config.UPLOAD_DIR` / `USER_BGM_DIR` 获取，不要硬编码 `/app/uploads`。
 
 AI 商品素材设置位于设置页 **AI 服务** 页签内，但必须和剪辑 VLM 上下分成两个独立面板：上方为剪辑 VLM/导出模式，下方为 **AI 商品素材**。商品素材配置独立于剪辑流水线 VLM/LLM，并且在 AI 商品素材面板内继续分成 **Gemini 商品识图** 和 **OpenAI Image 生图** 两个子块：`commerce_gemini_api_base/model/api_key/timeout` 用于 Gemini 封面识图和抖音/淘宝文案生成，默认 `https://generativelanguage.googleapis.com` + `gemini-3-flash-preview`；`commerce_image_api_base/model/api_key/size/quality/timeout` 用于 OpenAI Image 生图，默认 `https://api.openai.com/v1` + `gpt-image-2` + `2K`。后端会把 `commerce_image_size=2K` 解析为 `2048x2048` 发送给 OpenAI Images；`commerce_gemini_api_key` 和 `commerce_image_api_key` 是敏感字段，上传时只写入 `secrets.json`。
 

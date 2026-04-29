@@ -19,12 +19,13 @@ The public interface is unchanged: detect_from_frames() and
 detect_scenes_from_candidates() have the same signatures and return formats.
 """
 
-import json
 import logging
 from pathlib import Path
 
 import cv2
 import numpy as np
+
+from app.utils.json_io import write_json
 
 from .clothing_segmenter import ClothingSegmenter
 
@@ -404,9 +405,7 @@ class ClothingChangeDetector:
                     "yolo_available": segmenter.yolo_available,
                 },
             }
-            (out / "hist_debug.json").write_text(
-                json.dumps(debug_data, ensure_ascii=False, indent=2, default=str),
-            )
+            write_json(out / "hist_debug.json", debug_data, json_default=str)
 
             person_presence = [
                 {
@@ -419,9 +418,7 @@ class ClothingChangeDetector:
                 }
                 for i, rec in enumerate(frame_records)
             ]
-            (out / "person_presence.json").write_text(
-                json.dumps(person_presence, ensure_ascii=False, indent=2),
-            )
+            write_json(out / "person_presence.json", person_presence)
 
         return result
 

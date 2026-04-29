@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
-import { Check, Download, Eye, Film, ListChecks, MoreHorizontal, Search, Sparkles, X } from "lucide-react";
+import { Check, Download, Eye, Film, ListChecks, MoreHorizontal, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useClipAssets, useCommerceBatchAction } from "@/hooks/useAdminQueries";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { API_BASE } from "../api";
 import { formatBytes, formatConfidence, formatDate, formatDuration, reviewStatusLabel } from "../format";
-import { Header, MetricCard, MetricPill, Pagination } from "../shared";
+import { FilterToolbar, Header, MetricCard, MetricPill, Pagination, SearchInput, ToolbarSelect } from "../shared";
 import type { ClipAsset, CommerceBatchResponse } from "../types";
 
 type AssetDrawerTab = "preview" | "metadata" | "actions";
@@ -111,58 +111,51 @@ export function AssetsPage() {
         }
       />
       <main className="space-y-5 p-4 sm:p-6">
-        <section className="rounded-lg border border-slate-200 bg-white p-4">
-          <div className="flex flex-wrap gap-3">
-            <label className="flex min-w-72 flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
-              <Search size={16} />
-              <input
-                value={query}
-                onChange={(event) => {
-                  setQuery(event.target.value);
-                  clearSelection();
-                  setPage(1);
-                }}
-                placeholder="搜索商品名 / 项目 / 片段 ID"
-                className="min-w-0 flex-1 bg-transparent text-slate-700 outline-none placeholder:text-slate-400"
-              />
-            </label>
-            <select
-              value={statusFilter}
-              onChange={(event) => {
-                setStatusFilter(event.target.value);
+        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+          <FilterToolbar className="border-b-0">
+            <SearchInput
+              value={query}
+              onChange={(value) => {
+                setQuery(value);
                 clearSelection();
                 setPage(1);
               }}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600"
+              placeholder="搜索商品名 / 项目 / 片段 ID"
+            />
+            <ToolbarSelect
+              value={statusFilter}
+              onChange={(value) => {
+                setStatusFilter(value);
+                clearSelection();
+                setPage(1);
+              }}
             >
               <option value="all">全部状态</option>
               <option value="pending">待复核</option>
               <option value="approved">已通过</option>
               <option value="skipped">已跳过</option>
               <option value="needs_adjustment">需调整</option>
-            </select>
-            <select
+            </ToolbarSelect>
+            <ToolbarSelect
               value={durationFilter}
-              onChange={(event) => {
-                setDurationFilter(event.target.value);
+              onChange={(value) => {
+                setDurationFilter(value);
                 clearSelection();
                 setPage(1);
               }}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600"
             >
               <option value="all">全部时长</option>
               <option value="short">30 秒内</option>
               <option value="medium">30-90 秒</option>
               <option value="long">90 秒以上</option>
-            </select>
-            <select
+            </ToolbarSelect>
+            <ToolbarSelect
               value={commerceStatusFilter}
-              onChange={(event) => {
-                setCommerceStatusFilter(event.target.value);
+              onChange={(value) => {
+                setCommerceStatusFilter(value);
                 clearSelection();
                 setPage(1);
               }}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600"
             >
               <option value="all">全部 AI 素材</option>
               <option value="not_started">未生成</option>
@@ -171,8 +164,8 @@ export function AssetsPage() {
               <option value="running">生成中</option>
               <option value="completed">已完成</option>
               <option value="failed">失败</option>
-            </select>
-          </div>
+            </ToolbarSelect>
+          </FilterToolbar>
         </section>
 
         <section className="grid gap-4 lg:grid-cols-4">

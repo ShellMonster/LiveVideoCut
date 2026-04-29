@@ -1,8 +1,9 @@
 """Frame extraction within candidate scene regions using ffmpeg."""
 
-import json
 import subprocess
 from pathlib import Path
+
+from app.utils.json_io import write_json
 
 
 class FrameExtractor:
@@ -69,8 +70,6 @@ class FrameExtractor:
                     }
                 )
 
-        (out / "frames.json").write_text(
-            json.dumps(all_frames, ensure_ascii=False, indent=2)
-        )
+        write_json(out / "frames.json", all_frames)
 
         return all_frames
