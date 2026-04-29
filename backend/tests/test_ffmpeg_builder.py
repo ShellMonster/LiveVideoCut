@@ -60,6 +60,37 @@ class TestBuildCutCommand:
         assert "subtitles=" in cmd_str
         assert f"fontsdir={SUBTITLE_FONTS_DIR.resolve()}" in cmd_str
 
+    def test_force_style_supports_top_position(self, builder):
+        cmd = builder.build_cut_command(
+            "input.mp4",
+            0.0,
+            30.0,
+            "sub.srt",
+            "bgm.mp3",
+            "wm.png",
+            "out.mp4",
+            subtitle_position="top",
+        )
+        cmd_str = " ".join(cmd)
+        assert "Alignment=8" in cmd_str
+        assert "MarginV=120" in cmd_str
+
+    def test_force_style_supports_custom_position(self, builder):
+        cmd = builder.build_cut_command(
+            "input.mp4",
+            0.0,
+            30.0,
+            "sub.srt",
+            "bgm.mp3",
+            "wm.png",
+            "out.mp4",
+            subtitle_position="custom",
+            custom_position_y=72,
+        )
+        cmd_str = " ".join(cmd)
+        assert "Alignment=2" in cmd_str
+        assert "MarginV=538" in cmd_str
+
     def test_uses_ass_subtitle_file_without_force_style(self, builder):
         cmd = builder.build_cut_command(
             "input.mp4", 0.0, 30.0, "sub.ass", "bgm.mp3", "wm.png", "out.mp4"
@@ -217,7 +248,7 @@ class TestBuildCutCommand:
         )
         cmd_str = " ".join(cmd)
         assert "force_style=" in cmd_str
-        assert "Alignment=10" in cmd_str
+        assert "Alignment=5" in cmd_str
         assert "FontSize=22" in cmd_str
 
 

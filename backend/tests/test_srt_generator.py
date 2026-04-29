@@ -187,6 +187,32 @@ class TestKaraokeGenerate:
             in content
         )
 
+    def test_karaoke_uses_custom_subtitle_position(self, generator, tmp_dir):
+        output = str(tmp_dir / "custom.ass")
+        result = generator.generate(
+            [{"text": "测试字幕", "start_time": 0.0, "end_time": 1.0}],
+            output,
+            mode="karaoke",
+            subtitle_position="custom",
+            custom_position_y=72,
+        )
+
+        content = Path(result).read_text(encoding="utf-8")
+        assert "Style: Default,Noto Sans CJK SC,60" in content
+        assert ",2,30,30,538,1" in content
+
+    def test_karaoke_supports_top_subtitle_position(self, generator, tmp_dir):
+        output = str(tmp_dir / "top.ass")
+        result = generator.generate(
+            [{"text": "测试字幕", "start_time": 0.0, "end_time": 1.0}],
+            output,
+            mode="karaoke",
+            subtitle_position="top",
+        )
+
+        content = Path(result).read_text(encoding="utf-8")
+        assert ",8,30,30,120,1" in content
+
     def test_resolve_keeps_karaoke_when_word_timing_exists(self, generator):
         assert generator.resolve_phase1_export_mode("karaoke", True, True) == "karaoke"
 

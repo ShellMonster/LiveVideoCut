@@ -10,6 +10,12 @@ from app.services.subtitle_overrides import (
     MAX_SUBTITLE_OVERRIDE_LINES,
     sanitize_subtitle_override_text,
 )
+from app.services.sensitive_filter import (
+    compute_sensitive_cut_ranges,
+    find_sensitive_hits,
+    merge_cut_ranges,
+    remove_sensitive_subtitle_segments,
+)
 from app.utils.json_io import write_json
 
 logger = logging.getLogger(__name__)
@@ -201,6 +207,47 @@ def _process_single_clip(
         if filler_mode == "video":
             filler_cut_ranges = compute_filler_cut_ranges(sub_segments)
 
+        sensitive_words = getattr(settings, "sensitive_words", [])
+        sensitive_enabled = bool(getattr(settings, "sensitive_filter_enabled", False) and sensitive_words)
+        sensitive_mode = getattr(settings, "sensitive_filter_mode", "video_segment")
+        sensitive_mode_value = sensitive_mode.value if hasattr(sensitive_mode, "value") else str(sensitive_mode)
+        sensitive_match_mode = getattr(settings, "sensitive_match_mode", "contains")
+        sensitive_match_value = (
+            sensitive_match_mode.value
+            if hasattr(sensitive_match_mode, "value")
+            else str(sensitive_match_mode)
+        )
+        sensitive_cut_ranges: list[dict[str, object]] = []
+        if sensitive_enabled:
+            hits = find_sensitive_hits(
+                sub_segments,
+                list(sensitive_words),
+                match_mode=sensitive_match_value,
+            )
+            if hits and sensitive_mode_value == "drop_clip":
+                logger.info(
+                    "Skipping clip %s due to sensitive words: %s",
+                    safe_label,
+                    sorted({word for hit in hits for word in hit.get("matched_words", [])}),
+                )
+                return None
+            sensitive_cut_ranges = compute_sensitive_cut_ranges(
+                sub_segments,
+                list(sensitive_words),
+                match_mode=sensitive_match_value,
+            )
+            if sensitive_cut_ranges:
+                sub_segments = remove_sensitive_subtitle_segments(
+                    sub_segments,
+                    list(sensitive_words),
+                    match_mode=sensitive_match_value,
+                )
+
+        cut_ranges = merge_cut_ranges(
+            filler_cut_ranges,
+            sensitive_cut_ranges,
+        )
+
         srt_gen = SRTGenerator()
         has_word_timing = any(bool(item.get("words")) for item in sub_segments)
         effective_subtitle_mode = srt_gen.resolve_phase1_export_mode(
@@ -221,6 +268,8 @@ def _process_single_clip(
                     sub_segments,
                     subtitle_path,
                     mode=effective_subtitle_mode,
+                    subtitle_position=settings.subtitle_position.value,
+                    custom_position_y=settings.custom_position_y,
                 )
             except Exception:
                 logger.warning(
@@ -261,7 +310,7 @@ def _process_single_clip(
             subtitle_position=settings.subtitle_position.value,
             subtitle_template=settings.subtitle_template.value,
             custom_position_y=settings.custom_position_y,
-            filler_cut_ranges=filler_cut_ranges or None,
+            filler_cut_ranges=cut_ranges or None,
             cover_timestamp=cover_ts,
             video_speed=video_speed,
             export_resolution=export_resolution,

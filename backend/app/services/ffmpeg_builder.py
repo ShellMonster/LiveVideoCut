@@ -6,6 +6,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from app.services.srt_generator import subtitle_alignment_and_margin
+
 logger = logging.getLogger(__name__)
 
 RESOLUTION_SCALE = {
@@ -70,12 +72,11 @@ class FFmpegBuilder:
         custom_position_y: int | None,
     ) -> str | None:
         style_parts: list[str] = [f"FontName={SUBTITLE_FONT_FAMILY}"]
-
-        if subtitle_position == "middle":
-            style_parts.append("Alignment=10")
-        elif subtitle_position == "custom" and custom_position_y is not None:
-            margin_v = max(0, int(round((100 - custom_position_y) * 10.8)))
-            style_parts.extend(["Alignment=2", f"MarginV={margin_v}"])
+        alignment, margin_v = subtitle_alignment_and_margin(
+            subtitle_position,
+            custom_position_y,
+        )
+        style_parts.extend([f"Alignment={alignment}", f"MarginV={margin_v}"])
 
         template_styles = {
             "clean": [],

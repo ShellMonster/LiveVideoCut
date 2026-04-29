@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Check, Info, Save, SlidersHorizontal } from "lucide-react";
+import { useMemo, useState, type PointerEvent } from "react";
+import { Check, Info, Move, Save, SlidersHorizontal, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   DEFAULT_API_BASES,
@@ -16,6 +16,8 @@ import {
   type FFmpegPreset,
   type FillerFilterMode,
   type LlmType,
+  type SensitiveFilterMode,
+  type SensitiveMatchMode,
   type Settings,
   type SubtitleMode,
   type SubtitlePosition,
@@ -62,6 +64,8 @@ export function AdminSettingsPage() {
   const [draft, setDraft] = useState<SettingsDraft>(() => initialDraft(useSettingsStore.getState()));
   const [expandedAdvanced, setExpandedAdvanced] = useState(true);
   const [activeSection, setActiveSection] = useState(0);
+  const [sensitiveWordInput, setSensitiveWordInput] = useState("");
+  const [hoveredSubtitlePreset, setHoveredSubtitlePreset] = useState<SubtitlePosition | null>(null);
 
   const savedSnapshot = useMemo(() => JSON.stringify(initialDraft(settings)), [settings]);
   const draftSnapshot = useMemo(() => JSON.stringify(draft), [draft]);
@@ -69,6 +73,34 @@ export function AdminSettingsPage() {
 
   const updateDraft = (partial: Partial<SettingsDraft>) => {
     setDraft((current) => ({ ...current, ...partial }));
+  };
+
+  const addSensitiveWord = (rawValue: string) => {
+    const value = rawValue.trim();
+    if (!value || draft.sensitiveWords.includes(value)) return;
+    updateDraft({ sensitiveWords: [...draft.sensitiveWords, value] });
+    setSensitiveWordInput("");
+  };
+
+  const removeSensitiveWord = (word: string) => {
+    updateDraft({ sensitiveWords: draft.sensitiveWords.filter((item) => item !== word) });
+  };
+
+  const setSubtitlePreset = (subtitlePosition: SubtitlePosition) => {
+    updateDraft({
+      subtitlePosition,
+      customPositionY: subtitlePosition === "custom" ? draft.customPositionY ?? 72 : draft.customPositionY,
+    });
+  };
+
+  const updateSubtitleYFromPointer = (event: PointerEvent<HTMLDivElement>) => {
+    if (draft.subtitleMode === "off") return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const y = Math.round(((event.clientY - rect.top) / rect.height) * 100);
+    updateDraft({
+      subtitlePosition: "custom",
+      customPositionY: Math.min(92, Math.max(8, y)),
+    });
   };
 
   const applyPreset = (preset: "quality" | "fast" | "debug" | "plain") => {
@@ -454,18 +486,6 @@ export function AdminSettingsPage() {
                   <option value="video">字幕+视频裁剪</option>
                 </select>
               </Field>
-              <Field label="字幕位置">
-                <select
-                  value={draft.subtitlePosition}
-                  onChange={(event) => updateDraft({ subtitlePosition: event.target.value as SubtitlePosition })}
-                  className={fieldClassName}
-                  disabled={draft.subtitleMode === "off"}
-                >
-                  <option value="bottom">底部</option>
-                  <option value="middle">中部</option>
-                  <option value="custom">自定义</option>
-                </select>
-              </Field>
               <Field label="字幕模板">
                 <select
                   value={draft.subtitleTemplate}
@@ -487,6 +507,91 @@ export function AdminSettingsPage() {
                   className={fieldClassName}
                 />
               </Field>
+            </div>
+
+            <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-950">敏感词过滤</h3>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">命中后按字幕句段处理，避免视频违规内容残留。</p>
+                  </div>
+                  <button
+                    onClick={() => updateDraft({ sensitiveFilterEnabled: !draft.sensitiveFilterEnabled })}
+                    className={cn("h-6 w-11 shrink-0 rounded-full p-0.5 transition-colors", draft.sensitiveFilterEnabled ? "bg-blue-600" : "bg-slate-300")}
+                    aria-label="启用敏感词过滤"
+                  >
+                    <span className={cn("block h-5 w-5 rounded-full bg-white transition-transform", draft.sensitiveFilterEnabled && "translate-x-5")} />
+                  </button>
+                </div>
+
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <Field label="处理方式" tooltip="裁掉命中句段会保留 clip 其余内容；整条片段不导出适合更严格的合规策略。">
+                    <SegmentedControl
+                      value={draft.sensitiveFilterMode}
+                      onChange={(sensitiveFilterMode) => updateDraft({ sensitiveFilterMode: sensitiveFilterMode as SensitiveFilterMode })}
+                      options={[
+                        ["video_segment", "裁掉命中句段"],
+                        ["drop_clip", "整条不导出"],
+                      ]}
+                    />
+                  </Field>
+                  <Field label="匹配方式" tooltip="包含匹配适合中文敏感词；精确匹配只在整句字幕完全等于词条时命中。">
+                    <SegmentedControl
+                      value={draft.sensitiveMatchMode}
+                      onChange={(sensitiveMatchMode) => updateDraft({ sensitiveMatchMode: sensitiveMatchMode as SensitiveMatchMode })}
+                      options={[
+                        ["contains", "包含匹配"],
+                        ["exact", "精确匹配"],
+                      ]}
+                    />
+                  </Field>
+                </div>
+
+                <Field label="敏感词库" hint={`${draft.sensitiveWords.length} 个词`} className="mt-4">
+                  <div className="min-h-24 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <div className="flex flex-wrap gap-2">
+                      {draft.sensitiveWords.map((word) => (
+                        <span key={word} className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
+                          {word}
+                          <button onClick={() => removeSensitiveWord(word)} className="text-slate-400 hover:text-red-500" aria-label={`删除 ${word}`}>
+                            <X size={12} />
+                          </button>
+                        </span>
+                      ))}
+                      <input
+                        value={sensitiveWordInput}
+                        onChange={(event) => setSensitiveWordInput(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === ",") {
+                            event.preventDefault();
+                            addSensitiveWord(sensitiveWordInput);
+                          }
+                        }}
+                        onBlur={() => addSensitiveWord(sensitiveWordInput)}
+                        placeholder="输入词后回车添加"
+                        className="min-w-40 flex-1 bg-transparent px-1 py-1 text-sm text-slate-700 outline-none placeholder:text-slate-400"
+                      />
+                    </div>
+                  </div>
+                </Field>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                  <span className="rounded-full bg-blue-50 px-2 py-1 font-medium text-blue-700">随任务保存</span>
+                  <span className="rounded-full bg-amber-50 px-2 py-1 font-medium text-amber-700">需要 ASR</span>
+                  <span className="rounded-full bg-slate-100 px-2 py-1 font-medium text-slate-600">只影响新任务</span>
+                </div>
+              </div>
+
+              <SubtitlePositionEditor
+                disabled={draft.subtitleMode === "off"}
+                position={draft.subtitlePosition}
+                customY={draft.customPositionY ?? 72}
+                hoveredPreset={hoveredSubtitlePreset}
+                onHoverPreset={setHoveredSubtitlePreset}
+                onPresetChange={setSubtitlePreset}
+                onCustomYChange={(customPositionY) => updateDraft({ subtitlePosition: "custom", customPositionY })}
+                onPreviewPointer={updateSubtitleYFromPointer}
+              />
             </div>
 
             {needsTos && (
@@ -926,6 +1031,135 @@ function OptionCard({
       </div>
       <p className="mt-2 text-xs leading-5 text-slate-500">{desc}</p>
     </button>
+  );
+}
+
+const subtitlePresetMeta: Record<SubtitlePosition, { label: string; y: number; desc: string }> = {
+  top: { label: "顶部", y: 12, desc: "适合商品画面在下方" },
+  middle: { label: "中部", y: 50, desc: "适合画面上下都较干净" },
+  bottom: { label: "底部", y: 88, desc: "默认位置，适合口播画面" },
+  custom: { label: "自定义", y: 72, desc: "拖动预览字幕记录坐标" },
+};
+
+function SubtitlePositionEditor({
+  disabled,
+  position,
+  customY,
+  hoveredPreset,
+  onHoverPreset,
+  onPresetChange,
+  onCustomYChange,
+  onPreviewPointer,
+}: {
+  disabled: boolean;
+  position: SubtitlePosition;
+  customY: number;
+  hoveredPreset: SubtitlePosition | null;
+  onHoverPreset: (position: SubtitlePosition | null) => void;
+  onPresetChange: (position: SubtitlePosition) => void;
+  onCustomYChange: (value: number) => void;
+  onPreviewPointer: (event: PointerEvent<HTMLDivElement>) => void;
+}) {
+  const effectiveY = position === "custom" ? customY : subtitlePresetMeta[position].y;
+  const previewPosition = hoveredPreset ?? position;
+  const previewY = previewPosition === "custom" ? effectiveY : subtitlePresetMeta[previewPosition].y;
+
+  return (
+    <div className={cn("rounded-lg border border-slate-200 bg-white p-4", disabled && "opacity-60")}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-950">字幕位置调整</h3>
+          <p className="mt-1 text-xs leading-5 text-slate-500">选择预设或直接拖动字幕条，自动写入垂直坐标。</p>
+        </div>
+        <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">Y {effectiveY}%</span>
+      </div>
+
+      <div className="relative mt-4">
+        <div className="grid grid-cols-4 gap-1 rounded-lg bg-slate-100 p-1">
+          {(Object.keys(subtitlePresetMeta) as SubtitlePosition[]).map((item) => (
+            <button
+              key={item}
+              disabled={disabled}
+              onMouseEnter={() => onHoverPreset(item)}
+              onMouseLeave={() => onHoverPreset(null)}
+              onClick={() => onPresetChange(item)}
+              className={cn(
+                "rounded-md px-2 py-2 text-xs font-medium transition",
+                position === item ? "bg-white text-blue-700 shadow-sm" : "text-slate-500 hover:text-slate-800",
+                disabled && "cursor-not-allowed",
+              )}
+            >
+              {subtitlePresetMeta[item].label}
+            </button>
+          ))}
+        </div>
+        {hoveredPreset && (
+          <div className="absolute left-0 top-12 z-20 w-36 rounded-lg border border-slate-200 bg-white p-2 shadow-lg">
+            <MiniSubtitlePreview y={subtitlePresetMeta[hoveredPreset].y} />
+            <div className="mt-1 text-center text-[11px] font-medium text-slate-600">{subtitlePresetMeta[hoveredPreset].desc}</div>
+          </div>
+        )}
+      </div>
+
+      <div
+        className={cn("relative mx-auto mt-4 aspect-[9/16] max-h-[360px] overflow-hidden rounded-lg border border-slate-200 bg-slate-900", !disabled && "cursor-grab active:cursor-grabbing")}
+        onPointerDown={(event) => {
+          if (disabled) return;
+          event.currentTarget.setPointerCapture(event.pointerId);
+          onPreviewPointer(event);
+        }}
+        onPointerMove={(event) => {
+          if (disabled || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+          onPreviewPointer(event);
+        }}
+        onPointerUp={(event) => {
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+          }
+        }}
+      >
+        <div className="absolute inset-0 bg-gradient-to-b from-slate-700 via-slate-800 to-slate-950" />
+        <div className="absolute left-[18%] top-[14%] h-28 w-16 rounded-full bg-slate-500/70" />
+        <div className="absolute left-[14%] top-[30%] h-36 w-24 rounded-t-full bg-blue-300/40" />
+        <div className="absolute right-[14%] top-[18%] h-44 w-20 rounded-lg border border-white/20 bg-white/10" />
+        {[12, 50, 88].map((line) => (
+          <div key={line} className="absolute left-0 right-0 border-t border-white/15" style={{ top: `${line}%` }} />
+        ))}
+        <div
+          className="absolute left-1/2 inline-flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-lg border border-blue-300 bg-black/55 px-3 py-1.5 text-center text-sm font-semibold text-white shadow-lg"
+          style={{ top: `${previewY}%` }}
+        >
+          <Move size={14} />
+          这款连衣裙显瘦又好搭
+        </div>
+        <div className="absolute left-1/2 rounded-full bg-blue-600 px-2 py-0.5 text-[11px] font-medium text-white" style={{ top: `calc(${previewY}% + 22px)`, transform: "translateX(-50%)" }}>
+          X 50%, Y {previewY}%
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <RangeField label="垂直位置" value={effectiveY / 100} max={1} onChange={(value) => onCustomYChange(Math.round(value * 100))} />
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+        <div className="rounded-lg bg-slate-50 p-2">
+          <div className="text-slate-400">subtitle_position</div>
+          <div className="mt-1 font-medium text-slate-800">{position}</div>
+        </div>
+        <div className="rounded-lg bg-slate-50 p-2">
+          <div className="text-slate-400">custom_position_y</div>
+          <div className="mt-1 font-medium text-slate-800">{position === "custom" ? effectiveY : "—"}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MiniSubtitlePreview({ y }: { y: number }) {
+  return (
+    <div className="relative mx-auto aspect-[9/16] h-24 overflow-hidden rounded-md bg-slate-900">
+      <div className="absolute inset-0 bg-gradient-to-b from-slate-600 to-slate-900" />
+      <div className="absolute left-1/2 h-1.5 w-16 -translate-x-1/2 rounded-full bg-white" style={{ top: `${y}%` }} />
+    </div>
   );
 }
 

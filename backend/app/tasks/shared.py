@@ -23,10 +23,11 @@ def _read_json_file(path: Path, fallback):
 
 
 def _need_asr(settings: SettingsRequest) -> bool:
-    """ASR is needed when subtitle burning is on OR LLM text analysis is enabled."""
+    """ASR is needed when downstream logic needs transcript text."""
     subtitle_on = settings.subtitle_mode.value != "off"
     llm_on = settings.enable_llm_analysis
-    return subtitle_on or llm_on
+    sensitive_on = settings.sensitive_filter_enabled and bool(settings.sensitive_words)
+    return subtitle_on or llm_on or sensitive_on
 
 
 def _create_asr_client(settings: SettingsRequest) -> DashScopeASRClient | VolcengineASRClient | VolcengineVCClient:

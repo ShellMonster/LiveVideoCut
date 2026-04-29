@@ -18,7 +18,7 @@ SUBTITLE_DOWNGRADE_CHAIN: dict[str, tuple[str, ...]] = {
 
 MAX_CHARS_PER_LINE = 15
 
-KARAOKE_ASS_HEADER = """[Script Info]
+KARAOKE_ASS_HEADER_TEMPLATE = """[Script Info]
 ScriptType: v4.00+
 WrapStyle: 2
 PlayResX: 1080
@@ -26,12 +26,45 @@ PlayResY: 1920
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Noto Sans CJK SC,60,&H00FFFFFF,&H0000FFFF,&H00000000,&H64000000,1,0,0,0,100,100,0,0,1,3,1,2,30,30,120,1
-Style: Highlight,Noto Sans CJK SC,72,&H0000FFFF,&H0000FFFF,&H00000000,&H64000000,1,0,0,0,100,100,0,0,1,4,1,2,30,30,120,1
+Style: Default,Noto Sans CJK SC,60,&H00FFFFFF,&H0000FFFF,&H00000000,&H64000000,1,0,0,0,100,100,0,0,1,3,1,{alignment},30,30,{margin_v},1
+Style: Highlight,Noto Sans CJK SC,72,&H0000FFFF,&H0000FFFF,&H00000000,&H64000000,1,0,0,0,100,100,0,0,1,4,1,{alignment},30,30,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
+
+
+def subtitle_alignment_and_margin(
+    subtitle_position: str = "bottom",
+    custom_position_y: int | None = None,
+    play_res_y: int = 1920,
+) -> tuple[int, int]:
+    """Return ASS/force_style alignment and vertical margin.
+
+    custom_position_y is a 0-100 percentage from top to bottom.
+    """
+    if subtitle_position == "top":
+        return 8, 120
+    if subtitle_position == "middle":
+        return 5, 0
+    if subtitle_position == "custom" and custom_position_y is not None:
+        y = min(max(int(custom_position_y), 0), 100)
+        return 2, max(0, int(round((100 - y) * play_res_y / 100)))
+    return 2, 120
+
+
+def build_karaoke_ass_header(
+    subtitle_position: str = "bottom",
+    custom_position_y: int | None = None,
+) -> str:
+    alignment, margin_v = subtitle_alignment_and_margin(
+        subtitle_position,
+        custom_position_y,
+    )
+    return KARAOKE_ASS_HEADER_TEMPLATE.format(
+        alignment=alignment,
+        margin_v=margin_v,
+    )
 
 
 class SRTGenerator:
@@ -79,10 +112,20 @@ class SRTGenerator:
         )
 
     def generate(
-        self, segments: list[dict[str, Any]], output_path: str, mode: str = "basic"
+        self,
+        segments: list[dict[str, Any]],
+        output_path: str,
+        mode: str = "basic",
+        subtitle_position: str = "bottom",
+        custom_position_y: int | None = None,
     ) -> str:
         if mode == "karaoke":
-            return self.generate_ass(segments, output_path)
+            return self.generate_ass(
+                segments,
+                output_path,
+                subtitle_position=subtitle_position,
+                custom_position_y=custom_position_y,
+            )
         return self.generate_srt(segments, output_path)
 
     def generate_srt(self, segments: list[dict[str, Any]], output_path: str) -> str:
@@ -113,13 +156,24 @@ class SRTGenerator:
         output.write_text("\n".join(lines), encoding="utf-8")
         return str(output.resolve())
 
-    def generate_ass(self, segments: list[dict[str, Any]], output_path: str) -> str:
+    def generate_ass(
+        self,
+        segments: list[dict[str, Any]],
+        output_path: str,
+        subtitle_position: str = "bottom",
+        custom_position_y: int | None = None,
+    ) -> str:
         output = Path(output_path)
         output.parent.mkdir(parents=True, exist_ok=True)
 
         non_overlapping = self._ensure_non_overlapping(segments)
 
-        lines = [KARAOKE_ASS_HEADER.rstrip("\n")]
+        lines = [
+            build_karaoke_ass_header(
+                subtitle_position=subtitle_position,
+                custom_position_y=custom_position_y,
+            ).rstrip("\n")
+        ]
         for seg in non_overlapping:
             is_truncated = seg.pop("_truncated", False)
             for sub in self._split_into_line_segments(seg):

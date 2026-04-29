@@ -34,6 +34,7 @@ class SubtitleMode(str, Enum):
 
 
 class SubtitlePosition(str, Enum):
+    top = "top"
     bottom = "bottom"
     middle = "middle"
     custom = "custom"
@@ -79,6 +80,16 @@ class ExportResolution(str, Enum):
 class SegmentGranularity(str, Enum):
     single_item = "single_item"
     outfit = "outfit"
+
+
+class SensitiveFilterMode(str, Enum):
+    video_segment = "video_segment"
+    drop_clip = "drop_clip"
+
+
+class SensitiveMatchMode(str, Enum):
+    contains = "contains"
+    exact = "exact"
 
 
 class ChangeDetectionFusionMode(str, Enum):
@@ -164,6 +175,10 @@ class SettingsRequest(BaseModel):
     custom_position_y: int | None = Field(default=None, ge=0, le=100)
 
     filter_filler_mode: str = "off"
+    sensitive_filter_enabled: bool = False
+    sensitive_words: list[str] = Field(default_factory=list, max_length=200)
+    sensitive_filter_mode: SensitiveFilterMode = SensitiveFilterMode.video_segment
+    sensitive_match_mode: SensitiveMatchMode = SensitiveMatchMode.contains
     cover_strategy: str = "content_first"
     video_speed: float = Field(default=1.25, ge=0.5, le=3.0)
     export_resolution: ExportResolution = ExportResolution.r1080p
@@ -213,6 +228,16 @@ class SettingsRequest(BaseModel):
 
     @model_validator(mode="after")
     def apply_provider_defaults_and_validate(self):
+        normalized_sensitive_words: list[str] = []
+        seen_sensitive_words: set[str] = set()
+        for word in self.sensitive_words:
+            value = str(word).strip()
+            if not value or len(value) > 50 or value in seen_sensitive_words:
+                continue
+            normalized_sensitive_words.append(value)
+            seen_sensitive_words.add(value)
+        self.sensitive_words = normalized_sensitive_words
+
         if not self.enable_vlm and self.export_mode == ExportMode.smart:
             self.export_mode = ExportMode.no_vlm
 

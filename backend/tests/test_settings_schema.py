@@ -28,6 +28,10 @@ def test_settings_request_uses_backend_defaults_for_qwen():
     assert settings.subtitle_position == "bottom"
     assert settings.subtitle_template == "clean"
     assert settings.custom_position_y is None
+    assert settings.sensitive_filter_enabled is False
+    assert settings.sensitive_words == []
+    assert settings.sensitive_filter_mode == "video_segment"
+    assert settings.sensitive_match_mode == "contains"
     assert settings.change_detection_fusion_mode == "any_signal"
     assert settings.change_detection_sensitivity == "balanced"
     assert settings.clothing_yolo_confidence == 0.25
@@ -79,6 +83,7 @@ def test_settings_request_allows_blank_api_key_for_all_scenes_mode():
         ("max_candidate_count", 101),
         ("custom_position_y", -1),
         ("custom_position_y", 101),
+        ("sensitive_words", ["词"] * 201),
         ("clothing_yolo_confidence", 0.04),
         ("clothing_yolo_confidence", 0.81),
         ("ffmpeg_crf", 17),
@@ -111,6 +116,16 @@ def test_settings_request_rejects_provider_base_mismatch():
             vlm_provider=VLMProvider.qwen,
             api_base="https://open.bigmodel.cn/api/paas/v4",
         )
+
+
+def test_settings_request_normalizes_sensitive_words():
+    settings = SettingsRequest(
+        api_key="test-key",
+        sensitive_filter_enabled=True,
+        sensitive_words=[" 联系方式 ", "", "联系方式", "价格承诺"],
+    )
+
+    assert settings.sensitive_words == ["联系方式", "价格承诺"]
 
     with pytest.raises(ValidationError):
         _ = SettingsRequest(

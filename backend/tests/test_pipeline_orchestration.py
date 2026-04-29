@@ -588,6 +588,7 @@ def test_process_clips_off_skips_subtitle_generation_and_burn(monkeypatch, tmp_p
             _segments: list[dict[str, object]],
             _output_path: str,
             mode: str = "basic",
+            **_kwargs: object,
         ) -> str:
             current = captured.get("generate_calls")
             captured["generate_calls"] = (
@@ -683,6 +684,7 @@ def test_process_clips_basic_falls_back_to_no_subtitle_export_when_srt_generatio
             _segments: list[dict[str, object]],
             _output_path: str,
             mode: str = "basic",
+            **_kwargs: object,
         ) -> str:
             raise RuntimeError("SRT boom")
 
@@ -780,6 +782,7 @@ def test_process_clips_downgrades_karaoke_to_basic_and_threads_subtitle_settings
             _segments: list[dict[str, object]],
             output_path: str,
             mode: str = "basic",
+            **_kwargs: object,
         ) -> str:
             captured["generated_srt_path"] = output_path
             captured["generated_mode"] = mode

@@ -5,10 +5,12 @@ export type ExportMode = "smart" | "no_vlm" | "all_candidates" | "all_scenes";
 export type StrictnessMode = "strict" | "standard" | "loose";
 export type ReviewMode = "adjacent_frames" | "segment_multiframe";
 export type SubtitleMode = "off" | "basic" | "styled" | "karaoke";
-export type SubtitlePosition = "bottom" | "middle" | "custom";
+export type SubtitlePosition = "top" | "bottom" | "middle" | "custom";
 export type SubtitleTemplate = "clean" | "ecommerce" | "bold" | "karaoke";
 export type AsrProvider = "dashscope" | "volcengine" | "volcengine_vc";
 export type FillerFilterMode = "off" | "subtitle" | "video";
+export type SensitiveFilterMode = "video_segment" | "drop_clip";
+export type SensitiveMatchMode = "contains" | "exact";
 export type CoverStrategy = "content_first" | "person_first";
 export type VideoSpeed = 0.5 | 0.75 | 1.0 | 1.25 | 1.5 | 1.75 | 2.0 | 3.0;
 export type LlmType = "openai" | "gemini";
@@ -42,6 +44,10 @@ export interface Settings {
   subtitlePosition: SubtitlePosition;
   subtitleTemplate: SubtitleTemplate;
   fillerFilterMode: FillerFilterMode;
+  sensitiveFilterEnabled: boolean;
+  sensitiveWords: string[];
+  sensitiveFilterMode: SensitiveFilterMode;
+  sensitiveMatchMode: SensitiveMatchMode;
   coverStrategy: CoverStrategy;
   videoSpeed: VideoSpeed;
   boundarySnap: boolean;
@@ -115,6 +121,10 @@ const defaultSettings: Settings = {
   subtitlePosition: "bottom",
   subtitleTemplate: "clean",
   fillerFilterMode: "off",
+  sensitiveFilterEnabled: false,
+  sensitiveWords: [],
+  sensitiveFilterMode: "video_segment",
+  sensitiveMatchMode: "contains",
   coverStrategy: "content_first" as CoverStrategy,
   videoSpeed: 1.25 as VideoSpeed,
   boundarySnap: true,

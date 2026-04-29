@@ -37,7 +37,11 @@ interface UploadSettingsPayload {
   tos_bucket: string;
   tos_region: string;
   tos_endpoint: string;
-  filler_filter_mode: Settings["fillerFilterMode"];
+  filter_filler_mode: Settings["fillerFilterMode"];
+  sensitive_filter_enabled: boolean;
+  sensitive_words: string[];
+  sensitive_filter_mode: Settings["sensitiveFilterMode"];
+  sensitive_match_mode: Settings["sensitiveMatchMode"];
   cover_strategy: Settings["coverStrategy"];
   video_speed: number;
   enable_llm_analysis: boolean;
@@ -129,7 +133,11 @@ function buildUploadSettingsPayload(settings: Settings): UploadSettingsPayload {
     tos_bucket: settings.tosBucket,
     tos_region: settings.tosRegion,
     tos_endpoint: settings.tosEndpoint,
-    filler_filter_mode: settings.fillerFilterMode,
+    filter_filler_mode: settings.fillerFilterMode,
+    sensitive_filter_enabled: settings.sensitiveFilterEnabled,
+    sensitive_words: settings.sensitiveWords,
+    sensitive_filter_mode: settings.sensitiveFilterMode,
+    sensitive_match_mode: settings.sensitiveMatchMode,
     cover_strategy: settings.coverStrategy,
     video_speed: settings.videoSpeed,
     enable_llm_analysis: settings.enableLlmAnalysis,
