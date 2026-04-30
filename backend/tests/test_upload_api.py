@@ -4,6 +4,8 @@ import json
 
 import pytest
 
+from app.services.app_settings import save_current_settings
+
 
 @pytest.mark.anyio
 async def test_upload_persists_resolved_settings_snapshot(
@@ -168,6 +170,87 @@ async def test_upload_uses_env_api_key_when_settings_payload_has_blank_key(
     assert secrets_snapshot["api_key"] == "env-fallback-key"
     assert settings_snapshot["export_mode"] == "smart"
     assert queued == [(payload["task_id"], str(task_dir / "original.mp4"))]
+
+
+@pytest.mark.anyio
+async def test_upload_uses_sqlite_global_settings_before_env(
+    client, tmp_path, monkeypatch
+):
+    monkeypatch.setattr("app.api.upload.UPLOAD_DIR", tmp_path)
+    monkeypatch.setattr("app.api.upload.app_settings.UPLOAD_DIR", tmp_path)
+    monkeypatch.setenv("VLM_API_KEY", "env-vlm-key")
+    monkeypatch.setenv("COMMERCE_IMAGE_API_BASE", "https://env-image.example.com/v1")
+
+    save_current_settings(
+        {
+            "api_key": "sqlite-vlm-key",
+            "commerce_image_api_key": "sqlite-image-key",
+            "commerce_image_api_base": "https://sqlite-image.example.com/v1",
+            "commerce_image_model": "sqlite-image-model",
+            "commerce_gemini_api_base": "https://sqlite-gemini.example.com",
+        },
+        tmp_path,
+    )
+
+    metadata = {
+        "duration": 88.0,
+        "width": 1280,
+        "height": 720,
+        "fps": 25.0,
+        "codec": "h264",
+        "audio_codec": "aac",
+    }
+
+    class FakeValidator:
+        def validate_format(self, filename: str) -> None:
+            assert filename == "demo.mp4"
+
+        def validate_size(self, file_size: int) -> None:
+            assert file_size > 0
+
+        def validate_codec(self, file_path: str) -> None:
+            assert file_path.endswith("original.mp4")
+
+        def validate_audio(self, file_path: str) -> None:
+            assert file_path.endswith("original.mp4")
+
+        def get_metadata(self, file_path: str) -> dict[str, float | int | str]:
+            assert file_path.endswith("original.mp4")
+            return metadata
+
+    class FakeStartPipeline:
+        def delay(self, _task_id: str, _file_path: str) -> None:
+            return None
+
+    monkeypatch.setattr("app.api.upload.validator", FakeValidator())
+    monkeypatch.setattr("app.api.upload.start_pipeline", FakeStartPipeline())
+
+    response = await client.post(
+        "/api/upload",
+        files={
+            "file": ("demo.mp4", b"fake video bytes", "video/mp4"),
+            "settings_json": (
+                None,
+                json.dumps(
+                    {
+                        "api_key": "",
+                        "vlm_provider": "qwen",
+                        "commerce_image_api_base": "",
+                    }
+                ),
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    task_dir = tmp_path / response.json()["task_id"]
+    settings_snapshot = json.loads((task_dir / "settings.json").read_text())
+    secrets_snapshot = json.loads((task_dir / "secrets.json").read_text())
+    assert secrets_snapshot["api_key"] == "sqlite-vlm-key"
+    assert secrets_snapshot["commerce_image_api_key"] == "sqlite-image-key"
+    assert settings_snapshot["commerce_image_api_base"] == "https://sqlite-image.example.com/v1"
+    assert settings_snapshot["commerce_image_model"] == "sqlite-image-model"
+    assert settings_snapshot["commerce_gemini_api_base"] == "https://sqlite-gemini.example.com"
 
 
 @pytest.mark.anyio

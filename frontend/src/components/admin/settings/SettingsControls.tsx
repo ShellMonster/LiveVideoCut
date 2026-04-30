@@ -1,5 +1,5 @@
-import type { PointerEvent, ReactNode } from "react";
-import { Check, Info, Move } from "lucide-react";
+import { useState, type PointerEvent, type ReactNode } from "react";
+import { Check, Eye, EyeOff, Info, Move } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { SubtitlePosition } from "@/stores/settingsStore";
 import { subtitlePositionLabels } from "./labels";
@@ -125,6 +125,38 @@ export function Field({
       </span>
       {children}
     </label>
+  );
+}
+
+export function SecretInput({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div className="relative">
+      <input
+        type={visible ? "text" : "password"}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className={`${fieldClassName} pr-10`}
+        placeholder={placeholder}
+      />
+      <button
+        type="button"
+        onClick={() => setVisible((current) => !current)}
+        className="absolute right-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+        aria-label={visible ? "隐藏密钥" : "显示密钥"}
+        title={visible ? "隐藏密钥" : "显示密钥"}
+      >
+        {visible ? <EyeOff size={16} /> : <Eye size={16} />}
+      </button>
+    </div>
   );
 }
 

@@ -12,6 +12,7 @@ import {
   NumberField,
   OptionCard,
   PresetCard,
+  SecretInput,
   SegmentedControl,
   SettingsCard,
   fieldClassName,
@@ -127,12 +128,7 @@ export function AiServicesSection({
               <input value={draft.apiBase} onChange={(event) => updateDraft({ apiBase: event.target.value })} className={fieldClassName} />
             </Field>
             <Field label="API Key" hint="敏感字段，上传时写入 secrets.json" className="md:col-span-2">
-              <input
-                type="password"
-                value={draft.apiKey}
-                onChange={(event) => updateDraft({ apiKey: event.target.value })}
-                className={fieldClassName}
-              />
+              <SecretInput value={draft.apiKey} onChange={(apiKey) => updateDraft({ apiKey })} />
             </Field>
           </div>
         ) : (
@@ -173,11 +169,9 @@ export function AiServicesSection({
                 />
               </Field>
               <Field label="Gemini API Key" hint="用于封面识图和商品结构化分析" className="md:col-span-2">
-                <input
-                  type="password"
+                <SecretInput
                   value={draft.commerceGeminiApiKey}
-                  onChange={(event) => updateDraft({ commerceGeminiApiKey: event.target.value })}
-                  className={fieldClassName}
+                  onChange={(commerceGeminiApiKey) => updateDraft({ commerceGeminiApiKey })}
                 />
               </Field>
               <NumberField
@@ -216,11 +210,9 @@ export function AiServicesSection({
                 />
               </Field>
               <Field label="OpenAI Image API Key" hint="用于 AI 模特图和详情页示例图" className="md:col-span-2">
-                <input
-                  type="password"
+                <SecretInput
                   value={draft.commerceImageApiKey}
-                  onChange={(event) => updateDraft({ commerceImageApiKey: event.target.value })}
-                  className={fieldClassName}
+                  onChange={(commerceImageApiKey) => updateDraft({ commerceImageApiKey })}
                 />
               </Field>
               <Field label="默认图片尺寸">
@@ -303,12 +295,7 @@ export function TranscriptionSection({
         </div>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <Field label="ASR API Key" className="md:col-span-2">
-            <input
-              type="password"
-              value={draft.asrApiKey}
-              onChange={(event) => updateDraft({ asrApiKey: event.target.value })}
-              className={fieldClassName}
-            />
+            <SecretInput value={draft.asrApiKey} onChange={(asrApiKey) => updateDraft({ asrApiKey })} />
           </Field>
         </div>
       </SettingsCard>
@@ -325,12 +312,7 @@ export function TranscriptionSection({
               <input value={draft.tosAk} onChange={(event) => updateDraft({ tosAk: event.target.value })} className={fieldClassName} />
             </Field>
             <Field label="TOS SK">
-              <input
-                type="password"
-                value={draft.tosSk}
-                onChange={(event) => updateDraft({ tosSk: event.target.value })}
-                className={fieldClassName}
-              />
+              <SecretInput value={draft.tosSk} onChange={(tosSk) => updateDraft({ tosSk })} />
             </Field>
             <Field label="Bucket">
               <input value={draft.tosBucket} onChange={(event) => updateDraft({ tosBucket: event.target.value })} className={fieldClassName} />

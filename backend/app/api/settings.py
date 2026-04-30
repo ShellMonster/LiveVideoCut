@@ -10,7 +10,9 @@ from app.config import (
     PROVIDER_HOST_HINTS,
     PROVIDER_MODEL_PREFIXES,
     VLMProvider,
+    UPLOAD_DIR,
 )
+from app.services import app_settings
 
 router = APIRouter()
 
@@ -288,3 +290,18 @@ async def validate_settings(settings: SettingsRequest):
         return {"valid": True}
     except Exception as e:
         return {"valid": False, "error": str(e)}
+
+
+@router.get("/api/settings/current")
+async def get_current_settings():
+    return app_settings.get_current_settings(UPLOAD_DIR)
+
+
+@router.put("/api/settings/current")
+async def save_current_settings(payload: dict[str, object]):
+    return app_settings.save_current_settings(payload, UPLOAD_DIR)
+
+
+@router.post("/api/settings/reset")
+async def reset_current_settings():
+    return app_settings.reset_current_settings(UPLOAD_DIR)

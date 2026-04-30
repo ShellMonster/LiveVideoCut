@@ -2,7 +2,7 @@ import { useCallback, useMemo, useRef, useState, type RefObject } from "react";
 import { Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { userFacingMessage } from "@/components/admin/format";
-import { useSettingsStore, type Settings } from "@/stores/settingsStore";
+import { settingsToPayload, useSettingsStore, type Settings } from "@/stores/settingsStore";
 import { useTaskStore } from "@/stores/taskStore";
 
 const API_BASE = import.meta.env.VITE_API_URL || "";
@@ -105,71 +105,7 @@ const SUBTITLE_MODE_LABELS: Record<UploadContext["subtitleMode"], string> = {
 };
 
 function buildUploadSettingsPayload(settings: Settings): UploadSettingsPayload {
-  return {
-    api_key: settings.apiKey,
-    enable_vlm: settings.enableVlm,
-    export_mode: settings.exportMode,
-    vlm_provider: settings.provider,
-    api_base: settings.apiBase,
-    model: settings.model,
-    review_strictness: settings.reviewStrictness,
-    review_mode: settings.reviewMode,
-    scene_threshold: settings.sceneThreshold,
-    frame_sample_fps: settings.frameSampleFps,
-    recall_cooldown_seconds: settings.recallCooldownSeconds,
-    candidate_looseness: settings.candidateLooseness,
-    min_segment_duration_seconds: settings.minSegmentDurationSeconds,
-    dedupe_window_seconds: settings.dedupeWindowSeconds,
-    merge_count: settings.mergeCount,
-    allow_returned_product: settings.allowReturnedProduct,
-    max_candidate_count: settings.maxCandidateCount,
-    subtitle_mode: settings.subtitleMode,
-    subtitle_position: settings.subtitlePosition,
-    subtitle_template: settings.subtitleTemplate,
-    subtitle_font_size: settings.subtitleFontSize,
-    subtitle_highlight_font_size: settings.subtitleHighlightFontSize,
-    boundary_snap: settings.boundarySnap,
-    custom_position_y: settings.customPositionY,
-    asr_provider: settings.asrProvider,
-    asr_api_key: settings.asrApiKey,
-    tos_ak: settings.tosAk,
-    tos_sk: settings.tosSk,
-    tos_bucket: settings.tosBucket,
-    tos_region: settings.tosRegion,
-    tos_endpoint: settings.tosEndpoint,
-    filter_filler_mode: settings.fillerFilterMode,
-    sensitive_filter_enabled: settings.sensitiveFilterEnabled,
-    sensitive_words: settings.sensitiveWords,
-    sensitive_filter_mode: settings.sensitiveFilterMode,
-    sensitive_match_mode: settings.sensitiveMatchMode,
-    cover_strategy: settings.coverStrategy,
-    video_speed: settings.videoSpeed,
-    enable_llm_analysis: settings.enableLlmAnalysis,
-    llm_api_key: settings.llmApiKey,
-    llm_api_base: settings.llmApiBase,
-    llm_model: settings.llmModel,
-    llm_type: settings.llmType,
-    export_resolution: settings.exportResolution,
-    segment_granularity: settings.segmentGranularity,
-    change_detection_fusion_mode: settings.changeDetectionFusionMode,
-    change_detection_sensitivity: settings.changeDetectionSensitivity,
-    clothing_yolo_confidence: settings.clothingYoloConfidence,
-    ffmpeg_preset: settings.ffmpegPreset,
-    ffmpeg_crf: settings.ffmpegCrf,
-    bgm_enabled: settings.bgmEnabled,
-    bgm_volume: settings.bgmVolume,
-    original_volume: settings.originalVolume,
-    commerce_gemini_api_key: settings.commerceGeminiApiKey,
-    commerce_gemini_api_base: settings.commerceGeminiApiBase,
-    commerce_gemini_model: settings.commerceGeminiModel,
-    commerce_gemini_timeout_seconds: settings.commerceGeminiTimeoutSeconds,
-    commerce_image_api_key: settings.commerceImageApiKey,
-    commerce_image_api_base: settings.commerceImageApiBase,
-    commerce_image_model: settings.commerceImageModel,
-    commerce_image_size: settings.commerceImageSize,
-    commerce_image_quality: settings.commerceImageQuality,
-    commerce_image_timeout_seconds: settings.commerceImageTimeoutSeconds,
-  };
+  return settingsToPayload(settings) as UploadSettingsPayload;
 }
 
 export function UploadZone({

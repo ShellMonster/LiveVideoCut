@@ -35,7 +35,7 @@ docker compose up -d
 
 从上传到拿到成片，完整流程分五步：
 
-1. **配置设置** — 在设置页配置 VLM / ASR / 字幕 / 切分等参数。设置保存在浏览器 localStorage 中，只影响之后新上传的任务，已有任务不受影响。页面按业务分 8 个页签（处理预设、AI 服务、转写服务、字幕设置、敏感词过滤、切分策略、导出与音频、高级参数），枚举值全部中文展示。
+1. **配置设置** — 在设置页配置 VLM / ASR / 字幕 / 切分等参数。设置优先保存在后端 `uploads/app_config.sqlite3`，首次加载可从 `.env` 读取默认值，浏览器 localStorage 仅作本地副本；保存后的配置只影响之后新上传的任务，已有任务不受影响。页面按业务分 8 个页签（处理预设、AI 服务、转写服务、字幕设置、敏感词过滤、切分策略、导出与音频、高级参数），枚举值全部中文展示。
 
 2. **上传视频** — 拖拽上传 MP4 文件，选择预设（高质量字幕版 / 快速低成本版 / 全量候选调试版 / 只切不烧字幕版）或自定义参数。后端校验格式、大小、编码和音频流后启动四阶段流水线。上传页同时展示 4 种预设的参数差异，方便非技术用户快速选择。
 
@@ -196,7 +196,7 @@ karaoke 的 ASS 字幕通过两层实现：底层 `\kf` 逐字高亮 + 顶层逐
 | FFmpeg CRF | 18-32（越小画质越好，文件越大） | `23` |
 | LLM 边界精修 | 用 LLM 审查片段起止边界（需开启 LLM 文本分析） | 关闭 |
 
-所有设置保存在浏览器 localStorage 中，只影响之后新上传的任务。
+全局设置读取顺序为 `uploads/app_config.sqlite3` → `.env` 环境变量 → 代码默认值。设置页保存后写入 SQLite；API Key 输入框默认闭眼隐藏，点击眼睛按钮可在前端查看和编辑明文。新任务上传时会把当时生效的配置固化到任务目录，非敏感配置写入 `settings.json`，敏感字段写入 `secrets.json`。
 
 ### AI 商品素材
 
@@ -363,7 +363,7 @@ AI 商品素材配置位于设置页的 AI 服务页签内，独立于剪辑 VLM
         │   ├── useWebSocket.ts                      # WebSocket 实时进度推送
         │   └── useDebouncedValue.ts                 # 搜索输入防抖 hook
         ├── stores/
-        │   ├── settingsStore.ts                     # 设置状态（64+ 字段 + localStorage 持久化）
+        │   ├── settingsStore.ts                     # 设置状态（64+ 字段 + 后端 SQLite 同步 / localStorage 副本）
         │   ├── taskStore.ts                         # 任务列表状态
         │   ├── toastStore.ts                        # Toast 通知状态
         │   └── confirmStore.ts                      # 确认弹窗状态
@@ -379,7 +379,7 @@ AI 商品素材配置位于设置页的 AI 服务页签内，独立于剪辑 VLM
 
 前端为 React Router 单页应用，`AdminDashboard.tsx` 是 layout shell，页面组件拆分到 `admin/pages/` 目录（共 9 个页面：项目管理、创建任务、任务队列、片段审核、素材资产、AI 商品素材工作台、音乐库、任务诊断、设置）。桌面端左侧固定导航栏，右侧内容区独立滚动。详情信息优先用右侧抽屉承载，AI 商品素材采用独立工作台页面。
 
-后端采用 FastAPI + Celery + Redis 架构。API 层处理同步请求（上传、列表、审核、设置），Celery Worker 处理异步视频管线（四阶段串行，stage 间通过任务目录文件通信，不依赖 Celery chain 返回值）。任务数据以文件系统为主存储（`uploads/<task_id>/` 下多个 JSON），SQLite 只做列表索引缓存。
+后端采用 FastAPI + Celery + Redis 架构。API 层处理同步请求（上传、列表、审核、设置），Celery Worker 处理异步视频管线（四阶段串行，stage 间通过任务目录文件通信，不依赖 Celery chain 返回值）。任务数据以文件系统为主存储（`uploads/<task_id>/` 下多个 JSON）；`uploads/index.sqlite3` 只做列表索引缓存，`uploads/app_config.sqlite3` 单独保存用户全局设置。
 
 ## 技术栈
 
@@ -404,6 +404,9 @@ AI 商品素材配置位于设置页的 AI 服务页签内，独立于剪辑 VLM
 | `TOS_AK` / `TOS_SK` | 火山 TOS 凭据（火山引擎 ASR 需要上传音频到 TOS） | 空 |
 | `TOS_BUCKET` / `TOS_REGION` / `TOS_ENDPOINT` | 火山 TOS 存储桶配置 | 空 |
 | `LLM_API_KEY` | LLM API Key（文本分析 / 边界精修） | 空 |
+| `COMMERCE_GEMINI_API_KEY` / `COMMERCE_GEMINI_API_BASE` / `COMMERCE_GEMINI_MODEL` | AI 商品素材 Gemini 识图 / 文案默认配置 | 空 / 官方 Gemini 域名 / `gemini-3-flash-preview` |
+| `COMMERCE_IMAGE_API_KEY` / `COMMERCE_IMAGE_API_BASE` / `COMMERCE_IMAGE_MODEL` | AI 商品素材 OpenAI Image 默认配置 | 空 / `https://api.openai.com/v1` / `gpt-image-2` |
+| `COMMERCE_IMAGE_SIZE` / `COMMERCE_IMAGE_QUALITY` | AI 商品素材默认图片尺寸和质量 | `2K` / `auto` |
 | `DOCKER_REGISTRY` | Docker 镜像加速（国内可选） | 空 |
 
 ASR 的 Provider 选择和 API Key 在前端设置页面配置。VLM 和 LLM 的 API Base / Model 也可在前端设置页自定义，支持 OpenAI 兼容的第三方代理。完整配置参考 [.env.example](.env.example)。

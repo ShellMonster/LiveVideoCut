@@ -10,6 +10,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from app.api.settings import SENSITIVE_FIELDS, SettingsRequest
 from app.config import UPLOAD_DIR
+from app.services import app_settings
 from app.services.list_index import refresh_task_index
 from app.services.validator import MAX_FILE_SIZE, ValidationError, VideoValidator
 from app.tasks.pipeline import start_pipeline
@@ -52,9 +53,7 @@ def _resolve_upload_settings(settings_json: str | None) -> SettingsRequest:
             )
         payload = parsed
 
-    env_api_key = os.getenv("VLM_API_KEY", "").strip()
-    if not str(payload.get("api_key", "")).strip() and env_api_key:
-        payload["api_key"] = env_api_key
+    payload = app_settings.merge_with_global_defaults(payload, UPLOAD_DIR)
 
     if not settings_json:
         legacy_api_base = os.getenv("VLM_BASE_URL")

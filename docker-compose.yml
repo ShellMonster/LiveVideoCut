@@ -19,6 +19,24 @@ services:
       - VLM_API_KEY=${VLM_API_KEY:-}
       - VLM_BASE_URL=${VLM_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       - VLM_MODEL=${VLM_MODEL:-qwen-vl-plus}
+      - VOLCENGINE_ASR_API_KEY=${VOLCENGINE_ASR_API_KEY:-}
+      - TOS_AK=${TOS_AK:-}
+      - TOS_SK=${TOS_SK:-}
+      - TOS_BUCKET=${TOS_BUCKET:-mp3-srt}
+      - TOS_REGION=${TOS_REGION:-cn-beijing}
+      - TOS_ENDPOINT=${TOS_ENDPOINT:-tos-cn-beijing.volces.com}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_API_BASE=${LLM_API_BASE:-}
+      - LLM_MODEL=${LLM_MODEL:-}
+      - LLM_TYPE=${LLM_TYPE:-openai}
+      - COMMERCE_GEMINI_API_KEY=${COMMERCE_GEMINI_API_KEY:-}
+      - COMMERCE_GEMINI_API_BASE=${COMMERCE_GEMINI_API_BASE:-}
+      - COMMERCE_GEMINI_MODEL=${COMMERCE_GEMINI_MODEL:-}
+      - COMMERCE_IMAGE_API_KEY=${COMMERCE_IMAGE_API_KEY:-}
+      - COMMERCE_IMAGE_API_BASE=${COMMERCE_IMAGE_API_BASE:-}
+      - COMMERCE_IMAGE_MODEL=${COMMERCE_IMAGE_MODEL:-}
+      - COMMERCE_IMAGE_SIZE=${COMMERCE_IMAGE_SIZE:-}
+      - COMMERCE_IMAGE_QUALITY=${COMMERCE_IMAGE_QUALITY:-}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
@@ -67,6 +85,14 @@ services:
       - LLM_API_BASE=${LLM_API_BASE:-}
       - LLM_MODEL=${LLM_MODEL:-}
       - LLM_TYPE=${LLM_TYPE:-openai}
+      - COMMERCE_GEMINI_API_KEY=${COMMERCE_GEMINI_API_KEY:-}
+      - COMMERCE_GEMINI_API_BASE=${COMMERCE_GEMINI_API_BASE:-}
+      - COMMERCE_GEMINI_MODEL=${COMMERCE_GEMINI_MODEL:-}
+      - COMMERCE_IMAGE_API_KEY=${COMMERCE_IMAGE_API_KEY:-}
+      - COMMERCE_IMAGE_API_BASE=${COMMERCE_IMAGE_API_BASE:-}
+      - COMMERCE_IMAGE_MODEL=${COMMERCE_IMAGE_MODEL:-}
+      - COMMERCE_IMAGE_SIZE=${COMMERCE_IMAGE_SIZE:-}
+      - COMMERCE_IMAGE_QUALITY=${COMMERCE_IMAGE_QUALITY:-}
     healthcheck:
       test: ["CMD", "python", "-c", "from celery import Celery; app = Celery('clipper', broker='${REDIS_URL:-redis://redis:6379/0}'); app.connection().ensure_connection(max_retries=2)"]
       interval: 30s

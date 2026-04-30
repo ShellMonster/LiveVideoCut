@@ -1,7 +1,9 @@
-import { useMemo, useState, type PointerEvent } from "react";
+import { useEffect, useMemo, useState, type PointerEvent } from "react";
 import { Save, SlidersHorizontal, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
+  payloadToSettings,
+  settingsToPayload,
   useSettingsStore,
   type AsrProvider,
   type ChangeDetectionFusionMode,
@@ -17,7 +19,10 @@ import {
   type SubtitleMode,
   type SubtitlePosition,
   type SubtitleTemplate,
+  type SettingsPayload,
 } from "@/stores/settingsStore";
+import { useToastStore } from "@/stores/toastStore";
+import { API_BASE, fetchJson, sendJson } from "../api";
 import { Chip, Header } from "../shared";
 import {
   DependencyRow,
@@ -26,6 +31,7 @@ import {
   NumberField,
   OptionCard,
   RangeField,
+  SecretInput,
   SegmentedControl,
   SettingsCard,
   SubtitlePositionEditor,
@@ -48,7 +54,10 @@ const isVolcengineAsr = (provider: AsrProvider) => provider === "volcengine" || 
 
 export function AdminSettingsPage() {
   const settings = useSettingsStore();
+  const showToast = useToastStore((state) => state.showToast);
   const [draft, setDraft] = useState<SettingsDraft>(() => initialDraft(useSettingsStore.getState()));
+  const [loadingSettings, setLoadingSettings] = useState(true);
+  const [savingSettings, setSavingSettings] = useState(false);
   const [expandedAdvanced, setExpandedAdvanced] = useState(true);
   const [activeSection, setActiveSection] = useState(0);
   const [sensitiveWordInput, setSensitiveWordInput] = useState("");
@@ -61,6 +70,22 @@ export function AdminSettingsPage() {
   const updateDraft = (partial: Partial<SettingsDraft>) => {
     setDraft((current) => ({ ...current, ...partial }));
   };
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchJson<SettingsPayload>(`${API_BASE}/api/settings/current`, controller.signal)
+      .then((payload) => {
+        const loaded = payloadToSettings(payload);
+        settings.setSettings(loaded);
+        setDraft(loaded);
+      })
+      .catch(() => {
+        showToast("读取全局设置失败，已使用浏览器本地设置", "error");
+      })
+      .finally(() => setLoadingSettings(false));
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const addSensitiveWord = (rawValue: string) => {
     const value = rawValue.trim();
@@ -130,13 +155,36 @@ export function AdminSettingsPage() {
     });
   };
 
-  const saveSettings = () => {
-    settings.setSettings(draft);
+  const saveSettings = async () => {
+    setSavingSettings(true);
+    try {
+      const saved = await sendJson<SettingsPayload>(`${API_BASE}/api/settings/current`, settingsToPayload(draft), "PUT");
+      const next = payloadToSettings(saved);
+      settings.setSettings(next);
+      setDraft(next);
+      showToast("设置已保存", "success");
+    } catch {
+      showToast("保存设置失败", "error");
+    } finally {
+      setSavingSettings(false);
+    }
   };
 
-  const resetSettings = () => {
-    settings.reset();
-    setDraft(initialDraft(useSettingsStore.getState()));
+  const resetSettings = async () => {
+    setSavingSettings(true);
+    try {
+      const saved = await sendJson<SettingsPayload>(`${API_BASE}/api/settings/reset`, {}, "POST");
+      const next = payloadToSettings(saved);
+      settings.setSettings(next);
+      setDraft(next);
+      showToast("设置已恢复默认", "success");
+    } catch {
+      settings.reset();
+      setDraft(initialDraft(useSettingsStore.getState()));
+      showToast("后端恢复失败，已恢复浏览器本地默认", "error");
+    } finally {
+      setSavingSettings(false);
+    }
   };
 
   const needsVlmKey = draft.exportMode === "smart" && draft.enableVlm;
@@ -166,16 +214,22 @@ export function AdminSettingsPage() {
             </button>
             <button
               onClick={saveSettings}
+              disabled={savingSettings}
               className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
             >
               <Save size={16} />
-              保存设置
+              {savingSettings ? "保存中" : "保存设置"}
             </button>
           </>
         }
       />
 
       <main className="grid gap-5 p-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+        {loadingSettings && (
+          <div className="xl:col-span-2 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+            正在读取后端全局设置
+          </div>
+        )}
         <section className="min-w-0 space-y-5">
           <div className="flex flex-wrap gap-2 rounded-lg border border-slate-200 bg-white p-2">
             {sectionTabs.map((tab, index) => (
@@ -472,12 +526,7 @@ export function AdminSettingsPage() {
                     <input value={draft.llmModel} onChange={(event) => updateDraft({ llmModel: event.target.value })} className={fieldClassName} />
                   </Field>
                   <Field label="LLM API Key" className="md:col-span-3">
-                    <input
-                      type="password"
-                      value={draft.llmApiKey}
-                      onChange={(event) => updateDraft({ llmApiKey: event.target.value })}
-                      className={fieldClassName}
-                    />
+                    <SecretInput value={draft.llmApiKey} onChange={(llmApiKey) => updateDraft({ llmApiKey })} />
                   </Field>
                 </div>
               )}
@@ -713,7 +762,7 @@ export function AdminSettingsPage() {
               <DependencyRow label="商品素材生图" ok={Boolean(draft.commerceImageApiKey.trim())} />
             </div>
             <div className="mt-5 rounded-lg bg-slate-50 p-3 text-xs leading-5 text-slate-500">
-              设置保存在浏览器 localStorage。上传时非敏感配置写入 settings.json，敏感字段写入 secrets.json。
+              设置优先保存在后端 SQLite，全局配置读取顺序为 SQLite、环境变量、代码默认值。上传时会固化到任务 settings.json 和 secrets.json。
             </div>
           </div>
         </aside>
