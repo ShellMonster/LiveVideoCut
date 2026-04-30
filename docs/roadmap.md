@@ -282,20 +282,31 @@
 
 ---
 
-### 3.5 Gemini 2.5 Pro 替代 VLM（长视频一次分析）
+### 3.5 Gemini 3 长视频分析（替代逐帧 VLM）
 
 **现状**：VLM 确认需要逐帧/逐候选调用，成本高、速度慢。
 
-**目标**：用 Gemini 2.5 Pro 的 1M token 上下文（最多 3 小时视频一次分析），替代当前 YOLO + VLM 两步走。
+**目标**：用 Gemini 3 Flash 的 1M token 上下文（低分辨率下可处理 3 小时视频），替代当前 YOLO + VLM 两步走，从 N 次 API 调用降为 1 次。
 
 **技术路径**：
-- Gemini 2.5 Pro 可一次"看完"整场直播，直接识别所有换衣讲解节点
-- 精度验证：先用 Gemini 做预筛选，再用当前五信号做交叉验证
-- 成本控制：Flash 做粗筛（便宜），Pro 做精筛（贵但准）
+- **Gemini 3 Flash**（`gemini-3-flash-preview`）做主力分析：1M 上下文，$0.50/1M token，3 小时视频低分辨率仅 ~$0.69
+- 可一次"看完"整场直播，直接输出所有换衣讲解节点（带时间戳）
+- Context Caching 缓存视频 token 后，后续查询仅 $0.05/次（90% 折扣）
+- 新增 `media_resolution` 参数（`low`/`medium`/`high`）精细控制精度和成本
+- 新增 `thinking_level` 参数（`minimal`/`low`/`medium`/`high`）控制推理深度
+- 混合策略：Flash 做粗筛 → 本地五信号做交叉验证 → 可选 3.1 Pro 做精细分析
 - 作为 `vlm_provider` 新选项：`gemini_video`
 - 渐进式：先作为可选项，不影响现有管线
 
-**参考**：[Gemini 2.5 Video Understanding](https://ai.google.dev/gemini-api/docs/video-understanding)
+**模型选择**：
+
+| 模型 | 上下文 | 价格 | 适用场景 |
+|------|--------|------|----------|
+| Gemini 3 Flash | 1M | $0.50/1M | 主力分析，性价比最优 |
+| Gemini 3.1 Pro | 1M | $2-4/1M | 高精度商品识别 |
+| Gemini 3.1 Flash-Lite | 1M | $0.25/1M | 极低成本粗筛 |
+
+**参考**：[Gemini 3 官方文档](https://ai.google.dev/gemini-api/docs/gemini-3) | [视频理解指南](https://ai.google.dev/gemini-api/docs/video-understanding)
 
 **工作量**：~2 周 | **新增依赖**：`google-generativeai`
 
@@ -398,5 +409,5 @@
 |------|------|----------|----------|
 | **Phase 1** | 1-3 月 | 病毒评分 + Hook 检测 + AI 文案 + 精彩集锦 + 画质增强 | 切出更"能火"的片段 |
 | **Phase 2** | 3-6 月 | 多平台适配 + 小红书图文 + 种草文 + 商品知识库 | 一键分发到全渠道 |
-| **Phase 3** | 6-12 月 | 双人支持 + 开源 ASR + 语音克隆 + 商品链接 + Gemini 长视频 | 更准、更便宜、更强 |
+| **Phase 3** | 6-12 月 | 双人支持 + 开源 ASR + 语音克隆 + 商品链接 + Gemini 3 长视频 | 更准、更便宜、更强 |
 | **Phase 4** | 12 月+ | 实时剪辑 + 数字人 + 虚拟试穿 + 排期发布 |下一代直播 AI |
