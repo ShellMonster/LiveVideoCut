@@ -331,6 +331,27 @@ export function settingsToPayload(settings: Settings): SettingsPayload {
   };
 }
 
+function payloadValuesEqual(left: unknown, right: unknown): boolean {
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return JSON.stringify(left ?? []) === JSON.stringify(right ?? []);
+  }
+  return left === right;
+}
+
+export function diffSettingsToPayload(base: Settings, draft: Settings): SettingsPayload {
+  const basePayload = settingsToPayload(base);
+  const draftPayload = settingsToPayload(draft);
+  const diff: SettingsPayload = {};
+
+  for (const key of Object.keys(draftPayload) as Array<keyof SettingsPayload>) {
+    if (!payloadValuesEqual(basePayload[key], draftPayload[key])) {
+      diff[key] = draftPayload[key] as never;
+    }
+  }
+
+  return diff;
+}
+
 export function payloadToSettings(payload: SettingsPayload): Settings {
   return {
     ...defaultSettings,

@@ -32,6 +32,35 @@ def test_current_settings_prefers_sqlite_over_env_and_returns_plaintext(tmp_path
     assert (tmp_path / "app_config.sqlite3").exists()
 
 
+def test_env_fallback_is_not_persisted_until_user_overrides(tmp_path, monkeypatch):
+    monkeypatch.setenv("LLM_API_BASE", "https://env-llm.example.com/v1")
+    monkeypatch.setenv("LLM_MODEL", "env-model")
+
+    current = app_settings.get_current_settings(tmp_path)
+
+    assert current["llm_api_base"] == "https://env-llm.example.com/v1"
+    assert current["llm_model"] == "env-model"
+    assert app_settings.read_saved_settings(tmp_path) == {}
+
+    saved = app_settings.save_current_settings({"llm_model": "sqlite-model"}, tmp_path)
+
+    assert saved["llm_api_base"] == "https://env-llm.example.com/v1"
+    assert saved["llm_model"] == "sqlite-model"
+    assert app_settings.read_saved_settings(tmp_path) == {"llm_model": "sqlite-model"}
+
+
+def test_empty_value_removes_override_and_returns_to_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("LLM_API_BASE", "https://env-llm.example.com/v1")
+
+    app_settings.save_current_settings({"llm_api_base": "https://sqlite-llm.example.com/v1"}, tmp_path)
+    assert app_settings.read_saved_settings(tmp_path)["llm_api_base"] == "https://sqlite-llm.example.com/v1"
+
+    saved = app_settings.save_current_settings({"llm_api_base": ""}, tmp_path)
+
+    assert saved["llm_api_base"] == "https://env-llm.example.com/v1"
+    assert "llm_api_base" not in app_settings.read_saved_settings(tmp_path)
+
+
 @pytest.mark.anyio
 async def test_current_settings_api_persists_plaintext_values(client, tmp_path, monkeypatch):
     monkeypatch.setattr("app.api.settings.UPLOAD_DIR", tmp_path)

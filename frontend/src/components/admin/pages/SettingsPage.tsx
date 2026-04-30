@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState, type PointerEvent } from "react";
 import { Save, SlidersHorizontal, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
+  diffSettingsToPayload,
   payloadToSettings,
-  settingsToPayload,
   useSettingsStore,
   type AsrProvider,
   type ChangeDetectionFusionMode,
@@ -158,7 +158,11 @@ export function AdminSettingsPage() {
   const saveSettings = async () => {
     setSavingSettings(true);
     try {
-      const saved = await sendJson<SettingsPayload>(`${API_BASE}/api/settings/current`, settingsToPayload(draft), "PUT");
+      const saved = await sendJson<SettingsPayload>(
+        `${API_BASE}/api/settings/current`,
+        diffSettingsToPayload(initialDraft(settings), draft),
+        "PUT",
+      );
       const next = payloadToSettings(saved);
       settings.setSettings(next);
       setDraft(next);

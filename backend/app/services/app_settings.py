@@ -227,6 +227,9 @@ def save_current_settings(payload: dict[str, Any], upload_dir: Path = UPLOAD_DIR
         for key, value in payload.items():
             if key not in allowed:
                 continue
+            if value is None or (isinstance(value, str) and value == ""):
+                conn.execute("DELETE FROM app_settings WHERE key = ?", (key,))
+                continue
             value_type = _value_type(value)
             conn.execute(
                 """
