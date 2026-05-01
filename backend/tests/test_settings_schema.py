@@ -28,8 +28,8 @@ def test_settings_request_uses_backend_defaults_for_qwen():
     assert settings.subtitle_position == "bottom"
     assert settings.subtitle_template == "clean"
     assert settings.custom_position_y is None
-    assert settings.subtitle_font_size == 60
-    assert settings.subtitle_highlight_font_size == 72
+    assert settings.subtitle_font_size == 45
+    assert settings.subtitle_highlight_font_size == 55
     assert settings.sensitive_filter_enabled is False
     assert settings.sensitive_words == []
     assert settings.sensitive_filter_mode == "video_segment"
