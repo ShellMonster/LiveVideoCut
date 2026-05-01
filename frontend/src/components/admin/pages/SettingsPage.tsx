@@ -63,9 +63,9 @@ export function AdminSettingsPage() {
   const [sensitiveWordInput, setSensitiveWordInput] = useState("");
   const [hoveredSubtitlePreset, setHoveredSubtitlePreset] = useState<SubtitlePosition | null>(null);
 
-  const savedSnapshot = useMemo(() => JSON.stringify(initialDraft(settings)), [settings]);
-  const draftSnapshot = useMemo(() => JSON.stringify(draft), [draft]);
-  const hasUnsavedChanges = savedSnapshot !== draftSnapshot;
+  const settingsBase = useMemo(() => initialDraft(settings), [settings]);
+  const settingsDiff = useMemo(() => diffSettingsToPayload(settingsBase, draft), [settingsBase, draft]);
+  const hasUnsavedChanges = Object.keys(settingsDiff).length > 0;
 
   const updateDraft = (partial: Partial<SettingsDraft>) => {
     setDraft((current) => ({ ...current, ...partial }));
@@ -160,7 +160,7 @@ export function AdminSettingsPage() {
     try {
       const saved = await sendJson<SettingsPayload>(
         `${API_BASE}/api/settings/current`,
-        diffSettingsToPayload(initialDraft(settings), draft),
+        settingsDiff,
         "PUT",
       );
       const next = payloadToSettings(saved);
@@ -218,8 +218,8 @@ export function AdminSettingsPage() {
             </button>
             <button
               onClick={saveSettings}
-              disabled={savingSettings}
-              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              disabled={savingSettings || !hasUnsavedChanges}
+              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
               <Save size={16} />
               {savingSettings ? "保存中" : "保存设置"}
