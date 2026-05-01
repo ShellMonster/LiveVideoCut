@@ -474,7 +474,7 @@ docker-compose.yml 中 worker 启动参数：
 - 当前词/字会额外叠加高亮对白
 - 当前高亮词/字带三段弹跳动画（0→60ms 放大130% → 60→120ms 回弹105% → 120→200ms 稳定100%）
 - karaoke 的 ASS header 会根据 `subtitle_position/custom_position_y` 动态生成 `Alignment/MarginV`，和 basic/styled 的 FFmpeg `force_style` 位置逻辑保持一致
-- 字幕字号由 `subtitle_font_size` / `subtitle_highlight_font_size` 控制；设置页右侧 9:16 直播演示图使用 `frontend/public/images/subtitle-preview-live-demo.png`
+- 字幕字号由 `subtitle_font_size` / `subtitle_highlight_font_size` 控制；设置页右侧 9:16 直播演示图使用 `frontend/public/images/subtitle-preview-live-demo.png`，演示字幕条保持较宽且居中，便于观察位置
 
 ### 时序改进（解决"匀速感"和"跳句"问题）
 

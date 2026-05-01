@@ -470,7 +470,7 @@ export function SubtitlePositionEditor({
               <div key={line} className="absolute left-0 right-0 border-t border-white/15" style={{ top: `${line}%` }} />
             ))}
             <div
-              className="absolute left-1/2 inline-flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-lg border border-blue-300 bg-black/55 px-3 py-1.5 text-center text-sm font-semibold text-white shadow-lg"
+              className="absolute left-1/2 inline-flex w-[82%] -translate-x-1/2 -translate-y-1/2 items-center justify-center gap-2 rounded-lg border border-blue-300 bg-black/55 px-3 py-1.5 text-center text-sm font-semibold text-white shadow-lg"
               style={{
                 top: `${previewY}%`,
                 fontSize: `${Math.min(Math.max(fontSize, 24), 120) / 4}px`,
