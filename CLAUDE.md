@@ -573,6 +573,12 @@ docker-compose.yml 中 worker 启动参数：
 
 ## 当前协作规则
 
+### 项目协议
+
+- 当前许可证：GNU Affero General Public License v3.0 only (`AGPL-3.0-only`)
+- 允许在 AGPL-3.0 条款下使用、修改和分发；如果通过网络提供修改后的服务，也需要向用户提供对应源码
+- 仓库根目录 `LICENSE` 保存完整许可证正文，`README.md` 的 License 章节保持同步
+
 ### 改代码前
 
 - 优先先读 `pipeline.py`、`settings.py`、`UploadZone.tsx`、`SettingsPage.tsx`
