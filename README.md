@@ -4,6 +4,8 @@
 
 ![产品流程图](docs/images/product-flow.png)
 
+![AI 服务设置界面](docs/images/screenshots/settings-ai.png)
+
 > 文档截图和示例素材中的人物预览均使用 AI 生成的虚构合成图，避免真实人物肖像权风险。
 
 ## 快速开始
@@ -140,8 +142,6 @@ karaoke 的 ASS 字幕通过两层实现：底层 `\kf` 逐字高亮 + 顶层逐
 ## 设置参考
 
 设置页按业务分 8 个页签。以下列出最常用的设置项。
-
-![AI 服务设置界面](docs/images/screenshots/settings-ai.png)
 
 ### AI 服务
 
