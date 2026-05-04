@@ -8,6 +8,7 @@
 - 输出：一组可预览、可下载的短视频片段（clips）
 - 目标：把直播里适合单独传播的商品讲解片段自动切出来，并带上烧录字幕
 - README 顶部使用 `docs/images/product-flow.png` 作为产品流程图，系统架构章节使用 `docs/images/technical-architecture.png` 作为技术架构图；原 Mermaid 图已移除。
+- 文档截图和示例素材中的人物预览必须优先使用 AI 生成的虚构合成图，避免真实人物肖像权风险。
 
 
 ## 当前真实架构

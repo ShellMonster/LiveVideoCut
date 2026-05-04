@@ -4,6 +4,8 @@
 
 ![产品流程图](docs/images/product-flow.png)
 
+> 文档截图和示例素材中的人物预览均使用 AI 生成的虚构合成图，避免真实人物肖像权风险。
+
 ## 快速开始
 
 ### 前置条件
@@ -224,7 +226,7 @@ AI 商品素材配置位于设置页的 AI 服务页签内，独立于剪辑 VLM
 │       ├── components/       # UI 组件 & 9 个页面
 │       ├── hooks/            # WebSocket、TanStack Query hooks
 │       └── stores/           # Zustand 状态管理
-├── docs/images/              # 架构图 & 流程图
+├── docs/images/              # 架构图、流程图和文档合成示例图
 ├── docker-compose.yml        # 容器编排（4 services）
 └── .env.example              # 环境变量模板
 ```
@@ -241,6 +243,7 @@ AI 商品素材配置位于设置页的 AI 服务页签内，独立于剪辑 VLM
 ├── docs/
 │   └── images/
 │       ├── product-flow.png                         # 产品流程图
+│       ├── synthetic-live-preview.png               # 无真人肖像的合成直播预览图
 │       └── technical-architecture.png               # 技术架构图
 ├── backend/
 │   ├── Dockerfile                                   # Python 3.11 + FFmpeg 多阶段构建
