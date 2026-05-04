@@ -578,6 +578,7 @@ docker-compose.yml 中 worker 启动参数：
 - 当前许可证：GNU Affero General Public License v3.0 only (`AGPL-3.0-only`)
 - 允许在 AGPL-3.0 条款下使用、修改和分发；如果通过网络提供修改后的服务，也需要向用户提供对应源码
 - 仓库根目录 `LICENSE` 保存完整许可证正文，`README.md` 的 License 章节保持同步
+- `README.md` 的设置参考章节展示 `docs/images/screenshots/settings-ai.png`，用于说明 AI 服务设置界面
 
 ### 改代码前
 

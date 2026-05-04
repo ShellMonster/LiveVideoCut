@@ -141,6 +141,8 @@ karaoke 的 ASS 字幕通过两层实现：底层 `\kf` 逐字高亮 + 顶层逐
 
 设置页按业务分 8 个页签。以下列出最常用的设置项。
 
+![AI 服务设置界面](docs/images/screenshots/settings-ai.png)
+
 ### AI 服务
 
 | 设置 | 说明 | 默认值 |
