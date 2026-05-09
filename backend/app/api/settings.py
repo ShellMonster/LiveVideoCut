@@ -1,3 +1,5 @@
+from typing import Literal
+
 from enum import Enum
 from urllib.parse import urlparse
 
@@ -169,7 +171,7 @@ class SettingsRequest(BaseModel):
 
     # --- 跨段商品拼接设置 ---
     enable_cross_segment_merge: bool = False
-    cross_segment_merge_method: str = "name_only"  # name_only / name_clip / clip_only
+    cross_segment_merge_method: Literal["name_only", "name_clip", "clip_only"] = "name_only"
     cross_segment_similarity_threshold: float = Field(default=0.85, ge=0.7, le=0.95)
 
     review_strictness: ReviewStrictness = ReviewStrictness.standard

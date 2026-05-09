@@ -70,7 +70,11 @@ def _group_by_name(segments: list[Segment]) -> list[Segment]:
             merged = _merge_same_name_group(name, group)
             result.append(merged)
 
-    result.sort(key=lambda s: s.get("sub_ranges", [{}])[0].get("start_time", 0.0))
+    result.sort(
+        key=lambda s: s["sub_ranges"][0]["start_time"]
+        if s.get("sub_ranges")
+        else s.get("start_time", 0.0)
+    )
 
     logger.info(
         "Product regroup: %d segments -> %d groups (%d merged)",
