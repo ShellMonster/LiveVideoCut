@@ -293,18 +293,21 @@ class FFmpegBuilder:
         if not sub_ranges:
             raise ValueError("sub_ranges cannot be empty")
 
+        # Use -ss input seeking with first sub_range for fast decode positioning
+        ss_offset = sub_ranges[0]["start_time"]
+
         # 1. Build filter_complex
         filters: list[str] = []
 
-        # trim/atrim for each sub-range (absolute timestamps from video start)
+        # trim/atrim for each sub-range (timestamps relative to -ss offset)
         for i, sr in enumerate(sub_ranges):
-            abs_start = sr["start_time"]
-            abs_end = sr["end_time"]
+            rel_start = sr["start_time"] - ss_offset
+            rel_end = sr["end_time"] - ss_offset
             filters.append(
-                f"[0:v]trim=start={abs_start:.6f}:end={abs_end:.6f},setpts=PTS-STARTPTS[v{i}]"
+                f"[0:v]trim=start={rel_start:.6f}:end={rel_end:.6f},setpts=PTS-STARTPTS[v{i}]"
             )
             filters.append(
-                f"[0:a]atrim=start={abs_start:.6f}:end={abs_end:.6f},asetpts=PTS-STARTPTS[a{i}]"
+                f"[0:a]atrim=start={rel_start:.6f}:end={rel_end:.6f},asetpts=PTS-STARTPTS[a{i}]"
             )
 
         # concat all trimmed segments
@@ -360,8 +363,8 @@ class FFmpegBuilder:
         )
         effective_duration = total_duration / video_speed if video_speed != 1.0 else total_duration
 
-        # 3. Build command — NO -ss offset, trim uses absolute timestamps
-        cmd: list[str] = ["ffmpeg", "-i", input_path]
+        # 3. Build command — use -ss for fast input seeking to first sub_range
+        cmd: list[str] = ["ffmpeg", "-ss", f"{ss_offset:.6f}", "-i", input_path]
         if bgm_enabled:
             cmd.extend(["-i", bgm_path])
         cmd.extend([

@@ -84,6 +84,10 @@ def _collect_clip_subtitle_segments(
     merged_count = segment.get("merged_from_count", 1)
 
     if merged_count > 1 and sub_ranges:
+        # NOTE: subtitle_overrides are not applied for merged segments.
+        # Overrides are stored per-original-segment in review.json and would
+        # need timeline remapping to the merged output timeline. This will be
+        # addressed in a future phase.
         subtitle_segments: list[dict[str, Any]] = []
         timeline_offset = 0.0
 
@@ -131,6 +135,9 @@ def _collect_clip_subtitle_segments(
                         })
                     if filtered_words:
                         seg_entry["words"] = filtered_words
+                        seg_entry["text"] = "".join(
+                            w.get("text", "") for w in filtered_words
+                        )
 
                 seg_duration = seg_entry["end_time"] - seg_entry["start_time"]
                 if seg_duration < 0.05 and not seg_entry.get("words"):
