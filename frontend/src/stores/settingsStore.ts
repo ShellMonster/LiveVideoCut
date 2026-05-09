@@ -39,6 +39,9 @@ export interface Settings {
   dedupeWindowSeconds: number;
   mergeCount: number;
   allowReturnedProduct: boolean;
+  enableCrossSegmentMerge: boolean;
+  crossSegmentMergeMethod: string;
+  crossSegmentSimilarityThreshold: number;
   maxCandidateCount: number;
   subtitleMode: SubtitleMode;
   subtitlePosition: SubtitlePosition;
@@ -106,6 +109,9 @@ export type SettingsPayload = {
   dedupe_window_seconds?: number;
   merge_count?: number;
   allow_returned_product?: boolean;
+  enable_cross_segment_merge?: boolean;
+  cross_segment_merge_method?: string;
+  cross_segment_similarity_threshold?: number;
   max_candidate_count?: number;
   subtitle_mode?: SubtitleMode;
   subtitle_position?: SubtitlePosition;
@@ -185,6 +191,9 @@ const defaultSettings: Settings = {
   dedupeWindowSeconds: 90,
   mergeCount: 1,
   allowReturnedProduct: true,
+  enableCrossSegmentMerge: false,
+  crossSegmentMergeMethod: "name_only",
+  crossSegmentSimilarityThreshold: 0.85,
   maxCandidateCount: 20,
   subtitleMode: "karaoke",
   subtitlePosition: "bottom",
@@ -280,6 +289,9 @@ export function settingsToPayload(settings: Settings): SettingsPayload {
     dedupe_window_seconds: settings.dedupeWindowSeconds,
     merge_count: settings.mergeCount,
     allow_returned_product: settings.allowReturnedProduct,
+    enable_cross_segment_merge: settings.enableCrossSegmentMerge,
+    cross_segment_merge_method: settings.crossSegmentMergeMethod,
+    cross_segment_similarity_threshold: settings.crossSegmentSimilarityThreshold,
     max_candidate_count: settings.maxCandidateCount,
     subtitle_mode: settings.subtitleMode,
     subtitle_position: settings.subtitlePosition,
@@ -371,6 +383,9 @@ export function payloadToSettings(payload: SettingsPayload): Settings {
     dedupeWindowSeconds: payload.dedupe_window_seconds ?? defaultSettings.dedupeWindowSeconds,
     mergeCount: payload.merge_count ?? defaultSettings.mergeCount,
     allowReturnedProduct: payload.allow_returned_product ?? defaultSettings.allowReturnedProduct,
+    enableCrossSegmentMerge: payload.enable_cross_segment_merge ?? defaultSettings.enableCrossSegmentMerge,
+    crossSegmentMergeMethod: payload.cross_segment_merge_method ?? defaultSettings.crossSegmentMergeMethod,
+    crossSegmentSimilarityThreshold: payload.cross_segment_similarity_threshold ?? defaultSettings.crossSegmentSimilarityThreshold,
     maxCandidateCount: payload.max_candidate_count ?? defaultSettings.maxCandidateCount,
     subtitleMode: payload.subtitle_mode ?? defaultSettings.subtitleMode,
     subtitlePosition: payload.subtitle_position ?? defaultSettings.subtitlePosition,

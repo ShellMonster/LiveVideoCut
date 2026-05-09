@@ -167,6 +167,11 @@ class SettingsRequest(BaseModel):
     merge_count: int = Field(default=1, ge=1, le=10)
     allow_returned_product: bool = True
 
+    # --- 跨段商品拼接设置 ---
+    enable_cross_segment_merge: bool = False
+    cross_segment_merge_method: str = "name_only"  # name_only / name_clip / clip_only
+    cross_segment_similarity_threshold: float = Field(default=0.85, ge=0.7, le=0.95)
+
     review_strictness: ReviewStrictness = ReviewStrictness.standard
     review_mode: ReviewMode = ReviewMode.segment_multiframe
     max_candidate_count: int = Field(default=20, ge=1, le=100)

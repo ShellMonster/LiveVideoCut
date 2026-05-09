@@ -264,6 +264,126 @@ class FFmpegBuilder:
         ])
         return cmd
 
+    def build_cross_segment_concat_command(
+        self,
+        input_path: str,
+        sub_ranges: list[dict[str, float]],
+        srt_path: str | None = None,
+        bgm_path: str = "",
+        output_path: str = "",
+        subtitle_position: str = "bottom",
+        subtitle_template: str = "clean",
+        custom_position_y: int | None = None,
+        video_speed: float = 1.0,
+        export_resolution: str = "1080p",
+        bgm_enabled: bool = True,
+        bgm_volume: float = 0.25,
+        original_volume: float = 1.0,
+        ffmpeg_preset: str = "fast",
+        ffmpeg_crf: int = 23,
+        subtitle_font_size: int = 60,
+    ) -> list[str]:
+        """Build FFmpeg command for merging non-adjacent segments from same source.
+
+        sub_ranges come from cross-segment merging (same product appearing at
+        different timestamps).  Unlike _build_trim_concat_command which uses
+        relative timestamps (offset by -ss), this method uses absolute video
+        timestamps directly via the trim filter.
+        """
+        if not sub_ranges:
+            raise ValueError("sub_ranges cannot be empty")
+
+        # 1. Build filter_complex
+        filters: list[str] = []
+
+        # trim/atrim for each sub-range (absolute timestamps from video start)
+        for i, sr in enumerate(sub_ranges):
+            abs_start = sr["start_time"]
+            abs_end = sr["end_time"]
+            filters.append(
+                f"[0:v]trim=start={abs_start:.6f}:end={abs_end:.6f},setpts=PTS-STARTPTS[v{i}]"
+            )
+            filters.append(
+                f"[0:a]atrim=start={abs_start:.6f}:end={abs_end:.6f},asetpts=PTS-STARTPTS[a{i}]"
+            )
+
+        # concat all trimmed segments
+        n = len(sub_ranges)
+        concat_inputs = "".join(f"[v{i}][a{i}]" for i in range(n))
+        filters.append(f"{concat_inputs}concat=n={n}:v=1:a=1[v_cat][a_cat]")
+
+        # optional resolution scale
+        scale_filter = RESOLUTION_SCALE.get(export_resolution)
+        if scale_filter:
+            filters.append(f"[v_cat]{scale_filter}[v_scaled]")
+        else:
+            filters.append("[v_cat]copy[v_scaled]")
+
+        # optional subtitle burn
+        if srt_path:
+            sub_filter = self._build_subtitle_filter(
+                subtitle_path=srt_path,
+                subtitle_position=subtitle_position,
+                subtitle_template=subtitle_template,
+                custom_position_y=custom_position_y,
+                subtitle_font_size=subtitle_font_size,
+            )
+            filters.append(f"[v_scaled]{sub_filter}[v_sub]")
+        else:
+            filters.append("[v_scaled]copy[v_sub]")
+
+        # optional speed change
+        if video_speed != 1.0:
+            filters.append(f"[v_sub]setpts=PTS/{video_speed}[v_out]")
+            atempo_chain = self._build_atempo_chain(video_speed)
+            filters.append(f"[a_cat]volume={original_volume},{atempo_chain}[a_speed]")
+        else:
+            filters.append("[v_sub]copy[v_out]")
+            filters.append(f"[a_cat]volume={original_volume}[a_speed]")
+
+        # BGM mix — same pattern as _build_trim_concat_command
+        if bgm_enabled:
+            filters.append(
+                f"[1:a]volume={bgm_volume},aloop=loop=-1:size=2e+09[bgm]"
+            )
+            filters.append(
+                f"[a_speed][bgm]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]"
+            )
+        else:
+            filters.append("[a_speed]acopy[aout]")
+
+        filter_complex = ";".join(filters)
+
+        # 2. Calculate effective duration
+        total_duration = sum(
+            sr["end_time"] - sr["start_time"] for sr in sub_ranges
+        )
+        effective_duration = total_duration / video_speed if video_speed != 1.0 else total_duration
+
+        # 3. Build command — NO -ss offset, trim uses absolute timestamps
+        cmd: list[str] = ["ffmpeg", "-i", input_path]
+        if bgm_enabled:
+            cmd.extend(["-i", bgm_path])
+        cmd.extend([
+            "-filter_complex", filter_complex,
+            "-map", "[v_out]",
+            "-map", "[aout]",
+            "-t", str(effective_duration),
+            "-c:v", "libx264",
+            "-preset", _normalize_ffmpeg_preset(ffmpeg_preset),
+            "-crf", _normalize_ffmpeg_crf(ffmpeg_crf),
+            "-x264opts", "rc-lookahead=5:bframes=1:ref=1",
+            "-threads", "4",
+            "-filter_threads", "2",
+            "-movflags", "+faststart",
+            "-fflags", "+genpts",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-y",
+            output_path,
+        ])
+        return cmd
+
     def build_cut_command(
         self,
         input_path: str,

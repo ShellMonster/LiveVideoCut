@@ -1,5 +1,6 @@
 import time
 import logging
+import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -32,7 +33,7 @@ def build_clip_basename(index: int, _product_name: str) -> str:
 def build_clip_metadata(
     segment: dict[str, Any], result: dict[str, Any]
 ) -> dict[str, Any]:
-    return {
+    meta: dict[str, Any] = {
         "product_name": segment.get("product_name", "未知商品"),
         "duration": result.get(
             "duration",
@@ -42,6 +43,14 @@ def build_clip_metadata(
         "end_time": segment.get("end_time", 0.0),
         "confidence": segment.get("confidence", 0),
     }
+    merged_count = segment.get("merged_from_count", 1)
+    if merged_count > 1:
+        meta["merged_from_count"] = merged_count
+        if segment.get("sub_ranges"):
+            meta["sub_ranges"] = segment["sub_ranges"]
+        if segment.get("group_id"):
+            meta["group_id"] = segment["group_id"]
+    return meta
 
 
 def _merge_segments(segments: list[dict[str, Any]], merge_count: int) -> list[dict[str, Any]]:
@@ -71,6 +80,68 @@ def _merge_segments(segments: list[dict[str, Any]], merge_count: int) -> list[di
 def _collect_clip_subtitle_segments(
     segment: dict[str, Any], transcript: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
+    sub_ranges = segment.get("sub_ranges")
+    merged_count = segment.get("merged_from_count", 1)
+
+    if merged_count > 1 and sub_ranges:
+        subtitle_segments: list[dict[str, Any]] = []
+        timeline_offset = 0.0
+
+        for sr in sub_ranges:
+            sr_start = float(sr["start_time"])
+            sr_end = float(sr["end_time"])
+            sr_duration = sr_end - sr_start
+
+            for item in transcript:
+                if not isinstance(item, dict):
+                    continue
+                start = float(item.get("start_time", 0.0))
+                end = float(item.get("end_time", 0.0))
+                text = item.get("text", "").strip()
+                if not text:
+                    continue
+                if start >= sr_end or end <= sr_start:
+                    continue
+
+                clipped_start = max(start, sr_start)
+                clipped_end = min(end, sr_end)
+                relative_start = timeline_offset + (clipped_start - sr_start)
+                relative_end = timeline_offset + (clipped_end - sr_start)
+
+                seg_entry: dict[str, Any] = {
+                    "text": text,
+                    "start_time": round(relative_start, 3),
+                    "end_time": round(relative_end, 3),
+                }
+
+                words = item.get("words")
+                if words and isinstance(words, list):
+                    filtered_words = []
+                    for w in words:
+                        ws = float(w.get("begin_time", w.get("start_time", 0.0)))
+                        we = float(w.get("end_time", 0.0))
+                        if ws >= sr_end or we <= sr_start:
+                            continue
+                        ws = max(ws, sr_start)
+                        we = min(we, sr_end)
+                        filtered_words.append({
+                            **w,
+                            "begin_time": round(timeline_offset + (ws - sr_start), 3),
+                            "end_time": round(timeline_offset + (we - sr_start), 3),
+                        })
+                    if filtered_words:
+                        seg_entry["words"] = filtered_words
+
+                seg_duration = seg_entry["end_time"] - seg_entry["start_time"]
+                if seg_duration < 0.05 and not seg_entry.get("words"):
+                    continue
+
+                subtitle_segments.append(seg_entry)
+
+            timeline_offset += sr_duration
+
+        return subtitle_segments
+
     clip_start = float(segment.get("start_time", 0.0))
     clip_end = float(segment.get("end_time", 0.0))
     overrides = segment.get("subtitle_overrides")
@@ -304,32 +375,117 @@ def _process_single_clip(
         ffmpeg = FFmpegBuilder()
         selected_bgm = bgm_path if bgm_path else DEFAULT_BGM
         export_started_at = time.perf_counter()
-        result = ffmpeg.process_clip(
-            input_path=str(video_path),
-            segment=seg,
-            srt_path=clip_srt_path,
-            bgm_path=selected_bgm,
-            watermark_path=DEFAULT_WATERMARK,
-            output_path=output_path,
-            thumbnail_path=thumbnail_path,
-            subtitle_mode=effective_subtitle_mode,
-            subtitle_position=settings.subtitle_position.value,
-            subtitle_template=settings.subtitle_template.value,
-            custom_position_y=settings.custom_position_y,
-            filler_cut_ranges=cut_ranges or None,
-            cover_timestamp=cover_ts,
-            video_speed=video_speed,
-            export_resolution=export_resolution,
-            bgm_enabled=getattr(settings, "bgm_enabled", True),
-            bgm_volume=getattr(settings, "bgm_volume", 0.25),
-            original_volume=getattr(settings, "original_volume", 1.0),
-            thumbnail_precreated=thumbnail_precreated,
-            ffmpeg_preset=getattr(settings, "ffmpeg_preset", "fast").value
-            if hasattr(getattr(settings, "ffmpeg_preset", "fast"), "value")
-            else getattr(settings, "ffmpeg_preset", "fast"),
-            ffmpeg_crf=getattr(settings, "ffmpeg_crf", 23),
-            subtitle_font_size=getattr(settings, "subtitle_font_size", 45),
-        )
+
+        is_merged = seg.get("merged_from_count", 1) > 1 and seg.get("sub_ranges")
+
+        if is_merged:
+            sub_ranges = seg["sub_ranges"]
+            cmd = ffmpeg.build_cross_segment_concat_command(
+                input_path=str(video_path),
+                sub_ranges=sub_ranges,
+                srt_path=clip_srt_path,
+                bgm_path=selected_bgm,
+                output_path=output_path,
+                subtitle_position=settings.subtitle_position.value,
+                subtitle_template=settings.subtitle_template.value,
+                custom_position_y=settings.custom_position_y,
+                video_speed=video_speed,
+                export_resolution=export_resolution,
+                bgm_enabled=getattr(settings, "bgm_enabled", True),
+                bgm_volume=getattr(settings, "bgm_volume", 0.25),
+                original_volume=getattr(settings, "original_volume", 1.0),
+                ffmpeg_preset=getattr(settings, "ffmpeg_preset", "fast").value
+                if hasattr(getattr(settings, "ffmpeg_preset", "fast"), "value")
+                else getattr(settings, "ffmpeg_preset", "fast"),
+                ffmpeg_crf=getattr(settings, "ffmpeg_crf", 23),
+                subtitle_font_size=getattr(settings, "subtitle_font_size", 45),
+            )
+            logger.info("Cross-segment concat clip %s: %d sub-ranges", safe_label, len(sub_ranges))
+
+            started_at = time.perf_counter()
+            logger.info("Processing clip: %s → %s", str(video_path), output_path)
+            cmd_result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+
+            if cmd_result.returncode != 0 and clip_srt_path:
+                logger.warning(
+                    "FFmpeg cross-segment concat failed with subtitles, retrying without: %s",
+                    cmd_result.stderr[-500:] if cmd_result.stderr else "",
+                )
+                cmd = ffmpeg.build_cross_segment_concat_command(
+                    input_path=str(video_path),
+                    sub_ranges=sub_ranges,
+                    srt_path=None,
+                    bgm_path=selected_bgm,
+                    output_path=output_path,
+                    video_speed=video_speed,
+                    export_resolution=export_resolution,
+                    bgm_enabled=getattr(settings, "bgm_enabled", True),
+                    bgm_volume=getattr(settings, "bgm_volume", 0.25),
+                    original_volume=getattr(settings, "original_volume", 1.0),
+                    ffmpeg_preset=getattr(settings, "ffmpeg_preset", "fast").value
+                    if hasattr(getattr(settings, "ffmpeg_preset", "fast"), "value")
+                    else getattr(settings, "ffmpeg_preset", "fast"),
+                    ffmpeg_crf=getattr(settings, "ffmpeg_crf", 23),
+                )
+                cmd_result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+
+            if cmd_result.returncode != 0:
+                logger.error(
+                    "FFmpeg cross-segment concat failed: %s",
+                    cmd_result.stderr[-500:] if cmd_result.stderr else "",
+                )
+                raise RuntimeError(f"FFmpeg cross-segment concat failed: {cmd_result.returncode}")
+
+            logger.info("Cross-segment FFmpeg finished in %.2fs", time.perf_counter() - started_at)
+
+            total_duration = sum(sr["end_time"] - sr["start_time"] for sr in sub_ranges)
+            result = {
+                "output_path": output_path,
+                "thumbnail_path": thumbnail_path,
+                "duration": total_duration / video_speed if video_speed != 1.0 else total_duration,
+            }
+
+            if thumbnail_precreated and Path(thumbnail_path).exists():
+                logger.info("Thumbnail already exists, skipping extraction: %s", thumbnail_path)
+            else:
+                first_sr_start = sub_ranges[0]["start_time"]
+                thumb_ts = cover_ts if cover_ts is not None else first_sr_start + 1.0
+                thumb_cmd = ffmpeg.build_thumbnail_command(
+                    str(video_path), thumb_ts, thumbnail_path,
+                )
+                thumb_result = subprocess.run(thumb_cmd, capture_output=True, text=True, timeout=60)
+                if thumb_result.returncode != 0:
+                    logger.warning(
+                        "Thumbnail extraction failed: %s",
+                        thumb_result.stderr[-300:] if thumb_result.stderr else "",
+                    )
+        else:
+            result = ffmpeg.process_clip(
+                input_path=str(video_path),
+                segment=seg,
+                srt_path=clip_srt_path,
+                bgm_path=selected_bgm,
+                watermark_path=DEFAULT_WATERMARK,
+                output_path=output_path,
+                thumbnail_path=thumbnail_path,
+                subtitle_mode=effective_subtitle_mode,
+                subtitle_position=settings.subtitle_position.value,
+                subtitle_template=settings.subtitle_template.value,
+                custom_position_y=settings.custom_position_y,
+                filler_cut_ranges=cut_ranges or None,
+                cover_timestamp=cover_ts,
+                video_speed=video_speed,
+                export_resolution=export_resolution,
+                bgm_enabled=getattr(settings, "bgm_enabled", True),
+                bgm_volume=getattr(settings, "bgm_volume", 0.25),
+                original_volume=getattr(settings, "original_volume", 1.0),
+                thumbnail_precreated=thumbnail_precreated,
+                ffmpeg_preset=getattr(settings, "ffmpeg_preset", "fast").value
+                if hasattr(getattr(settings, "ffmpeg_preset", "fast"), "value")
+                else getattr(settings, "ffmpeg_preset", "fast"),
+                ffmpeg_crf=getattr(settings, "ffmpeg_crf", 23),
+                subtitle_font_size=getattr(settings, "subtitle_font_size", 45),
+            )
         logger.info("Clip %s FFmpeg export finished in %.2fs", safe_label, time.perf_counter() - export_started_at)
 
         meta_path = clips_dir / f"{safe_label}_meta.json"

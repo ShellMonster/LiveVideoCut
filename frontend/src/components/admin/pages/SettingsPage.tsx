@@ -543,6 +543,56 @@ export function AdminSettingsPage() {
               />
             </div>
           </SettingsCard>
+
+          <SettingsCard
+            id="settings-section-3-cross-merge"
+            title="跨段商品拼接"
+            desc="将同一商品出现在多个非连续片段时自动合并为一个视频。"
+          >
+            <div className="space-y-3">
+              <ToggleCard
+                title="开启跨段拼接"
+                desc="开启后，同一商品出现在多个非连续片段时，会自动合并为一个视频。例如主播在直播中多次展示同一件衣服，系统会将这些片段拼接在一起。"
+                checked={draft.enableCrossSegmentMerge}
+                onChange={(enableCrossSegmentMerge) =>
+                  updateDraft({ enableCrossSegmentMerge })
+                }
+              />
+              {draft.enableCrossSegmentMerge && (
+                <Field
+                  label="识别方式"
+                  tooltip="仅商品名通过 VLM/ASR 商品名匹配（推荐，零额外成本）；商品名+视觉和仅视觉依赖 CLIP 模型，未来支持。"
+                >
+                  <SegmentedControl
+                    value={draft.crossSegmentMergeMethod}
+                    onChange={(crossSegmentMergeMethod) =>
+                      updateDraft({ crossSegmentMergeMethod: crossSegmentMergeMethod as string })
+                    }
+                    options={[
+                      ["name_only", "仅商品名"],
+                      ["name_clip", "商品名+视觉"],
+                      ["clip_only", "仅视觉"],
+                    ]}
+                  />
+                </Field>
+              )}
+              {draft.enableCrossSegmentMerge && (draft.crossSegmentMergeMethod === "name_clip" || draft.crossSegmentMergeMethod === "clip_only") && (
+                <Field
+                  label="相似度阈值"
+                  tooltip="CLIP 视觉相似度阈值。值越高要求越严格，只有非常相似的商品才会被合并。"
+                >
+                  <RangeField
+                    label="相似度阈值"
+                    value={draft.crossSegmentSimilarityThreshold}
+                    max={0.95}
+                    onChange={(crossSegmentSimilarityThreshold) =>
+                      updateDraft({ crossSegmentSimilarityThreshold })
+                    }
+                  />
+                </Field>
+              )}
+            </div>
+          </SettingsCard>
           </>
           )}
 
