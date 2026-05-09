@@ -83,6 +83,9 @@ SETTING_DEFAULTS: dict[str, Any] = {
     "commerce_image_size": "2K",
     "commerce_image_quality": "auto",
     "commerce_image_timeout_seconds": 500,
+    "enable_cross_segment_merge": False,
+    "cross_segment_merge_method": "name_only",
+    "cross_segment_similarity_threshold": 0.85,
 }
 
 SENSITIVE_SETTING_KEYS = frozenset(
