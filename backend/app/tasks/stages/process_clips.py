@@ -386,6 +386,12 @@ def _process_single_clip(
         is_merged = seg.get("merged_from_count", 1) > 1 and seg.get("sub_ranges")
 
         if is_merged:
+            # NOTE: filler_cut_ranges and sensitive_cut_ranges are not applied
+            # for merged clips. The concat-based trim/concat pipeline does not
+            # support intra-range trimming. Filler/sensitive filtering still
+            # applies to subtitles (text-level), but the corresponding video
+            # segments are preserved. Full video-level filtering for merged
+            # clips will be addressed in a future phase.
             sub_ranges = seg["sub_ranges"]
             cmd = ffmpeg.build_cross_segment_concat_command(
                 input_path=str(video_path),

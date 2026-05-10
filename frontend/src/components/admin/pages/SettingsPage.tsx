@@ -570,8 +570,8 @@ export function AdminSettingsPage() {
                     }
                     options={[
                       ["name_only", "仅商品名"],
-                      ["name_clip", "商品名+视觉"],
-                      ["clip_only", "仅视觉"],
+                      ["name_clip", "商品名+视觉（未实现）"],
+                      ["clip_only", "仅视觉（未实现）"],
                     ]}
                   />
                 </Field>
@@ -584,6 +584,7 @@ export function AdminSettingsPage() {
                   <RangeField
                     label="相似度阈值"
                     value={draft.crossSegmentSimilarityThreshold}
+                    min={0.7}
                     max={0.95}
                     onChange={(crossSegmentSimilarityThreshold) =>
                       updateDraft({ crossSegmentSimilarityThreshold })
