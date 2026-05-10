@@ -235,11 +235,13 @@ export function ToggleCard({
 export function RangeField({
   label,
   value,
+  min,
   max,
   onChange,
 }: {
   label: string;
   value: number;
+  min?: number;
   max: number;
   onChange: (value: number) => void;
 }) {
@@ -251,7 +253,7 @@ export function RangeField({
       </span>
       <input
         type="range"
-        min={0}
+        min={min ?? 0}
         max={max}
         step={0.05}
         value={value}

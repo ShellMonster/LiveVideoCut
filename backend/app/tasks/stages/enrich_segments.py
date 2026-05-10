@@ -273,6 +273,25 @@ def run_enrich_segments(
     )
     validated = validator.validate(enriched, video_duration)
 
+    # 跨段商品拼接：将同商品的非连续片段合并为一组
+    if getattr(settings, "enable_cross_segment_merge", False):
+        try:
+            from app.services.product_regroup import regroup_segments
+            regroup_started_at = time.perf_counter()
+            validated = regroup_segments(
+                validated,
+                task_path=str(task_path),
+                method=getattr(settings, "cross_segment_merge_method", "name_only"),
+                threshold=getattr(settings, "cross_segment_similarity_threshold", 0.85),
+            )
+            logger.info(
+                "Product regroup finished in %.2fs (%d segments after regroup)",
+                time.perf_counter() - regroup_started_at,
+                len(validated),
+            )
+        except Exception:
+            logger.warning("Product regroup failed, using un-merged segments", exc_info=True)
+
     output_file = task_path / "enriched_segments.json"
     write_json(output_file, validated)
     _log_elapsed("enrich_segments.postprocess", enrich_post_started_at)

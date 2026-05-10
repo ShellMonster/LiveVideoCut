@@ -1,3 +1,5 @@
+from typing import Literal
+
 from enum import Enum
 from urllib.parse import urlparse
 
@@ -166,6 +168,11 @@ class SettingsRequest(BaseModel):
     dedupe_window_seconds: int = Field(default=90, ge=0, le=600)
     merge_count: int = Field(default=1, ge=1, le=10)
     allow_returned_product: bool = True
+
+    # --- 跨段商品拼接设置 ---
+    enable_cross_segment_merge: bool = False
+    cross_segment_merge_method: Literal["name_only", "name_clip", "clip_only"] = "name_only"
+    cross_segment_similarity_threshold: float = Field(default=0.85, ge=0.7, le=0.95)
 
     review_strictness: ReviewStrictness = ReviewStrictness.standard
     review_mode: ReviewMode = ReviewMode.segment_multiframe

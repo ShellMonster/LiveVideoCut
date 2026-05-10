@@ -273,6 +273,12 @@ VLM API Key 不通过 Celery 消息参数传递；`vlm_confirm` worker 执行时
   - 多信号独立 EMA：全局 HSV、上身 HSV、下身 HSV、ORB 纹理各自独立走 EMA 平滑，任何一个信号的 EMA 低于进入阈值即触发检测，所有信号恢复到退出阈值以上才结束
   - 纹理信号取反处理：`(1.0 - tex_sim)`，进入阈值 0.6，退出阈值 0.7
   - 品类变化（YOLO 46类）不再单独触发候选，必须同时有至少一个视觉佐证信号（HSV 下降 / 分区域 HSV 下降 / 纹理变化），过滤主播拿放物品误触
+- 跨段商品拼接（`product_regroup.py`，默认关闭）
+  - `enable_cross_segment_merge`：是否开启跨段拼接，默认 `false`
+  - `cross_segment_merge_method`：识别方式 `name_only`（默认，仅商品名）/ `name_clip`（商品名+CLIP 视觉相似度，Phase 2）/ `clip_only`（仅 CLIP，Phase 2）
+  - `cross_segment_similarity_threshold`：CLIP 相似度阈值（0.7-0.95，默认 0.85）
+  - 同商品名的多个非连续片段合并为一组，输出带 `group_id`、`sub_ranges`、`merged_from_count` 的合并段
+  - Phase 1 仅支持 `name_only`；Phase 2 计划引入 CLIP 视觉相似度匹配
 - 商品名匹配
 - 分段合法性校验
 - 产出 `enriched_segments.json`
@@ -284,6 +290,12 @@ VLM API Key 不通过 Celery 消息参数传递；`vlm_confirm` worker 执行时
 - 为每个 clip 重新从 `transcript.json` 裁对应字幕
 - 生成 `.srt` 或 `.ass`
 - 调用 FFmpeg 烧录字幕并导出 mp4
+- 跨段合并导出（当 `enable_cross_segment_merge` 开启且 segment 有 `sub_ranges`）：
+  - 使用 `build_cross_segment_concat_command` 对非连续时间段的 trim/concat 拼接
+  - 字幕时间轴重建为连续输出时间轴
+  - 封面从合并段的所有子段中选最优
+  - BGM 混音与普通 clip 一致（amix）
+  - 元数据包含 `sub_ranges`、`merged_from_count`、`group_id`
 - 敏感词过滤在导出阶段基于裁好的字幕句执行：`video_segment` 会把命中的整句字幕和对应视频段一起裁掉，`drop_clip` 会跳过该 clip
 - BGM 自动选曲（`bgm_selector.py`）：双库架构（内置+用户上传），基于商品类型和 mood 匹配，用户曲目优先，跨 clip 去重避免重复
 - 封面选择：根据 `cover_strategy` 最多评分 30 帧；优先复用 `visual_prescreen` 已抽帧，预抽帧不足时再用 FFmpeg 补足候选，评分选出最佳封面
@@ -521,6 +533,7 @@ docker-compose.yml 中 worker 启动参数：
 - `backend/app/services/boundary_snapper.py`
 - `backend/app/services/boundary_refiner.py`
 - `backend/app/services/bgm_selector.py`
+- `backend/app/services/product_regroup.py`
 
 ### 前端
 
@@ -650,6 +663,8 @@ VC 贵 3 倍但效果最好，适合对字幕质量有要求的场景。
 
 ## 已知注意点
 
+- 跨段商品拼接（`product_regroup.py`）默认关闭（`enable_cross_segment_merge=False`），开启后同商品名非连续片段会被合并为一个视频；Phase 1 仅支持 `name_only` 模式，Phase 2 计划引入 CLIP 视觉相似度匹配
+- 跨段合并导出使用 FFmpeg trim/concat 拼接非连续时间段，字幕时间轴会重建为连续输出时间轴，BGM 混音与普通 clip 一致
 - 当前推荐 ASR 为 `volcengine_vc`（效果最好），`dashscope` 和 `volcengine` 均可作为备选
 - 之前用的 SenseVoice / faster-whisper 已删除
 - 火山引擎 ASR 已接入两种模式：标准版（submit+poll）和极速版 flash（单次请求），`transcribe_auto` 会优先 flash 再回退标准版
